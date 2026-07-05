@@ -67,14 +67,22 @@
     "last_alert_sent_at": "never",
     "last_dry_run_at": "never",
     "last_error": "",
+    "last_report_run_at": "never",
+    "last_report_success_at": "never",
     "last_report_sent_at": "never",
+    "last_report_timer_trigger_at": "never",
     "mode": "alert",
+    "next_report_run_at": "2026-07-06 09:00:00 UTC",
     "pending_alerts": 0,
     "recipients_count": 0,
     "schema_version": 1,
     "smtp_host_configured": false,
     "status": "disabled",
     "suppressed_alerts": 0,
+    "timer": "nutsnews-ops-health-report.timer",
+    "timer_active": "active",
+    "timer_result": "success",
+    "timer_sub_state": "waiting",
     "updated_at": "2026-07-05T00:00:00+00:00"
   },
   "generated_at": "2026-07-05T00:00:00+00:00",
@@ -90,6 +98,10 @@
       {
         "name": "Protected Ansible Apply",
         "url": "https://github.com/ramideltoro/nutsnews-infra/actions/workflows/protected-ansible-apply.yml"
+      },
+      {
+        "name": "Send VPS Health Report",
+        "url": "https://github.com/ramideltoro/nutsnews-infra/actions/workflows/send-vps-health-report.yml"
       }
     ]
   },
@@ -204,7 +216,7 @@
   "runbooks": [
     {
       "name": "Infrastructure operations guide",
-      "url": "https://github.com/ramideltoro/nutsnews-docs/blob/main/infra/operations-portal-v1.md"
+      "url": "https://github.com/ramideltoro/nutsnews-docs/blob/main/NUTSNEWS_OPERATIONS_PORTAL_V1.md"
     }
   ],
   "schema_version": 1,
@@ -243,6 +255,16 @@
       "active": "active",
       "enabled": "enabled",
       "name": "docker.service"
+    },
+    {
+      "active": "active",
+      "enabled": "enabled",
+      "name": "nutsnews-ops-portal-collector.timer"
+    },
+    {
+      "active": "active",
+      "enabled": "enabled",
+      "name": "nutsnews-ops-health-report.timer"
     }
   ]
 }

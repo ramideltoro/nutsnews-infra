@@ -132,6 +132,8 @@ def public_status_update(
             "last_error": error,
             "last_alert_check_at": previous.get("last_alert_check_at", "unknown"),
             "last_alert_sent_at": previous.get("last_alert_sent_at", "never"),
+            "last_report_run_at": previous.get("last_report_run_at", "never"),
+            "last_report_success_at": previous.get("last_report_success_at", "never"),
             "last_report_sent_at": previous.get("last_report_sent_at", "never"),
             "last_dry_run_at": previous.get("last_dry_run_at", "never"),
         }
@@ -141,7 +143,11 @@ def public_status_update(
             if sent and not dry_run:
                 data["last_alert_sent_at"] = data["updated_at"]
         if mode == "report" and sent and not dry_run:
+            data["last_report_run_at"] = data["updated_at"]
+            data["last_report_success_at"] = data["updated_at"]
             data["last_report_sent_at"] = data["updated_at"]
+        elif mode == "report":
+            data["last_report_run_at"] = data["updated_at"]
         if dry_run:
             data["last_dry_run_at"] = data["updated_at"]
 

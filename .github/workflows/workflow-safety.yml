@@ -100,3 +100,7 @@ jobs:
             echo "Restricted event usage is documented but not explicitly approved." >&2
             exit 1
           fi
+
+      - name: Validate manual health report workflow guardrails
+        shell: bash
+        run: python3 ansible/tests/validate_health_report_workflow.py

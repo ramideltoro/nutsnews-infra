@@ -36,6 +36,8 @@ The next service foundation layer adds Ansible-managed Docker Engine and Docker 
 
 The first Ops Portal layer adds a read-only static dashboard served by the local Caddy foundation on `127.0.0.1:8080`. A local systemd timer collects sanitized host, Docker, service, log, security, backup, alert, and GitOps status into `/opt/nutsnews/portal-assets/data/status.json`. The portal has no direct management buttons; future actions must still go through PR review and protected apply workflows.
 
+The `Send VPS Health Report` workflow can be triggered manually through the same protected `production-vps` Environment. It connects as `nutsnews_ops` with the existing SSH secret and known-hosts pattern, then starts only the existing `nutsnews-ops-health-report.service` unit on the VPS.
+
 ## Repo Layout
 
 ```text
@@ -77,6 +79,8 @@ Use [runbooks/PROTECTED_ANSIBLE_APPLY.md](runbooks/PROTECTED_ANSIBLE_APPLY.md) b
 Use [runbooks/VPS_SERVICE_FOUNDATION.md](runbooks/VPS_SERVICE_FOUNDATION.md) before applying or verifying the Docker and Caddy service foundation.
 
 Use [runbooks/OPS_PORTAL.md](runbooks/OPS_PORTAL.md) before applying or verifying the read-only operations portal.
+
+Use the manual `Send VPS Health Report` workflow when you need an on-demand email report without opening an interactive SSH session.
 
 ## External Systems
 

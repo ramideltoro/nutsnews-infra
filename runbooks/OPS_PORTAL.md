@@ -94,6 +94,12 @@ sudo /usr/local/bin/nutsnews-ops-portal-reporter --mode report --dry-run
 sudo /usr/local/bin/nutsnews-ops-portal-collector
 ```
 
+## Send A Manual Health Report
+
+Use the `Send VPS Health Report` workflow in GitHub Actions for an on-demand report email. The workflow is manual-only, uses the protected `production-vps` Environment, connects as `nutsnews_ops`, and starts only `nutsnews-ops-health-report.service`.
+
+The workflow has no dispatch inputs and does not accept remote commands. If email is disabled, SMTP is incomplete, or the report fails to send, the workflow prints the safe reporting status fields and exits failed.
+
 ## Verify After Apply
 
 From an approved administrative session on the VPS:

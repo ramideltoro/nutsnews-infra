@@ -49,6 +49,7 @@ jobs:
 
           python3 -m json.tool portal/data/status.example.json > /dev/null
           node --check portal/assets/app.js
+          python3 ansible/tests/validate_portal_fixture.py
           python3 - <<'PY'
           import json
           from pathlib import Path
@@ -57,6 +58,21 @@ jobs:
           for key in ("processes", "disk_usage", "process_network", "email_reporting"):
               if key not in data:
                   raise SystemExit(f"Missing portal status section: {key}")
+          PY
+          python3 - <<'PY'
+          from pathlib import Path
+
+          css = Path("portal/assets/styles.css").read_text(encoding="utf-8")
+          depth = 0
+          for index, char in enumerate(css):
+              if char == "{":
+                  depth += 1
+              elif char == "}":
+                  depth -= 1
+              if depth < 0:
+                  raise SystemExit(f"CSS closes too many blocks near byte {index}.")
+          if depth != 0:
+              raise SystemExit("CSS has unbalanced blocks.")
           PY
 
           if grep -RniE '<button|<form|docker[.]sock|/var/run/docker[.]sock|child_process|execFile|spawn|systemctl|docker compose up|docker rm' portal; then
