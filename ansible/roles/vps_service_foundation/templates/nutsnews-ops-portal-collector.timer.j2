@@ -1,0 +1,13 @@
+[Unit]
+Description=Refresh NutsNews Operations Portal read-only data
+Documentation={{ vps_service_foundation_docs_base_url }}
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=1min
+AccuracySec=30s
+Persistent=true
+Unit={{ vps_service_foundation_collector_service }}
+
+[Install]
+WantedBy=timers.target

@@ -10,11 +10,25 @@
   header {
     X-Content-Type-Options nosniff
     Referrer-Policy no-referrer
+    X-Frame-Options DENY
+    Permissions-Policy "camera=(), microphone=(), geolocation=()"
+    Content-Security-Policy "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
   }
 
-  @health path /healthz
-  respond @health "ok" 200
+  handle /healthz {
+    respond "ok" 200
+  }
 
-  root * /srv/nutsnews-health
-  file_server
+  handle /data/* {
+    header Cache-Control "no-store"
+    root * /srv/nutsnews-portal
+    file_server
+  }
+
+  handle {
+    header Cache-Control "no-store"
+    root * /srv/nutsnews-portal
+    try_files {path} /index.html
+    file_server
+  }
 }

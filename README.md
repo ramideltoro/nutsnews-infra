@@ -34,6 +34,8 @@ Ansible baseline applies are now designed to run through the protected `producti
 
 The next service foundation layer adds Ansible-managed Docker Engine and Docker Compose support, a standard `/opt/nutsnews` runtime layout, and a local-only Caddy placeholder service for verifying the container layer before public routing or heavier tooling is introduced.
 
+The first Ops Portal layer adds a read-only static dashboard served by the local Caddy foundation on `127.0.0.1:8080`. A local systemd timer collects sanitized host, Docker, service, log, security, backup, alert, and GitOps status into `/opt/nutsnews/portal-assets/data/status.json`. The portal has no direct management buttons; future actions must still go through PR review and protected apply workflows.
+
 ## Repo Layout
 
 ```text
@@ -73,6 +75,8 @@ The next service foundation layer adds Ansible-managed Docker Engine and Docker 
 Use [runbooks/PROTECTED_ANSIBLE_APPLY.md](runbooks/PROTECTED_ANSIBLE_APPLY.md) before running the manual Ansible workflow. Root SSH was only for the initial bootstrap and is now break-glass only.
 
 Use [runbooks/VPS_SERVICE_FOUNDATION.md](runbooks/VPS_SERVICE_FOUNDATION.md) before applying or verifying the Docker and Caddy service foundation.
+
+Use [runbooks/OPS_PORTAL.md](runbooks/OPS_PORTAL.md) before applying or verifying the read-only operations portal.
 
 ## External Systems
 

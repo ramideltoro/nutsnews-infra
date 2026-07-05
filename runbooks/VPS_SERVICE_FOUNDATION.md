@@ -11,11 +11,15 @@ Use this runbook after the service foundation PR is merged and before applying t
   - `/opt/nutsnews/config`
   - `/opt/nutsnews/data`
   - `/opt/nutsnews/logs`
-  - `/opt/nutsnews/backups`
-  - `/opt/nutsnews/portal-assets`
-  - `/opt/nutsnews/health`
+- `/opt/nutsnews/backups`
+- `/opt/nutsnews/portal-assets`
+- `/opt/nutsnews/portal-assets/assets`
+- `/opt/nutsnews/portal-assets/data`
+- `/opt/nutsnews/health`
+- `/opt/nutsnews/ops`
 - Caddy managed by Compose at `/opt/nutsnews/apps/caddy/compose.yml`
-- Local placeholder page and `/healthz` endpoint on `127.0.0.1:8080`
+- Read-only operations portal and `/healthz` endpoint on `127.0.0.1:8080`
+- Local portal status collector managed by `nutsnews-ops-portal-collector.timer`
 
 ## Apply Safely
 
@@ -35,6 +39,8 @@ From a break-glass-free SSH session as `nutsnews_ops`:
 sudo docker compose -f /opt/nutsnews/apps/caddy/compose.yml ps
 curl -fsS http://127.0.0.1:8080/healthz
 curl -fsS http://127.0.0.1:8080/
+curl -fsS http://127.0.0.1:8080/data/status.json
+systemctl status nutsnews-ops-portal-collector.timer
 ```
 
 Expected `/healthz` output:
@@ -45,7 +51,7 @@ ok
 
 ## Public Exposure
 
-Caddy is intentionally bound to `127.0.0.1:8080` only. Do not expose public routing until a later PR adds reviewed domain, TLS, and proxy rules.
+Caddy is intentionally bound to `127.0.0.1:8080` only. Do not expose public routing until a later PR adds reviewed domain, TLS, and authentication rules.
 
 ## Recovery
 

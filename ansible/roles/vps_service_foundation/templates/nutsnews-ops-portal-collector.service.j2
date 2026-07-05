@@ -1,0 +1,39 @@
+[Unit]
+Description=NutsNews Operations Portal read-only data collector
+Documentation={{ vps_service_foundation_docs_base_url }}
+After=network-online.target docker.service
+Wants=network-online.target
+ConditionPathIsDirectory={{ vps_service_foundation_portal_data_dir }}
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+Environment="NUTSNEWS_ROOT_DIR={{ vps_service_foundation_root }}"
+Environment="NUTSNEWS_PORTAL_OUTPUT={{ vps_service_foundation_portal_status_file }}"
+Environment="NUTSNEWS_BACKUPS_DIR={{ vps_service_foundation_backups_dir }}"
+Environment="NUTSNEWS_PUBLIC_IPV4={{ vps_service_foundation_public_ipv4 }}"
+Environment="NUTSNEWS_PUBLIC_IPV6={{ vps_service_foundation_public_ipv6 }}"
+Environment="NUTSNEWS_DOCS_BASE_URL={{ vps_service_foundation_docs_base_url }}"
+Environment="NUTSNEWS_INFRA_REPO_URL={{ vps_service_foundation_infra_repo_url }}"
+Environment="NUTSNEWS_DEPLOYED_COMMIT_FILE={{ vps_service_foundation_deployed_infra_commit_file }}"
+Environment="NUTSNEWS_APPLY_STATUS_FILE={{ vps_service_foundation_apply_status_file }}"
+Environment="HOME=/tmp"
+Environment="DOCKER_CONFIG=/tmp/docker"
+Environment="XDG_CACHE_HOME=/tmp/cache"
+ExecStart={{ vps_service_foundation_collector_bin }}
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=read-only
+ProtectSystem=strict
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+SystemCallArchitectures=native
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+ReadWritePaths={{ vps_service_foundation_portal_data_dir }} {{ vps_service_foundation_collector_log_dir }}
+
+[Install]
+WantedBy=multi-user.target

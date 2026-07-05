@@ -11,3 +11,4 @@ Add runbooks for deployment, rollback, incident response, security changes, back
 - [Bootstrap Rollback And Recovery Notes](BOOTSTRAP_ROLLBACK_RECOVERY.md)
 - [Protected Ansible Apply](PROTECTED_ANSIBLE_APPLY.md)
 - [VPS Service Foundation](VPS_SERVICE_FOUNDATION.md)
+- [Operations Portal](OPS_PORTAL.md)

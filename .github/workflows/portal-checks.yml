@@ -28,6 +28,33 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Validate static portal shell
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          required_portal_files=(
+            portal/index.html
+            portal/assets/app.js
+            portal/assets/styles.css
+            portal/data/status.example.json
+          )
+
+          for file in "${required_portal_files[@]}"; do
+            if [[ ! -f "$file" ]]; then
+              echo "Missing portal file: $file" >&2
+              exit 1
+            fi
+          done
+
+          python3 -m json.tool portal/data/status.example.json > /dev/null
+          node --check portal/assets/app.js
+
+          if grep -RniE '<button|docker[.]sock|/var/run/docker[.]sock|child_process|execFile|spawn|systemctl|docker compose up|docker rm' portal; then
+            echo "Portal v1 must stay read-only and must not expose local command or Docker socket controls." >&2
+            exit 1
+          fi
+
       - name: Detect portal package
         id: detect
         shell: bash

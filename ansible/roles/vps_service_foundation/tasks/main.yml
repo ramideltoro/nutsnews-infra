@@ -92,8 +92,56 @@
         group: root
         mode: "0644"
 
+    - name: Install operations portal static files
+      ansible.builtin.copy:
+        src: "{{ item.src }}"
+        dest: "{{ item.dest }}"
+        owner: root
+        group: root
+        mode: "{{ item.mode }}"
+      loop: "{{ vps_service_foundation_portal_files }}"
+      loop_control:
+        label: "{{ item.dest }}"
+
+    - name: Install operations portal collector
+      ansible.builtin.copy:
+        src: ops_portal_collector.py
+        dest: "{{ vps_service_foundation_collector_bin }}"
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Install operations portal collector service
+      ansible.builtin.template:
+        src: nutsnews-ops-portal-collector.service.j2
+        dest: "/etc/systemd/system/{{ vps_service_foundation_collector_service }}"
+        owner: root
+        group: root
+        mode: "0644"
+
+    - name: Install operations portal collector timer
+      ansible.builtin.template:
+        src: nutsnews-ops-portal-collector.timer.j2
+        dest: "/etc/systemd/system/{{ vps_service_foundation_collector_timer }}"
+        owner: root
+        group: root
+        mode: "0644"
+
     - name: Apply pending Docker daemon changes
       ansible.builtin.meta: flush_handlers
+
+    - name: Enable operations portal collector timer
+      ansible.builtin.systemd_service:
+        name: "{{ vps_service_foundation_collector_timer }}"
+        enabled: true
+        state: started
+        daemon_reload: true
+
+    - name: Refresh operations portal status snapshot
+      ansible.builtin.command:
+        argv:
+          - "{{ vps_service_foundation_collector_bin }}"
+      changed_when: false
 
     - name: Validate Caddy Compose configuration
       ansible.builtin.command:
@@ -146,6 +194,58 @@
             - vps_service_foundation_healthcheck.status == 200
             - vps_service_foundation_healthcheck.content | trim == "ok"
 
+        - name: Wait for local operations portal status data
+          ansible.builtin.uri:
+            url: "{{ vps_service_foundation_portal_status_url }}"
+            return_content: true
+            status_code: 200
+          register: vps_service_foundation_portal_status
+          changed_when: false
+          retries: 6
+          delay: 5
+          until:
+            - vps_service_foundation_portal_status.status == 200
+            - "'generated_at' in vps_service_foundation_portal_status.content"
+
+        - name: Write deployed infrastructure commit marker
+          ansible.builtin.copy:
+            dest: "{{ vps_service_foundation_deployed_infra_commit_file }}"
+            owner: root
+            group: root
+            mode: "0644"
+            content: "{{ vps_service_foundation_deployed_infra_commit }}\n"
+          when: vps_service_foundation_apply_metadata_enabled | bool
+
+        - name: Write protected apply status marker
+          ansible.builtin.copy:
+            dest: "{{ vps_service_foundation_apply_status_file }}"
+            owner: root
+            group: root
+            mode: "0644"
+            content: |
+              {{
+                (
+                  vps_service_foundation_apply_context
+                  | combine(
+                      {
+                        'status': 'applied',
+                        'recorded_at': ansible_date_time.iso8601,
+                        'commit': vps_service_foundation_deployed_infra_commit
+                      },
+                      recursive=True
+                    )
+                )
+                | to_nice_json
+              }}
+          when: vps_service_foundation_apply_metadata_enabled | bool
+
+        - name: Refresh operations portal status after apply marker update
+          ansible.builtin.command:
+            argv:
+              - "{{ vps_service_foundation_collector_bin }}"
+          changed_when: false
+          when: vps_service_foundation_apply_metadata_enabled | bool
+
       rescue:
         - name: Show Caddy Compose status after health failure
           ansible.builtin.command:
@@ -188,5 +288,6 @@
         - name: Fail Caddy health verification
           ansible.builtin.fail:
             msg: >-
-              Caddy did not answer {{ vps_service_foundation_healthcheck_url }}.
+              Caddy did not answer {{ vps_service_foundation_healthcheck_url }}
+              or the portal status feed did not answer {{ vps_service_foundation_portal_status_url }}.
               Compose status and container logs were printed above.
