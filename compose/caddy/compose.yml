@@ -23,7 +23,7 @@ services:
       - /opt/nutsnews/config/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
       - /opt/nutsnews/config/caddy/runtime:/config
       - /opt/nutsnews/data/caddy:/data
-      - /opt/nutsnews/health:/srv/nutsnews-health:ro
+      - /opt/nutsnews/portal-assets:/srv/nutsnews-portal:ro
     tmpfs:
       - /run:size=16m,mode=0755
       - /tmp:size=16m,mode=1777

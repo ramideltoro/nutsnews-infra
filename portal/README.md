@@ -1,5 +1,7 @@
-# Portal
+# Operations Portal
 
-The NutsNews operations portal source will live here.
+This directory contains the static NutsNews Operations Portal v1 shell.
 
-This scaffold intentionally does not include application code yet. Do not commit secrets, local environment files, or generated build artifacts.
+The portal is read-only, has no local management buttons, and reads only the sanitized JSON snapshot generated on the VPS at `/opt/nutsnews/portal-assets/data/status.json`.
+
+Do not commit secrets, local environment files, generated build artifacts, private keys, tokens, or runtime status snapshots.

@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="robots" content="noindex,nofollow">
+    <title>NutsNews Operations</title>
+    <link rel="stylesheet" href="/assets/styles.css">
+  </head>
+  <body>
+    <header class="topbar">
+      <div>
+        <p class="eyebrow">Read-only VPS portal</p>
+        <h1>NutsNews Operations</h1>
+      </div>
+      <div class="topbar__status" aria-live="polite">
+        <span id="overall-state" class="pill pill--muted">Loading</span>
+        <span id="generated-at">Waiting for collector data</span>
+      </div>
+    </header>
+
+    <main class="shell">
+      <section class="section section--overview" aria-labelledby="overview-title">
+        <div class="section__header">
+          <h2 id="overview-title">Overview</h2>
+          <p id="portal-policy">Read-only. Production changes still go through GitOps.</p>
+        </div>
+        <div id="overview-grid" class="metric-grid"></div>
+      </section>
+
+      <section class="section" aria-labelledby="resources-title">
+        <div class="section__header">
+          <h2 id="resources-title">Resource Utilization</h2>
+          <p>CPU, memory, swap, disk, inode, load, and network counters.</p>
+        </div>
+        <div id="resource-grid" class="metric-grid"></div>
+      </section>
+
+      <section class="section" aria-labelledby="docker-title">
+        <div class="section__header">
+          <h2 id="docker-title">Docker and Compose</h2>
+          <p>Container state, health, restart count, image, ports, and compose project.</p>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>State</th>
+                <th>Health</th>
+                <th>Restarts</th>
+                <th>Image</th>
+                <th>Ports</th>
+                <th>Project</th>
+              </tr>
+            </thead>
+            <tbody id="docker-table"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="section" aria-labelledby="services-title">
+        <div class="section__header">
+          <h2 id="services-title">Linux Services</h2>
+          <p>Systemd status for the baseline services and the portal collector timer.</p>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Service</th>
+                <th>Active</th>
+                <th>Enabled</th>
+              </tr>
+            </thead>
+            <tbody id="services-table"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="section logs-layout" aria-labelledby="logs-title">
+        <div class="section__header section__header--wide">
+          <h2 id="logs-title">Logs</h2>
+          <p id="log-redaction">Recent Caddy, journal, and auth/security logs with basic redaction.</p>
+        </div>
+        <article class="log-panel">
+          <h3>Caddy</h3>
+          <pre id="logs-caddy"></pre>
+        </article>
+        <article class="log-panel">
+          <h3>Journal Warnings</h3>
+          <pre id="logs-journal"></pre>
+        </article>
+        <article class="log-panel">
+          <h3>Auth and Security</h3>
+          <pre id="logs-auth"></pre>
+        </article>
+      </section>
+
+      <section class="section" aria-labelledby="security-title">
+        <div class="section__header">
+          <h2 id="security-title">Security</h2>
+          <p>Firewall, open ports, SSH hardening, pending updates, reboot, and failed login summary.</p>
+        </div>
+        <div id="security-grid" class="metric-grid"></div>
+        <div class="table-wrap table-wrap--stacked">
+          <h3>Open Ports</h3>
+          <pre id="open-ports"></pre>
+        </div>
+      </section>
+
+      <section class="section split" aria-labelledby="backups-title">
+        <div>
+          <div class="section__header">
+            <h2 id="backups-title">Backups and Snapshots</h2>
+            <p>Local backup directory usage and placeholders for the next backup layer.</p>
+          </div>
+          <div id="backup-grid" class="metric-grid"></div>
+        </div>
+        <div>
+          <div class="section__header">
+            <h2>Alerts</h2>
+            <p>Email reporting is planned; this v1 shows local threshold warnings.</p>
+          </div>
+          <ul id="alerts-list" class="alert-list"></ul>
+        </div>
+      </section>
+
+      <section class="section split" aria-labelledby="gitops-title">
+        <div>
+          <div class="section__header">
+            <h2 id="gitops-title">GitOps</h2>
+            <p>Workflow links, deployed commit marker, apply status, and drift reminder.</p>
+          </div>
+          <div id="gitops-grid" class="metric-grid"></div>
+          <ul id="workflow-links" class="link-list"></ul>
+        </div>
+        <div>
+          <div class="section__header">
+            <h2>Runbooks and Docs</h2>
+            <p>Canonical learning docs live in the docs repository.</p>
+          </div>
+          <ul id="runbook-links" class="link-list"></ul>
+        </div>
+      </section>
+    </main>
+
+    <script src="/assets/app.js" defer></script>
+  </body>
+</html>

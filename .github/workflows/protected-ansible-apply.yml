@@ -113,6 +113,7 @@ jobs:
         working-directory: ansible
         env:
           NUTSNEWS_VPS_ADMIN_AUTHORIZED_KEYS_JSON: ${{ secrets.NUTSNEWS_VPS_ADMIN_AUTHORIZED_KEYS_JSON }}
+          RUN_MODE: ${{ inputs.run_mode }}
         run: |
           set -euo pipefail
 
@@ -128,7 +129,28 @@ jobs:
           if not all(isinstance(key, str) and key.strip() for key in keys):
               raise SystemExit("Every authorized key entry must be a non-empty string.")
 
-          extra_vars = {"vps_baseline_admin_authorized_keys": keys}
+          repository = os.environ["GITHUB_REPOSITORY"]
+          run_url = (
+              f"{os.environ['GITHUB_SERVER_URL']}/{repository}"
+              f"/actions/runs/{os.environ['GITHUB_RUN_ID']}"
+          )
+
+          extra_vars = {
+              "vps_baseline_admin_authorized_keys": keys,
+              "vps_service_foundation_apply_metadata_enabled": os.environ["RUN_MODE"] == "apply",
+              "vps_service_foundation_deployed_infra_commit": os.environ["GITHUB_SHA"],
+              "vps_service_foundation_apply_context": {
+                  "status": "apply_started",
+                  "repository": repository,
+                  "branch": os.environ["GITHUB_REF_NAME"],
+                  "commit": os.environ["GITHUB_SHA"],
+                  "workflow": os.environ["GITHUB_WORKFLOW"],
+                  "run_id": os.environ["GITHUB_RUN_ID"],
+                  "run_attempt": os.environ["GITHUB_RUN_ATTEMPT"],
+                  "run_url": run_url,
+                  "actor": os.environ["GITHUB_ACTOR"],
+              },
+          }
           Path(".runtime-extra-vars.json").write_text(json.dumps(extra_vars) + "\n", encoding="utf-8")
           PY
 

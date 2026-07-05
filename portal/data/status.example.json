@@ -1,0 +1,164 @@
+{
+  "alerts": {
+    "email_configuration": "placeholder",
+    "items": [
+      {
+        "level": "ok",
+        "message": "No local threshold alerts from the current snapshot."
+      }
+    ]
+  },
+  "backups": {
+    "directory": "/opt/nutsnews/backups",
+    "latest": null,
+    "latest_status": "placeholder",
+    "size_bytes": 0,
+    "snapshot_reminder": "Provider snapshots and encrypted offsite backups are planned but not managed by this portal yet."
+  },
+  "docker": {
+    "available": true,
+    "compose_projects": [],
+    "containers": [
+      {
+        "compose_project": "nutsnews-service-foundation",
+        "health": "healthy",
+        "image": "caddy:2-alpine",
+        "name": "nutsnews-caddy",
+        "ports": "127.0.0.1:8080->8080/tcp",
+        "restart_count": 0,
+        "state": "running",
+        "status": "Up"
+      }
+    ],
+    "error": ""
+  },
+  "generated_at": "2026-07-05T00:00:00+00:00",
+  "gitops": {
+    "deployed_commit": "unknown",
+    "drift_warning": "The portal reads local state only. Drift still has to be reconciled by PR and protected apply.",
+    "last_apply": {
+      "run_url": "",
+      "status": "unknown"
+    },
+    "repository": "https://github.com/ramideltoro/nutsnews-infra",
+    "workflow_links": [
+      {
+        "name": "Protected Ansible Apply",
+        "url": "https://github.com/ramideltoro/nutsnews-infra/actions/workflows/protected-ansible-apply.yml"
+      }
+    ]
+  },
+  "host": {
+    "architecture": "x86_64",
+    "fqdn": "vps.nutsnews.com",
+    "hostname": "vps",
+    "kernel": "unknown",
+    "local_addresses": [],
+    "os": "Ubuntu 26.04 LTS",
+    "public_ipv4": "65.75.202.112",
+    "public_ipv6": "2606:cc0:11:23ae::1",
+    "uptime_seconds": 3600
+  },
+  "logs": {
+    "auth": [],
+    "caddy": [],
+    "journal_warnings": [],
+    "redaction": "token, secret, password, authorization, credential, and private-key patterns are redacted"
+  },
+  "portal": {
+    "management_policy": "Mutating actions must go through PR, CI, merge, and protected apply.",
+    "mode": "read-only",
+    "public_exposure": "Caddy binds the portal to host loopback only on 127.0.0.1:8080."
+  },
+  "resources": {
+    "cpu_percent": 2.1,
+    "disk": {
+      "available": true,
+      "free_bytes": 75161927680,
+      "inode_total": 5242880,
+      "inode_used": 80000,
+      "inode_used_percent": 1.5,
+      "path": "/",
+      "total_bytes": 85899345920,
+      "used_bytes": 10737418240,
+      "used_percent": 12.5
+    },
+    "load_average": {
+      "fifteen": 0.06,
+      "five": 0.04,
+      "one": 0.02
+    },
+    "memory": {
+      "available_bytes": 8589934592,
+      "total_bytes": 10737418240,
+      "used_bytes": 2147483648,
+      "used_percent": 20
+    },
+    "network": {
+      "interfaces": [],
+      "rx_bytes": 0,
+      "tx_bytes": 0
+    },
+    "nutsnews_disk": {
+      "available": true,
+      "free_bytes": 75161927680,
+      "inode_total": 5242880,
+      "inode_used": 80000,
+      "inode_used_percent": 1.5,
+      "path": "/opt/nutsnews",
+      "total_bytes": 85899345920,
+      "used_bytes": 10737418240,
+      "used_percent": 12.5
+    },
+    "swap": {
+      "free_bytes": 0,
+      "total_bytes": 0,
+      "used_bytes": 0,
+      "used_percent": 0
+    }
+  },
+  "runbooks": [
+    {
+      "name": "Infrastructure operations guide",
+      "url": "https://github.com/ramideltoro/nutsnews-docs/blob/main/infra/operations-portal-v1.md"
+    }
+  ],
+  "schema_version": 1,
+  "security": {
+    "failed_logins": {
+      "invalid_user_lines": 0,
+      "recent_failed_login_lines": 0
+    },
+    "firewall": [
+      "Status: active"
+    ],
+    "last_reboot": "2026-07-05T00:00:00+00:00",
+    "open_ports": [
+      "tcp LISTEN 0 4096 127.0.0.1:8080 0.0.0.0:*"
+    ],
+    "pending_updates": {
+      "available": true,
+      "count": 0,
+      "sample": [],
+      "security_count": 0
+    },
+    "ssh_hardening": {
+      "allow_tcp_forwarding": "no",
+      "kbd_interactive_authentication": "no",
+      "password_authentication": "no",
+      "permit_root_login": "prohibit-password"
+    }
+  },
+  "services": [
+    {
+      "active": "active",
+      "enabled": "enabled",
+      "name": "ssh.service"
+    },
+    {
+      "active": "active",
+      "enabled": "enabled",
+      "name": "docker.service"
+    }
+  ]
+}

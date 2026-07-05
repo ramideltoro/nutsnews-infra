@@ -258,6 +258,21 @@ jobs:
           grep -q 'Show Caddy Compose status after health failure' ansible/roles/vps_service_foundation/tasks/main.yml
           grep -q 'Show Caddy logs after health failure' ansible/roles/vps_service_foundation/tasks/main.yml
 
+      - name: Validate operations portal automation
+        if: steps.detect.outputs.has_files == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          python3 -m py_compile ansible/roles/vps_service_foundation/files/ops_portal_collector.py
+          grep -Fq 'vps_service_foundation_collector_timer' ansible/roles/vps_service_foundation/tasks/main.yml
+          grep -Fq 'nutsnews-ops-portal-collector.timer' ansible/roles/vps_service_foundation/defaults/main.yml
+          grep -Fq 'Refresh operations portal status snapshot' ansible/roles/vps_service_foundation/tasks/main.yml
+          grep -Fq '/opt/nutsnews/portal-assets:/srv/nutsnews-portal:ro' compose/caddy/compose.yml
+          grep -Fq '127.0.0.1:8080:8080/tcp' compose/caddy/compose.yml
+          grep -Fq 'handle /data/*' compose/caddy/Caddyfile
+          grep -Fq 'ReadWritePaths=' ansible/roles/vps_service_foundation/templates/nutsnews-ops-portal-collector.service.j2
+
       - name: Run ansible-lint
         if: steps.detect.outputs.has_files == 'true'
         shell: bash

@@ -37,6 +37,10 @@ jobs:
             compose/caddy/compose.yml
             compose/caddy/Caddyfile
             compose/health/index.html
+            portal/index.html
+            portal/assets/app.js
+            portal/assets/styles.css
+            portal/data/status.example.json
           )
 
           for file in "${required_service_files[@]}"; do
