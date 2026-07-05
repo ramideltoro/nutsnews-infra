@@ -21,6 +21,10 @@ PRIVATE_KEY_LINE_PATTERN = ".*PRIVATE" + r"\s+" + "KEY.*"
 
 SECRET_PATTERNS = [
     re.compile(r"(?i)(password|passwd|token|secret|authorization|credential|api[_-]?key)=\S+"),
+    re.compile(
+        r"(?i)\b(password|passwd|token|secret|authorization|credential|api[_-]?key)\b"
+        r"\s*[:]\s*[^,\s]+"
+    ),
     re.compile(r"(?i)(bearer)\s+[A-Za-z0-9._~+/=-]+"),
     re.compile(r"(?i)" + PRIVATE_KEY_LINE_PATTERN),
 ]
@@ -416,6 +420,35 @@ def systemd_status(service: str) -> dict[str, str]:
     }
 
 
+def systemd_timer_schedule(timer: str) -> dict[str, str]:
+    result = run(
+        [
+            "systemctl",
+            "show",
+            timer,
+            "--property=NextElapseUSecRealtime,LastTriggerUSec,Result,ActiveState,SubState",
+            "--no-pager",
+        ],
+        timeout=4,
+    )
+    values: dict[str, str] = {}
+    if result["ok"]:
+        for line in result["stdout"].splitlines():
+            if "=" not in line:
+                continue
+            key, value = line.split("=", 1)
+            values[key] = value.strip()
+
+    return {
+        "timer": timer,
+        "timer_active": values.get("ActiveState", "unknown") or "unknown",
+        "timer_sub_state": values.get("SubState", "unknown") or "unknown",
+        "next_report_run_at": values.get("NextElapseUSecRealtime", "unknown") or "unknown",
+        "last_report_timer_trigger_at": values.get("LastTriggerUSec", "never") or "never",
+        "timer_result": values.get("Result", "unknown") or "unknown",
+    }
+
+
 def docker_state() -> dict[str, Any]:
     ps = run(["docker", "ps", "--all", "--format", "{{json .}}"], timeout=8)
     containers = []
@@ -589,8 +622,11 @@ def reporting_state() -> dict[str, Any]:
         "configured": False,
         "status": "disabled",
         "updated_at": "unknown",
+        "smtp_host_configured": False,
         "last_alert_check_at": "unknown",
         "last_alert_sent_at": "never",
+        "last_report_run_at": "never",
+        "last_report_success_at": "never",
         "last_report_sent_at": "never",
         "last_error": "",
         "cooldown_seconds": 21600,
@@ -684,6 +720,10 @@ def gitops_state() -> dict[str, Any]:
                 "name": "Protected Ansible Apply",
                 "url": f"{INFRA_REPO_URL}/actions/workflows/protected-ansible-apply.yml",
             },
+            {
+                "name": "Send VPS Health Report",
+                "url": f"{INFRA_REPO_URL}/actions/workflows/send-vps-health-report.yml",
+            },
             {"name": "Pull requests", "url": f"{INFRA_REPO_URL}/pulls"},
             {"name": "Actions", "url": f"{INFRA_REPO_URL}/actions"},
         ],
@@ -693,10 +733,10 @@ def gitops_state() -> dict[str, Any]:
 
 def runbook_links() -> list[dict[str, str]]:
     return [
-        {"name": "Infrastructure operations guide", "url": f"{DOCS_BASE_URL}/blob/main/infra/operations-portal-v1.md"},
-        {"name": "Protected Ansible apply", "url": f"{DOCS_BASE_URL}/blob/main/infra/protected-ansible-apply.md"},
-        {"name": "VPS service foundation", "url": f"{DOCS_BASE_URL}/blob/main/infra/vps-service-foundation.md"},
-        {"name": "Operations charter", "url": f"{DOCS_BASE_URL}/blob/main/infra/operations-charter.md"},
+        {"name": "Infrastructure operations guide", "url": f"{DOCS_BASE_URL}/blob/main/NUTSNEWS_OPERATIONS_PORTAL_V1.md"},
+        {"name": "Protected Ansible apply", "url": f"{DOCS_BASE_URL}/blob/main/NUTSNEWS_PROTECTED_ANSIBLE_APPLY.md"},
+        {"name": "VPS service foundation", "url": f"{DOCS_BASE_URL}/blob/main/NUTSNEWS_VPS_SERVICE_FOUNDATION.md"},
+        {"name": "Infra operations platform", "url": f"{DOCS_BASE_URL}/blob/main/NUTSNEWS_INFRA_OPERATIONS_PLATFORM.md"},
     ]
 
 
@@ -718,6 +758,7 @@ def collect() -> dict[str, Any]:
         ]
     ]
     reporting = reporting_state()
+    reporting.update(systemd_timer_schedule("nutsnews-ops-health-report.timer"))
 
     return {
         "schema_version": 1,

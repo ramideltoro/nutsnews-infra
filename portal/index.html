@@ -22,26 +22,58 @@
     <main class="shell">
       <section class="section section--overview" aria-labelledby="overview-title">
         <div class="section__header">
-          <h2 id="overview-title">Overview</h2>
+          <div>
+            <p class="eyebrow">Overall health</p>
+            <h2 id="overview-title">VPS Snapshot</h2>
+          </div>
           <p id="portal-policy">Read-only. Production changes still go through GitOps.</p>
         </div>
-        <div id="overview-grid" class="metric-grid"></div>
+        <div class="overview-layout">
+          <div id="health-gauge-grid" class="gauge-grid gauge-grid--single"></div>
+          <div id="hotspot-grid" class="temperature-grid"></div>
+        </div>
+        <div id="overview-grid" class="metric-grid metric-grid--dense"></div>
+      </section>
+
+      <section class="section section--reporting" aria-labelledby="reporting-title">
+        <div class="section__header">
+          <div>
+            <p class="eyebrow">Alerts and email reporting</p>
+            <h2 id="reporting-title">Report Delivery</h2>
+          </div>
+          <p id="email-state" class="inline-status"></p>
+        </div>
+        <div id="email-status-grid" class="metric-grid metric-grid--dense"></div>
+        <div id="reporting-strip" class="stat-row"></div>
+        <ul id="alerts-list" class="alert-list"></ul>
       </section>
 
       <section class="section" aria-labelledby="resources-title">
         <div class="section__header">
-          <h2 id="resources-title">Resource Utilization</h2>
-          <p>CPU, memory, swap, disk, inode, load, and network counters.</p>
+          <div>
+            <p class="eyebrow">Resources</p>
+            <h2 id="resources-title">CPU, Memory, Disk, Swap, Inodes</h2>
+          </div>
+          <div id="load-sparkline" class="sparkline-wrap"></div>
         </div>
-        <div id="resource-grid" class="metric-grid"></div>
+        <div id="resource-gauges" class="gauge-grid"></div>
+        <div id="resource-grid" class="metric-grid metric-grid--dense"></div>
       </section>
 
       <section class="section split" aria-labelledby="process-title">
-        <div>
-          <div class="section__header">
-            <h2 id="process-title">Top Memory Apps</h2>
-            <p id="process-method">Read-only process ranking from the local collector.</p>
+        <div class="section__header section__header--wide">
+          <div>
+            <p class="eyebrow">Processes</p>
+            <h2 id="process-title">Top Apps</h2>
           </div>
+          <label class="filter-control" for="process-filter">
+            <span>Filter</span>
+            <input id="process-filter" type="search" autocomplete="off" placeholder="name, user, pid">
+          </label>
+          <p id="process-method">Read-only process ranking from the local collector.</p>
+        </div>
+        <div>
+          <h3 class="panel-title">Top Memory Apps</h3>
           <div class="table-wrap">
             <table>
               <thead>
@@ -62,10 +94,7 @@
           </div>
         </div>
         <div>
-          <div class="section__header">
-            <h2>Top CPU Apps</h2>
-            <p>Best-effort CPU attribution without turning the portal into a profiler.</p>
-          </div>
+          <h3 class="panel-title">Top CPU Apps</h3>
           <div class="table-wrap">
             <table>
               <thead>
@@ -87,12 +116,16 @@
         </div>
       </section>
 
-      <section class="section split" aria-labelledby="disk-hotspots-title">
+      <section class="section split" aria-labelledby="disk-title">
         <div>
           <div class="section__header">
-            <h2 id="disk-hotspots-title">Disk Hot Spots</h2>
+            <div>
+              <p class="eyebrow">Disk</p>
+              <h2 id="disk-title">Storage Hot Spots</h2>
+            </div>
             <p id="disk-hotspots-method">Cached folder scan for the biggest local directories.</p>
           </div>
+          <div id="disk-stats" class="stat-row"></div>
           <div class="table-wrap">
             <table>
               <thead>
@@ -107,58 +140,86 @@
         </div>
         <div>
           <div class="section__header">
-            <h2>Network Visibility</h2>
-            <p>Host counters are tracked; per-process totals need approved telemetry.</p>
+            <div>
+              <p class="eyebrow">Network</p>
+              <h2 id="network-title">Host Traffic</h2>
+            </div>
+            <p>Per-app byte totals stay labeled as unavailable until approved telemetry exists.</p>
           </div>
           <div id="network-grid" class="metric-grid"></div>
+          <div class="table-wrap table-wrap--stacked">
+            <h3 class="panel-title">Interfaces</h3>
+            <table>
+              <thead>
+                <tr>
+                  <th>Interface</th>
+                  <th>Received</th>
+                  <th>Sent</th>
+                </tr>
+              </thead>
+              <tbody id="network-interface-table"></tbody>
+            </table>
+          </div>
         </div>
       </section>
 
-      <section class="section" aria-labelledby="docker-title">
-        <div class="section__header">
-          <h2 id="docker-title">Docker and Compose</h2>
-          <p>Container state, health, restart count, image, ports, and compose project.</p>
+      <section class="section split" aria-labelledby="services-title">
+        <div>
+          <div class="section__header">
+            <div>
+              <p class="eyebrow">Services</p>
+              <h2 id="services-title">Linux Services</h2>
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Service</th>
+                  <th>Active</th>
+                  <th>Enabled</th>
+                </tr>
+              </thead>
+              <tbody id="services-table"></tbody>
+            </table>
+          </div>
         </div>
-        <div class="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Name</th>
-                <th>State</th>
-                <th>Health</th>
-                <th>Restarts</th>
-                <th>Image</th>
-                <th>Ports</th>
-                <th>Project</th>
-              </tr>
-            </thead>
-            <tbody id="docker-table"></tbody>
-          </table>
-        </div>
-      </section>
-
-      <section class="section" aria-labelledby="services-title">
-        <div class="section__header">
-          <h2 id="services-title">Linux Services</h2>
-          <p>Systemd status for the baseline services and the portal collector timer.</p>
-        </div>
-        <div class="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Service</th>
-                <th>Active</th>
-                <th>Enabled</th>
-              </tr>
-            </thead>
-            <tbody id="services-table"></tbody>
-          </table>
+        <div>
+          <div class="section__header">
+            <div>
+              <p class="eyebrow">Containers</p>
+              <h2 id="docker-title">Docker and Compose</h2>
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>State</th>
+                  <th>Health</th>
+                  <th>Restarts</th>
+                  <th>Image</th>
+                  <th>Ports</th>
+                  <th>Project</th>
+                </tr>
+              </thead>
+              <tbody id="docker-table"></tbody>
+            </table>
+          </div>
         </div>
       </section>
 
       <section class="section logs-layout" aria-labelledby="logs-title">
         <div class="section__header section__header--wide">
-          <h2 id="logs-title">Logs</h2>
+          <div>
+            <p class="eyebrow">Logs</p>
+            <h2 id="logs-title">Recent Redacted Lines</h2>
+          </div>
+          <label class="filter-control" for="log-filter">
+            <span>Filter</span>
+            <input id="log-filter" type="search" autocomplete="off" placeholder="warning, ssh, caddy">
+          </label>
           <p id="log-redaction">Recent Caddy, journal, and auth/security logs with basic redaction.</p>
         </div>
         <article class="log-panel">
@@ -175,49 +236,48 @@
         </article>
       </section>
 
-      <section class="section" aria-labelledby="security-title">
-        <div class="section__header">
-          <h2 id="security-title">Security</h2>
-          <p>Firewall, open ports, SSH hardening, pending updates, reboot, and failed login summary.</p>
-        </div>
-        <div id="security-grid" class="metric-grid"></div>
-        <div class="table-wrap table-wrap--stacked">
-          <h3>Open Ports</h3>
-          <pre id="open-ports"></pre>
-        </div>
-      </section>
-
-      <section class="section split" aria-labelledby="backups-title">
+      <section class="section split" aria-labelledby="security-title">
         <div>
           <div class="section__header">
-            <h2 id="backups-title">Backups and Snapshots</h2>
-            <p>Local backup directory usage and placeholders for the next backup layer.</p>
+            <div>
+              <p class="eyebrow">Security</p>
+              <h2 id="security-title">Host Guardrails</h2>
+            </div>
+          </div>
+          <div id="security-grid" class="metric-grid"></div>
+          <div class="table-wrap table-wrap--stacked">
+            <h3 class="panel-title">Open Ports</h3>
+            <pre id="open-ports"></pre>
+          </div>
+        </div>
+        <div>
+          <div class="section__header">
+            <div>
+              <p class="eyebrow">Backups</p>
+              <h2 id="backups-title">Snapshots and Backups</h2>
+            </div>
           </div>
           <div id="backup-grid" class="metric-grid"></div>
-        </div>
-        <div>
-          <div class="section__header">
-            <h2>Alerts</h2>
-            <p>Email reporting is opt-in and configured only through protected apply secrets.</p>
-          </div>
-          <div id="email-reporting-grid" class="metric-grid"></div>
-          <ul id="alerts-list" class="alert-list"></ul>
         </div>
       </section>
 
       <section class="section split" aria-labelledby="gitops-title">
         <div>
           <div class="section__header">
-            <h2 id="gitops-title">GitOps</h2>
-            <p>Workflow links, deployed commit marker, apply status, and drift reminder.</p>
+            <div>
+              <p class="eyebrow">GitOps</p>
+              <h2 id="gitops-title">Source and Runs</h2>
+            </div>
           </div>
           <div id="gitops-grid" class="metric-grid"></div>
           <ul id="workflow-links" class="link-list"></ul>
         </div>
         <div>
           <div class="section__header">
-            <h2>Runbooks and Docs</h2>
-            <p>Canonical learning docs live in the docs repository.</p>
+            <div>
+              <p class="eyebrow">Docs</p>
+              <h2>Runbooks</h2>
+            </div>
           </div>
           <ul id="runbook-links" class="link-list"></ul>
         </div>

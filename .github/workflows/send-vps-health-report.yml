@@ -1,0 +1,116 @@
+name: Send VPS Health Report
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-vps-health-report
+  cancel-in-progress: false
+
+jobs:
+  send-report:
+    name: Trigger VPS health report email
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: production-vps
+
+    steps:
+      - name: Validate required environment secrets
+        shell: bash
+        env:
+          NUTSNEWS_VPS_SSH_PRIVATE_KEY: ${{ secrets.NUTSNEWS_VPS_SSH_PRIVATE_KEY }}
+          NUTSNEWS_VPS_KNOWN_HOSTS: ${{ secrets.NUTSNEWS_VPS_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+
+          missing=0
+          for secret_name in \
+            NUTSNEWS_VPS_SSH_PRIVATE_KEY \
+            NUTSNEWS_VPS_KNOWN_HOSTS
+          do
+            if [[ -z "${!secret_name}" ]]; then
+              echo "Missing required production-vps environment secret: $secret_name" >&2
+              missing=1
+            fi
+          done
+
+          exit "$missing"
+
+      - name: Prepare SSH material
+        shell: bash
+        env:
+          NUTSNEWS_VPS_SSH_PRIVATE_KEY: ${{ secrets.NUTSNEWS_VPS_SSH_PRIVATE_KEY }}
+          NUTSNEWS_VPS_KNOWN_HOSTS: ${{ secrets.NUTSNEWS_VPS_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+
+          install -m 0700 -d "$HOME/.ssh"
+          printf '%s\n' "$NUTSNEWS_VPS_SSH_PRIVATE_KEY" > "$HOME/.ssh/nutsnews_vps"
+          chmod 0600 "$HOME/.ssh/nutsnews_vps"
+
+          printf '%s\n' "$NUTSNEWS_VPS_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          chmod 0600 "$HOME/.ssh/known_hosts"
+
+          ssh-keygen -y -f "$HOME/.ssh/nutsnews_vps" > /dev/null
+          ssh-keygen -F 65.75.202.112 -f "$HOME/.ssh/known_hosts" > /dev/null
+
+      - name: Trigger existing report service
+        shell: bash
+        env:
+          VPS_HOST: 65.75.202.112
+          VPS_USER: nutsnews_ops
+          REPORT_SERVICE: nutsnews-ops-health-report.service
+          REPORTING_STATUS_FILE: /opt/nutsnews/portal-assets/data/reporting-status.json
+        run: |
+          set -euo pipefail
+
+          ssh_args=(
+            -i "$HOME/.ssh/nutsnews_vps"
+            -o UserKnownHostsFile="$HOME/.ssh/known_hosts"
+            -o StrictHostKeyChecking=yes
+            -o IdentitiesOnly=yes
+            -o BatchMode=yes
+            -o LogLevel=ERROR
+          )
+          target="${VPS_USER}@${VPS_HOST}"
+
+          echo "Triggering ${REPORT_SERVICE} on ${VPS_HOST} as ${VPS_USER}."
+          set +e
+          ssh "${ssh_args[@]}" "$target" "sudo -n /bin/systemctl start ${REPORT_SERVICE}"
+          trigger_status="$?"
+          set -e
+
+          echo
+          echo "Report service result"
+          set +e
+          ssh "${ssh_args[@]}" "$target" "sudo -n /bin/systemctl show ${REPORT_SERVICE} --property=ActiveState,SubState,Result,ExecMainCode,ExecMainStatus,InactiveEnterTimestamp --no-pager"
+          service_status="$?"
+          set -e
+
+          echo
+          echo "Reporting status snapshot"
+          set +e
+          ssh "${ssh_args[@]}" "$target" "/usr/bin/python3 -c 'import json,sys; from pathlib import Path; p=Path(\"${REPORTING_STATUS_FILE}\"); p.exists() or sys.exit(\"reporting status file is missing\"); data=json.loads(p.read_text()); keys=(\"enabled\",\"configured\",\"smtp_host_configured\",\"recipients_count\",\"mode\",\"status\",\"updated_at\",\"next_report_run_at\",\"last_report_run_at\",\"last_report_success_at\",\"last_report_sent_at\",\"last_error\"); [print(\"{}: {}\".format(k, data.get(k, \"unknown\"))) for k in keys]; ok=data.get(\"enabled\") is True and data.get(\"configured\") is True and data.get(\"mode\") == \"report\" and data.get(\"status\") == \"sent\"; sys.exit(0 if ok else 2)'"
+          reporting_status="$?"
+          set -e
+
+          if [[ "$trigger_status" -ne 0 ]]; then
+            echo "Health report service failed to start or complete. Exit code: $trigger_status" >&2
+            exit "$trigger_status"
+          fi
+
+          if [[ "$service_status" -ne 0 ]]; then
+            echo "Could not read systemd status for ${REPORT_SERVICE}. Exit code: $service_status" >&2
+            exit "$service_status"
+          fi
+
+          if [[ "$reporting_status" -ne 0 ]]; then
+            echo "Health report did not reach a configured sent state. Check the reporting snapshot above." >&2
+            exit "$reporting_status"
+          fi
+
+          echo
+          echo "Health report email was triggered successfully."
