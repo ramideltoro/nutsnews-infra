@@ -113,6 +113,16 @@ jobs:
         working-directory: ansible
         env:
           NUTSNEWS_VPS_ADMIN_AUTHORIZED_KEYS_JSON: ${{ secrets.NUTSNEWS_VPS_ADMIN_AUTHORIZED_KEYS_JSON }}
+          NUTSNEWS_EMAIL_ENABLED: ${{ secrets.NUTSNEWS_EMAIL_ENABLED }}
+          NUTSNEWS_SMTP_HOST: ${{ secrets.NUTSNEWS_SMTP_HOST }}
+          NUTSNEWS_SMTP_PORT: ${{ secrets.NUTSNEWS_SMTP_PORT }}
+          NUTSNEWS_SMTP_USERNAME: ${{ secrets.NUTSNEWS_SMTP_USERNAME }}
+          NUTSNEWS_SMTP_PASSWORD: ${{ secrets.NUTSNEWS_SMTP_PASSWORD }}
+          NUTSNEWS_SMTP_STARTTLS: ${{ secrets.NUTSNEWS_SMTP_STARTTLS }}
+          NUTSNEWS_EMAIL_FROM: ${{ secrets.NUTSNEWS_EMAIL_FROM }}
+          NUTSNEWS_EMAIL_TO: ${{ secrets.NUTSNEWS_EMAIL_TO }}
+          NUTSNEWS_ALERT_COOLDOWN_SECONDS: ${{ secrets.NUTSNEWS_ALERT_COOLDOWN_SECONDS }}
+          NUTSNEWS_REPORT_SUBJECT_PREFIX: ${{ secrets.NUTSNEWS_REPORT_SUBJECT_PREFIX }}
           RUN_MODE: ${{ inputs.run_mode }}
         run: |
           set -euo pipefail
@@ -129,6 +139,18 @@ jobs:
           if not all(isinstance(key, str) and key.strip() for key in keys):
               raise SystemExit("Every authorized key entry must be a non-empty string.")
 
+          def truthy(name):
+              return os.environ.get(name, "").strip().lower() in {"1", "true", "yes", "on"}
+
+          def env_int(name, default):
+              value = os.environ.get(name, "").strip()
+              if not value:
+                  return default
+              try:
+                  return int(value)
+              except ValueError as exc:
+                  raise SystemExit(f"{name} must be an integer when set.") from exc
+
           repository = os.environ["GITHUB_REPOSITORY"]
           run_url = (
               f"{os.environ['GITHUB_SERVER_URL']}/{repository}"
@@ -139,6 +161,19 @@ jobs:
               "vps_baseline_admin_authorized_keys": keys,
               "vps_service_foundation_apply_metadata_enabled": os.environ["RUN_MODE"] == "apply",
               "vps_service_foundation_deployed_infra_commit": os.environ["GITHUB_SHA"],
+              "vps_service_foundation_email_enabled": truthy("NUTSNEWS_EMAIL_ENABLED"),
+              "vps_service_foundation_email_smtp_host": os.environ.get("NUTSNEWS_SMTP_HOST", ""),
+              "vps_service_foundation_email_smtp_port": env_int("NUTSNEWS_SMTP_PORT", 587),
+              "vps_service_foundation_email_smtp_username": os.environ.get("NUTSNEWS_SMTP_USERNAME", ""),
+              "vps_service_foundation_email_smtp_password": os.environ.get("NUTSNEWS_SMTP_PASSWORD", ""),
+              "vps_service_foundation_email_smtp_starttls": truthy("NUTSNEWS_SMTP_STARTTLS") if os.environ.get("NUTSNEWS_SMTP_STARTTLS", "").strip() else True,
+              "vps_service_foundation_email_from": os.environ.get("NUTSNEWS_EMAIL_FROM", ""),
+              "vps_service_foundation_email_to": os.environ.get("NUTSNEWS_EMAIL_TO", ""),
+              "vps_service_foundation_email_alert_cooldown_seconds": env_int("NUTSNEWS_ALERT_COOLDOWN_SECONDS", 21600),
+              "vps_service_foundation_email_report_subject_prefix": os.environ.get(
+                  "NUTSNEWS_REPORT_SUBJECT_PREFIX",
+                  "NutsNews VPS",
+              ),
               "vps_service_foundation_apply_context": {
                   "status": "apply_started",
                   "repository": repository,

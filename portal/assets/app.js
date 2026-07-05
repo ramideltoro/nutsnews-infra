@@ -32,6 +32,9 @@ function duration(seconds) {
   const days = Math.floor(total / 86400);
   const hours = Math.floor((total % 86400) / 3600);
   const minutes = Math.floor((total % 3600) / 60);
+  if (total < 60) {
+    return `${Math.round(total)}s`;
+  }
   if (days > 0) {
     return `${days}d ${hours}h`;
   }
@@ -143,6 +146,67 @@ function renderResources(data) {
   ]);
 }
 
+function processRows(processes, primaryMetric) {
+  return (processes || []).map((process) => {
+    const command = text(process.command || process.name);
+    const app = text(process.name);
+    const primary = primaryMetric === "cpu" ? percent(process.cpu_percent) : bytes(process.memory_bytes);
+    const secondary = primaryMetric === "cpu" ? bytes(process.memory_bytes) : percent(process.cpu_percent);
+    return `
+      <tr>
+        <td title="${escapeHtml(command)}">${escapeHtml(app)}</td>
+        <td>${escapeHtml(process.pid)}</td>
+        <td>${escapeHtml(process.user)}</td>
+        <td>${escapeHtml(primary)}</td>
+        <td>${escapeHtml(secondary)}</td>
+        <td>${escapeHtml(process.threads)}</td>
+        <td>${escapeHtml(duration(process.cpu_time_seconds))}</td>
+        <td>${escapeHtml(duration(process.elapsed_seconds))}</td>
+        <td>${escapeHtml(duration(process.idle_seconds))}</td>
+      </tr>
+    `;
+  });
+}
+
+function renderProcessVisibility(data) {
+  const processes = data.processes || {};
+  $("process-method").textContent = text(
+    processes.method,
+    "CPU percent is best-effort process attribution from the local collector.",
+  );
+  renderTable("process-memory-table", processRows(processes.top_memory, "memory"), "No process data found.", 9);
+  renderTable("process-cpu-table", processRows(processes.top_cpu, "cpu"), "No process data found.", 9);
+}
+
+function renderDiskAndNetwork(data) {
+  const diskUsage = data.disk_usage || {};
+  $("disk-hotspots-method").textContent = `${text(diskUsage.method, "Cached folder scan.")} ${
+    diskUsage.from_cache ? "Serving cached data." : "Fresh scan."
+  }`;
+  const rows = (diskUsage.top_folders || []).map(
+    (folder) => `
+      <tr>
+        <td>${escapeHtml(folder.path)}</td>
+        <td>${escapeHtml(bytes(folder.size_bytes))}</td>
+      </tr>
+    `,
+  );
+  renderTable("disk-hotspots-table", rows, diskUsage.errors?.join(" | ") || "No disk scan data found.", 2);
+
+  const network = data.resources?.network || {};
+  const processNetwork = data.process_network || {};
+  renderMetrics("network-grid", [
+    { label: "Host Received", value: bytes(network.rx_bytes), hint: "Interface counters since boot" },
+    { label: "Host Sent", value: bytes(network.tx_bytes), hint: "Interface counters since boot" },
+    {
+      label: "Per-App Network",
+      value: processNetwork.available ? "available" : "not available",
+      hint: text(processNetwork.method),
+    },
+    { label: "Telemetry Note", value: "honest", hint: text(processNetwork.note) },
+  ]);
+}
+
 function renderDocker(data) {
   const containers = data.docker?.containers || [];
   const rows = containers.map(
@@ -217,10 +281,19 @@ function renderSecurity(data) {
 function renderBackupsAndAlerts(data) {
   const backups = data.backups || {};
   const latest = backups.latest || {};
+  const reporting = data.email_reporting || {};
   renderMetrics("backup-grid", [
     { label: "Backup Directory", value: text(backups.directory), hint: `${bytes(backups.size_bytes)} used` },
     { label: "Latest Backup", value: text(latest.path, "placeholder"), hint: text(latest.updated_at || backups.latest_status) },
     { label: "Snapshot Reminder", value: "planned", hint: text(backups.snapshot_reminder) },
+  ]);
+  renderMetrics("email-reporting-grid", [
+    { label: "Email Alerts", value: reporting.enabled ? "enabled" : "disabled", hint: text(reporting.status) },
+    { label: "Configured", value: reporting.configured ? "yes" : "no", hint: `${text(reporting.recipients_count, "0")} recipient(s)` },
+    { label: "Last Alert Check", value: text(reporting.last_alert_check_at), hint: `${text(reporting.pending_alerts, "0")} pending alert(s)` },
+    { label: "Last Report", value: text(reporting.last_report_sent_at), hint: `cooldown ${duration(reporting.cooldown_seconds)}` },
+    { label: "Suppressed", value: text(reporting.suppressed_alerts, "0"), hint: "duplicate-alert cooldown" },
+    { label: "Last Error", value: text(reporting.last_error, "none"), hint: text(reporting.email_config_source) },
   ]);
 
   const alerts = data.alerts?.items || [];
@@ -260,6 +333,8 @@ function render(data) {
   $("generated-at").textContent = `Snapshot ${text(data.generated_at)}`;
   renderOverview(data);
   renderResources(data);
+  renderProcessVisibility(data);
+  renderDiskAndNetwork(data);
   renderDocker(data);
   renderServices(data);
   renderLogs(data);

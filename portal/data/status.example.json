@@ -1,6 +1,6 @@
 {
   "alerts": {
-    "email_configuration": "placeholder",
+    "email_configuration": "disabled",
     "items": [
       {
         "level": "ok",
@@ -31,6 +31,51 @@
       }
     ],
     "error": ""
+  },
+  "disk_usage": {
+    "available": true,
+    "cache_seconds": 3600,
+    "errors": [],
+    "from_cache": true,
+    "method": "du -x -B1 --max-depth=1 with a cache to avoid rescanning every portal refresh",
+    "scan_roots": [
+      "/opt/nutsnews",
+      "/var/log",
+      "/var/lib/docker",
+      "/home"
+    ],
+    "scanned_at": "2026-07-05T00:00:00+00:00",
+    "scanned_at_epoch": 1783219200,
+    "top_folders": [
+      {
+        "path": "/var/lib/docker",
+        "size_bytes": 2147483648
+      },
+      {
+        "path": "/opt/nutsnews/logs",
+        "size_bytes": 104857600
+      }
+    ]
+  },
+  "email_reporting": {
+    "configured": false,
+    "cooldown_seconds": 21600,
+    "dry_run": false,
+    "email_config_source": "Root-only environment file managed by Ansible from protected GitHub Environment secrets.",
+    "enabled": false,
+    "last_alert_check_at": "unknown",
+    "last_alert_sent_at": "never",
+    "last_dry_run_at": "never",
+    "last_error": "",
+    "last_report_sent_at": "never",
+    "mode": "alert",
+    "pending_alerts": 0,
+    "recipients_count": 0,
+    "schema_version": 1,
+    "smtp_host_configured": false,
+    "status": "disabled",
+    "suppressed_alerts": 0,
+    "updated_at": "2026-07-05T00:00:00+00:00"
   },
   "generated_at": "2026-07-05T00:00:00+00:00",
   "gitops": {
@@ -69,6 +114,45 @@
     "management_policy": "Mutating actions must go through PR, CI, merge, and protected apply.",
     "mode": "read-only",
     "public_exposure": "Caddy binds the portal to host loopback only on 127.0.0.1:8080."
+  },
+  "process_network": {
+    "available": false,
+    "method": "Standard Linux /proc does not expose reliable per-process network byte totals without extra telemetry.",
+    "note": "Host interface counters are shown in Resource Utilization. Per-process network rankings need an approved lightweight agent in a later PR.",
+    "top_receivers": [],
+    "top_senders": []
+  },
+  "processes": {
+    "method": "CPU percent is a lifetime average normalized across available CPU cores, not a live sampling spike meter.",
+    "sampled_at": "2026-07-05T00:00:00+00:00",
+    "top_cpu": [
+      {
+        "command": "caddy run --config /etc/caddy/Caddyfile",
+        "cpu_percent": 1.25,
+        "cpu_time_seconds": 45.2,
+        "elapsed_seconds": 3600,
+        "idle_seconds": 3554.8,
+        "memory_bytes": 62914560,
+        "name": "caddy",
+        "pid": 2048,
+        "threads": 12,
+        "user": "nutsnews_caddy"
+      }
+    ],
+    "top_memory": [
+      {
+        "command": "dockerd",
+        "cpu_percent": 0.4,
+        "cpu_time_seconds": 14.4,
+        "elapsed_seconds": 3600,
+        "idle_seconds": 3585.6,
+        "memory_bytes": 157286400,
+        "name": "dockerd",
+        "pid": 1024,
+        "threads": 28,
+        "user": "root"
+      }
+    ]
   },
   "resources": {
     "cpu_percent": 2.1,

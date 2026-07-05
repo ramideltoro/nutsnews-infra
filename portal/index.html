@@ -36,6 +36,84 @@
         <div id="resource-grid" class="metric-grid"></div>
       </section>
 
+      <section class="section split" aria-labelledby="process-title">
+        <div>
+          <div class="section__header">
+            <h2 id="process-title">Top Memory Apps</h2>
+            <p id="process-method">Read-only process ranking from the local collector.</p>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>App</th>
+                  <th>PID</th>
+                  <th>User</th>
+                  <th>Memory</th>
+                  <th>CPU</th>
+                  <th>Threads</th>
+                  <th>CPU Time</th>
+                  <th>Elapsed</th>
+                  <th>Idle</th>
+                </tr>
+              </thead>
+              <tbody id="process-memory-table"></tbody>
+            </table>
+          </div>
+        </div>
+        <div>
+          <div class="section__header">
+            <h2>Top CPU Apps</h2>
+            <p>Best-effort CPU attribution without turning the portal into a profiler.</p>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>App</th>
+                  <th>PID</th>
+                  <th>User</th>
+                  <th>CPU</th>
+                  <th>Memory</th>
+                  <th>Threads</th>
+                  <th>CPU Time</th>
+                  <th>Elapsed</th>
+                  <th>Idle</th>
+                </tr>
+              </thead>
+              <tbody id="process-cpu-table"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <section class="section split" aria-labelledby="disk-hotspots-title">
+        <div>
+          <div class="section__header">
+            <h2 id="disk-hotspots-title">Disk Hot Spots</h2>
+            <p id="disk-hotspots-method">Cached folder scan for the biggest local directories.</p>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Folder</th>
+                  <th>Size</th>
+                </tr>
+              </thead>
+              <tbody id="disk-hotspots-table"></tbody>
+            </table>
+          </div>
+        </div>
+        <div>
+          <div class="section__header">
+            <h2>Network Visibility</h2>
+            <p>Host counters are tracked; per-process totals need approved telemetry.</p>
+          </div>
+          <div id="network-grid" class="metric-grid"></div>
+        </div>
+      </section>
+
       <section class="section" aria-labelledby="docker-title">
         <div class="section__header">
           <h2 id="docker-title">Docker and Compose</h2>
@@ -120,8 +198,9 @@
         <div>
           <div class="section__header">
             <h2>Alerts</h2>
-            <p>Email reporting is planned; this v1 shows local threshold warnings.</p>
+            <p>Email reporting is opt-in and configured only through protected apply secrets.</p>
           </div>
+          <div id="email-reporting-grid" class="metric-grid"></div>
           <ul id="alerts-list" class="alert-list"></ul>
         </div>
       </section>

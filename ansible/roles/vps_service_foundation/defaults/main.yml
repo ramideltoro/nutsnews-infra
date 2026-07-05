@@ -23,6 +23,7 @@ vps_service_foundation_portal_data_dir: "{{ vps_service_foundation_portal_assets
 vps_service_foundation_portal_status_file: "{{ vps_service_foundation_portal_data_dir }}/status.json"
 vps_service_foundation_health_dir: "{{ vps_service_foundation_root }}/health"
 vps_service_foundation_ops_dir: "{{ vps_service_foundation_root }}/ops"
+vps_service_foundation_private_config_dir: /etc/nutsnews
 
 vps_service_foundation_caddy_app_dir: "{{ vps_service_foundation_apps_dir }}/caddy"
 vps_service_foundation_caddy_config_dir: "{{ vps_service_foundation_config_dir }}/caddy"
@@ -47,6 +48,32 @@ vps_service_foundation_collector_bin: /usr/local/bin/nutsnews-ops-portal-collect
 vps_service_foundation_collector_log_dir: "{{ vps_service_foundation_logs_dir }}/ops-portal"
 vps_service_foundation_collector_service: nutsnews-ops-portal-collector.service
 vps_service_foundation_collector_timer: nutsnews-ops-portal-collector.timer
+vps_service_foundation_reporter_bin: /usr/local/bin/nutsnews-ops-portal-reporter
+vps_service_foundation_reporter_env_file: "{{ vps_service_foundation_private_config_dir }}/ops-reporter.env"
+vps_service_foundation_reporting_status_file: "{{ vps_service_foundation_portal_data_dir }}/reporting-status.json"
+vps_service_foundation_alert_state_file: "{{ vps_service_foundation_ops_dir }}/email-alert-state.json"
+vps_service_foundation_disk_scan_cache_file: "{{ vps_service_foundation_portal_data_dir }}/disk-usage-cache.json"
+vps_service_foundation_disk_scan_cache_seconds: 3600
+vps_service_foundation_disk_scan_roots:
+  - "{{ vps_service_foundation_root }}"
+  - /var/log
+  - /var/lib/docker
+  - /home
+vps_service_foundation_alert_service: nutsnews-ops-alert-check.service
+vps_service_foundation_alert_timer: nutsnews-ops-alert-check.timer
+vps_service_foundation_report_service: nutsnews-ops-health-report.service
+vps_service_foundation_report_timer: nutsnews-ops-health-report.timer
+
+vps_service_foundation_email_enabled: false
+vps_service_foundation_email_smtp_host: ""
+vps_service_foundation_email_smtp_port: 587
+vps_service_foundation_email_smtp_username: ""
+vps_service_foundation_email_smtp_password: ""
+vps_service_foundation_email_smtp_starttls: true
+vps_service_foundation_email_from: ""
+vps_service_foundation_email_to: ""
+vps_service_foundation_email_alert_cooldown_seconds: 21600
+vps_service_foundation_email_report_subject_prefix: NutsNews VPS
 
 vps_service_foundation_public_ipv4: "{{ vps_baseline_ipv4 | default('65.75.202.112') }}"
 vps_service_foundation_public_ipv6: "{{ vps_baseline_ipv6 | default('2606:cc0:11:23ae::1') }}"
@@ -150,3 +177,7 @@ vps_service_foundation_directories:
     owner: root
     group: adm
     mode: "0750"
+  - path: "{{ vps_service_foundation_private_config_dir }}"
+    owner: root
+    group: root
+    mode: "0700"
