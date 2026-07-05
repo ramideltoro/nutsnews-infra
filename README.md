@@ -14,6 +14,14 @@ PR validation checks must pass before infrastructure changes are merged or appli
 
 Manual changes on the VPS create drift and must be avoided. Emergency manual intervention, if ever required, must be documented afterward and reconciled back into this repository.
 
+## Operating Model
+
+NutsNews runs as a strict GitOps-managed, provider-agnostic VPS platform. The VPS is the primary production host; manual SSH is break-glass only; and the Ops Portal is the planned dashboard and control plane for state, services, deploys, checks, alerts, backups, runbooks, and reports.
+
+The platform should stay lightweight for solo maintenance on a cheap VPS. Security, performance, resiliency, observability, recoverability, and regular email reporting are first-class requirements. The optional home server support node may help with encrypted offsite backups, restore testing, private monitoring, scheduled reporting, and background jobs, but it must never be required for the public website to stay online.
+
+See [docs/OPERATIONS_CHARTER.md](docs/OPERATIONS_CHARTER.md) for the full operating charter.
+
 ## VPS Purpose
 
 The VPS hosts the self-managed NutsNews runtime and operational tooling that belongs outside the managed external platforms. It is intended to run only the services, configuration, observability hooks, and automation declared in this repository.
