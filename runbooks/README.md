@@ -10,3 +10,4 @@ Add runbooks for deployment, rollback, incident response, security changes, back
 - [Break-Glass SSH Notes](BREAK_GLASS_SSH.md)
 - [Bootstrap Rollback And Recovery Notes](BOOTSTRAP_ROLLBACK_RECOVERY.md)
 - [Protected Ansible Apply](PROTECTED_ANSIBLE_APPLY.md)
+- [VPS Service Foundation](VPS_SERVICE_FOUNDATION.md)

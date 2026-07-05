@@ -1,0 +1,36 @@
+name: nutsnews-service-foundation
+
+services:
+  caddy:
+    image: caddy:2-alpine
+    container_name: nutsnews-caddy
+    restart: unless-stopped
+    user: "64010:64010"
+    read_only: true
+    mem_limit: 128m
+    pids_limit: 128
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    ports:
+      - "127.0.0.1:8080:8080/tcp"
+    volumes:
+      - /opt/nutsnews/config/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - /opt/nutsnews/config/caddy/runtime:/config
+      - /opt/nutsnews/data/caddy:/data
+      - /opt/nutsnews/health:/srv/nutsnews-health:ro
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/healthz | grep -qx ok"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    networks:
+      - edge
+
+networks:
+  edge:
+    name: nutsnews-edge

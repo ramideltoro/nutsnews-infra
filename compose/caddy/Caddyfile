@@ -1,0 +1,19 @@
+{
+  admin off
+  auto_https off
+}
+
+:8080 {
+  encode zstd gzip
+
+  header {
+    X-Content-Type-Options nosniff
+    Referrer-Policy no-referrer
+  }
+
+  @health path /healthz
+  respond @health "ok" 200
+
+  root * /srv/nutsnews-health
+  file_server
+}

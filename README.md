@@ -32,6 +32,8 @@ The first Ansible bootstrap layer defines a lightweight Ubuntu baseline for `vps
 
 Ansible baseline applies are now designed to run through the protected `production-vps` GitHub Environment. The apply workflow is manual-only, defaults to check mode, connects as `nutsnews_ops`, and requires environment secrets for SSH material. It is not automatic on merge yet.
 
+The next service foundation layer adds Ansible-managed Docker Engine and Docker Compose support, a standard `/opt/nutsnews` runtime layout, and a local-only Caddy placeholder service for verifying the container layer before public routing or heavier tooling is introduced.
+
 ## Repo Layout
 
 ```text
@@ -69,6 +71,8 @@ Ansible baseline applies are now designed to run through the protected `producti
 ## Protected Manual Applies
 
 Use [runbooks/PROTECTED_ANSIBLE_APPLY.md](runbooks/PROTECTED_ANSIBLE_APPLY.md) before running the manual Ansible workflow. Root SSH was only for the initial bootstrap and is now break-glass only.
+
+Use [runbooks/VPS_SERVICE_FOUNDATION.md](runbooks/VPS_SERVICE_FOUNDATION.md) before applying or verifying the Docker and Caddy service foundation.
 
 ## External Systems
 

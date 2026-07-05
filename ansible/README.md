@@ -10,6 +10,7 @@ This directory contains the first bootstrap baseline for `vps.nutsnews.com`. It 
 - `inventories/production/group_vars/nutsnews_vps.yml`: non-secret host defaults
 - `playbooks/bootstrap.yml`: baseline bootstrap entry point
 - `roles/vps_baseline/`: lightweight Ubuntu baseline role
+- `roles/vps_service_foundation/`: Docker, Compose, `/opt/nutsnews`, and local Caddy foundation
 - `facts/`: ignored local output directory for generated server fact snapshots
 
 ## Validation
@@ -48,6 +49,8 @@ ansible-playbook playbooks/bootstrap.yml --check --diff \
 ```
 
 Then run the real bootstrap only after the check-mode output is reviewed.
+
+The service foundation role installs Docker Engine and Compose, creates the `/opt/nutsnews` layout, copies the Caddy Compose bundle, and starts the local-only placeholder service during real apply mode. It skips Docker Compose mutation in Ansible check mode.
 
 ## Protected Manual Workflow
 

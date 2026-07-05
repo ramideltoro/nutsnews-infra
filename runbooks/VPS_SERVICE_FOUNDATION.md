@@ -1,0 +1,56 @@
+# VPS Service Foundation Runbook
+
+Use this runbook after the service foundation PR is merged and before applying the baseline through the protected workflow.
+
+## What This Adds
+
+- Docker Engine from Ubuntu packages
+- Docker Compose v2 from Ubuntu packages
+- `/opt/nutsnews` runtime layout:
+  - `/opt/nutsnews/apps`
+  - `/opt/nutsnews/config`
+  - `/opt/nutsnews/data`
+  - `/opt/nutsnews/logs`
+  - `/opt/nutsnews/backups`
+  - `/opt/nutsnews/portal-assets`
+  - `/opt/nutsnews/health`
+- Caddy managed by Compose at `/opt/nutsnews/apps/caddy/compose.yml`
+- Local placeholder page and `/healthz` endpoint on `127.0.0.1:8080`
+
+## Apply Safely
+
+1. Open the `Protected Ansible Apply` workflow.
+2. Run `check` mode first.
+3. Review the Ansible recap and diff.
+4. Run `apply` mode only after check mode looks safe.
+5. Keep root SSH as break-glass only.
+
+## Verify After Apply
+
+From a break-glass-free SSH session as `nutsnews_ops`:
+
+```bash
+sudo docker compose -f /opt/nutsnews/apps/caddy/compose.yml ps
+curl -fsS http://127.0.0.1:8080/healthz
+curl -fsS http://127.0.0.1:8080/
+```
+
+Expected `/healthz` output:
+
+```text
+ok
+```
+
+## Public Exposure
+
+Caddy is intentionally bound to `127.0.0.1:8080` only. Do not expose public routing until a later PR adds reviewed domain, TLS, and proxy rules.
+
+## Recovery
+
+If the service layer fails:
+
+1. Rerun the protected workflow in check mode.
+2. Check `sudo docker compose -f /opt/nutsnews/apps/caddy/compose.yml ps`.
+3. Check `sudo docker logs nutsnews-caddy`.
+4. Check `/opt/nutsnews/config/caddy/Caddyfile`.
+5. Reconcile any manual repair through a PR.
