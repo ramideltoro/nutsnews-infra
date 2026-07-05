@@ -10,6 +10,8 @@ After the initial bootstrap, no server changes should be made manually. All infr
 commit -> PR -> checks -> merge -> pipeline apply
 ```
 
+PR validation checks must pass before infrastructure changes are merged or applied.
+
 Manual changes on the VPS create drift and must be avoided. Emergency manual intervention, if ever required, must be documented afterward and reconciled back into this repository.
 
 ## VPS Purpose
