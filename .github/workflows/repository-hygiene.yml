@@ -1,0 +1,110 @@
+name: Repository Hygiene
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  guardrails:
+    name: Guardrails
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6
+        with:
+          persist-credentials: false
+
+      - name: Validate required folders
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          required_dirs=(
+            .github/workflows
+            terraform
+            ansible
+            compose
+            portal
+            docs
+            runbooks
+          )
+
+          for path in "${required_dirs[@]}"; do
+            if [[ ! -d "$path" ]]; then
+              echo "Missing required folder: $path" >&2
+              exit 1
+            fi
+          done
+
+      - name: Validate governance files
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          required_files=(
+            .github/CODEOWNERS
+            .github/pull_request_template.md
+          )
+
+          for path in "${required_files[@]}"; do
+            if [[ ! -f "$path" ]]; then
+              echo "Missing required governance file: $path" >&2
+              exit 1
+            fi
+          done
+
+      - name: Check naming guardrails
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          label_word="$(printf '%s%s' 'co' 'dex')"
+          brand_word="$(printf '%s%s' 'Co' 'dex')"
+          blocked_label="$(printf '[%s]' "$label_word")"
+          failed=0
+
+          check_file() {
+            local path="$1"
+            if grep -nF "$blocked_label" "$path"; then
+              echo "Blocked agent label found in $path" >&2
+              failed=1
+            fi
+            if grep -nF "$brand_word" "$path"; then
+              echo "Blocked agent branding found in $path" >&2
+              failed=1
+            fi
+          }
+
+          while IFS= read -r path; do
+            check_file "$path"
+          done < <(git ls-files '*.md' 'AGENTS.md' '.github/pull_request_template.md')
+
+          if [[ "${GITHUB_EVENT_NAME}" == "pull_request" ]]; then
+            pr_text="$(mktemp)"
+            jq -r '[.pull_request.title // "", .pull_request.body // "", .pull_request.head.ref // ""] | .[]' \
+              "$GITHUB_EVENT_PATH" > "$pr_text"
+            check_file "$pr_text"
+
+            head_ref="$(jq -r '.pull_request.head.ref // ""' "$GITHUB_EVENT_PATH")"
+            if [[ "$head_ref" == *"$label_word"* || "$head_ref" == *"$brand_word"* || "$head_ref" == *"$blocked_label"* ]]; then
+              echo "Blocked agent branding found in branch name: $head_ref" >&2
+              failed=1
+            fi
+          fi
+
+          exit "$failed"

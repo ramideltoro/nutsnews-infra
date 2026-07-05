@@ -1,0 +1,102 @@
+name: Workflow Safety
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  actionlint:
+    name: Actionlint
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6
+        with:
+          persist-credentials: false
+
+      - name: Install actionlint
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="1.7.12"
+          url="https://github.com/rhysd/actionlint/releases/download/v${version}/actionlint_${version}_linux_amd64.tar.gz"
+          mkdir -p .tools/actionlint
+          curl -sSfL "$url" -o .tools/actionlint/actionlint.tar.gz
+          tar -xzf .tools/actionlint/actionlint.tar.gz -C .tools/actionlint actionlint
+
+      - name: Run actionlint
+        shell: bash
+        run: .tools/actionlint/actionlint -color
+
+  security-scan:
+    name: Security scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      actions: read
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6
+        with:
+          persist-credentials: false
+
+      - name: Run workflow security scanner
+        uses: zizmorcore/zizmor-action@192e21d79ab29983730a13d1382995c2307fbcaa  # v0.5.7
+        with:
+          advanced-security: false
+          annotations: true
+          inputs: .github/workflows
+          min-confidence: medium
+          min-severity: medium
+          online-audits: false
+
+  restricted-events:
+    name: Restricted events
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6
+        with:
+          persist-credentials: false
+
+      - name: Block restricted pull request event
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          restricted_event="pull_request""_target"
+          matches="$(git grep -n "$restricted_event" -- .github/workflows || true)"
+          if [[ -z "$matches" ]]; then
+            exit 0
+          fi
+
+          approval_doc="docs/security/pull-request-target.md"
+          if [[ ! -f "$approval_doc" ]]; then
+            echo "$matches" >&2
+            echo "Restricted event usage requires $approval_doc with explicit approval." >&2
+            exit 1
+          fi
+
+          if ! grep -qi "approved" "$approval_doc"; then
+            echo "$matches" >&2
+            echo "Restricted event usage is documented but not explicitly approved." >&2
+            exit 1
+          fi

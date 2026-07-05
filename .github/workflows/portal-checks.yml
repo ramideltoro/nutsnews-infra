@@ -1,0 +1,102 @@
+name: Portal Checks
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  portal:
+    name: Portal scaffold or app checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6
+        with:
+          persist-credentials: false
+
+      - name: Detect portal package
+        id: detect
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -f portal/package.json ]]; then
+            echo "package_json=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "package_json=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Set up Node.js
+        if: steps.detect.outputs.package_json == 'true'
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e  # v6
+        with:
+          node-version: "24"
+
+      - name: Install portal dependencies
+        if: steps.detect.outputs.package_json == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd portal
+          if [[ -f pnpm-lock.yaml ]]; then
+            corepack enable
+            pnpm install --frozen-lockfile
+          elif [[ -f yarn.lock ]]; then
+            corepack enable
+            yarn install --immutable
+          elif [[ -f package-lock.json || -f npm-shrinkwrap.json ]]; then
+            npm ci
+          else
+            npm install
+          fi
+
+      - name: Detect portal scripts
+        if: steps.detect.outputs.package_json == 'true'
+        id: scripts
+        shell: bash
+        run: |
+          set -euo pipefail
+          node -e '
+            const fs = require("fs");
+            const pkg = JSON.parse(fs.readFileSync("portal/package.json", "utf8"));
+            const scripts = pkg.scripts || {};
+            for (const name of ["lint", "test", "build"]) {
+              console.log(`${name}=${Object.prototype.hasOwnProperty.call(scripts, name)}`);
+            }
+          ' >> "$GITHUB_OUTPUT"
+
+      - name: Run portal lint
+        if: steps.scripts.outputs.lint == 'true'
+        working-directory: portal
+        shell: bash
+        run: npm run lint
+
+      - name: Run portal tests
+        if: steps.scripts.outputs.test == 'true'
+        working-directory: portal
+        shell: bash
+        run: npm run test
+
+      - name: Build portal
+        if: steps.scripts.outputs.build == 'true'
+        working-directory: portal
+        shell: bash
+        run: npm run build
+
+      - name: Skip portal app checks
+        if: steps.detect.outputs.package_json != 'true'
+        shell: bash
+        run: echo "No portal package.json found."

@@ -1,0 +1,127 @@
+name: Runtime Checks
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  compose:
+    name: Compose config
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6
+        with:
+          persist-credentials: false
+
+      - name: Validate Compose files
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          mapfile -t compose_files < <(
+            find compose -type f \( \
+              -name 'compose.yml' -o \
+              -name 'compose.yaml' -o \
+              -name 'docker-compose.yml' -o \
+              -name 'docker-compose.yaml' -o \
+              -name '*.compose.yml' -o \
+              -name '*.compose.yaml' \
+            \) | sort
+          )
+
+          if [[ "${#compose_files[@]}" -eq 0 ]]; then
+            echo "No Compose files found."
+            exit 0
+          fi
+
+          for file in "${compose_files[@]}"; do
+            docker compose -f "$file" config --quiet
+          done
+
+  hadolint:
+    name: Hadolint
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6
+        with:
+          persist-credentials: false
+
+      - name: Detect Dockerfiles
+        id: detect
+        shell: bash
+        run: |
+          set -euo pipefail
+          if find . -type f \( -name 'Dockerfile' -o -name '*.Dockerfile' \) | grep -q .; then
+            echo "has_files=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_files=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Run Hadolint
+        if: steps.detect.outputs.has_files == 'true'
+        uses: hadolint/hadolint-action@54c9adbab1582c2ef04b2016b760714a4bfde3cf  # v3.1.0
+        with:
+          recursive: true
+
+      - name: Skip Hadolint
+        if: steps.detect.outputs.has_files != 'true'
+        shell: bash
+        run: echo "No Dockerfiles found."
+
+  trivy-filesystem:
+    name: Trivy filesystem
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6
+        with:
+          persist-credentials: false
+
+      - name: Run Trivy filesystem scan
+        uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8  # v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: vuln,secret
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+
+  trivy-config:
+    name: Trivy config
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6
+        with:
+          persist-credentials: false
+
+      - name: Run Trivy config scan
+        uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8  # v0.36.0
+        with:
+          scan-type: config
+          scan-ref: .
+          severity: HIGH,CRITICAL
+          exit-code: "1"

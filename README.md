@@ -41,6 +41,17 @@ The VPS hosts the self-managed NutsNews runtime and operational tooling that bel
 - Operations portal code and configuration
 - Runbooks for deployment, operations, incident response, and security changes
 
+## Required CI Gates
+
+- Repository Hygiene: verifies the expected scaffold folders, PR template, CODEOWNERS, and naming guardrails.
+- Workflow Safety: checks GitHub Actions syntax, scans workflow security, and blocks restricted trigger usage without approval.
+- Secrets Scan: runs Gitleaks on pull requests, main branch pushes, manual runs, and a nightly schedule.
+- Supply Chain: runs Dependency Review for pull requests and OSV-Scanner across the repository.
+- Infrastructure Checks: runs YAML linting, OpenTofu formatting and validation, TFLint, Checkov, and Ansible linting when relevant files exist.
+- Runtime Checks: validates Compose files when present, runs Hadolint for Dockerfiles, and scans filesystem/config risk with Trivy.
+- Portal Checks: skips cleanly for the scaffold, then runs install, lint, test, and build scripts when `portal/package.json` exists.
+- Nightly Audit: runs deeper workflow, dependency, and configuration scans on a schedule.
+
 ## External Systems
 
 The following systems remain managed outside this repository:
