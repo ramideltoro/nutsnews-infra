@@ -56,3 +56,5 @@ If the service layer fails:
 3. Check `sudo docker logs nutsnews-caddy`.
 4. Check `/opt/nutsnews/config/caddy/Caddyfile`.
 5. Reconcile any manual repair through a PR.
+
+The Ansible role prints Compose status and the last Caddy logs automatically if `/healthz` does not answer during apply.

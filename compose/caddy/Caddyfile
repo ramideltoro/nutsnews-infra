@@ -4,6 +4,7 @@
 }
 
 :8080 {
+  bind 0.0.0.0
   encode zstd gzip
 
   header {

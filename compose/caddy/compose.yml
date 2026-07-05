@@ -7,6 +7,10 @@ services:
     restart: unless-stopped
     user: "64010:64010"
     read_only: true
+    environment:
+      HOME: /tmp
+      XDG_CONFIG_HOME: /config
+      XDG_DATA_HOME: /data
     mem_limit: 128m
     pids_limit: 128
     cap_drop:
@@ -21,6 +25,7 @@ services:
       - /opt/nutsnews/data/caddy:/data
       - /opt/nutsnews/health:/srv/nutsnews-health:ro
     tmpfs:
+      - /run:size=16m,mode=0755
       - /tmp:size=16m,mode=1777
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/healthz | grep -qx ok"]

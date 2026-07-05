@@ -132,14 +132,61 @@
         or 'Pulling' in vps_service_foundation_compose_up.stderr
 
     - name: Verify local Caddy health endpoint
-      ansible.builtin.uri:
-        url: "{{ vps_service_foundation_healthcheck_url }}"
-        return_content: true
-        status_code: 200
-      register: vps_service_foundation_healthcheck
-      changed_when: false
-      retries: 12
-      delay: 5
-      until:
-        - vps_service_foundation_healthcheck.status == 200
-        - vps_service_foundation_healthcheck.content | trim == "ok"
+      block:
+        - name: Wait for local Caddy health endpoint
+          ansible.builtin.uri:
+            url: "{{ vps_service_foundation_healthcheck_url }}"
+            return_content: true
+            status_code: 200
+          register: vps_service_foundation_healthcheck
+          changed_when: false
+          retries: 12
+          delay: 5
+          until:
+            - vps_service_foundation_healthcheck.status == 200
+            - vps_service_foundation_healthcheck.content | trim == "ok"
+
+      rescue:
+        - name: Show Caddy Compose status after health failure
+          ansible.builtin.command:
+            argv:
+              - docker
+              - compose
+              - --project-directory
+              - "{{ vps_service_foundation_caddy_app_dir }}"
+              - -f
+              - "{{ vps_service_foundation_caddy_compose_file }}"
+              - ps
+          register: vps_service_foundation_compose_ps
+          changed_when: false
+          failed_when: false
+
+        - name: Print Caddy Compose status after health failure
+          ansible.builtin.debug:
+            var: vps_service_foundation_compose_ps.stdout_lines
+
+        - name: Show Caddy logs after health failure
+          ansible.builtin.command:
+            argv:
+              - docker
+              - logs
+              - --tail
+              - "200"
+              - nutsnews-caddy
+          register: vps_service_foundation_caddy_logs
+          changed_when: false
+          failed_when: false
+
+        - name: Print Caddy logs after health failure
+          ansible.builtin.debug:
+            msg: >-
+              {{
+                (vps_service_foundation_caddy_logs.stdout_lines | default([]))
+                + (vps_service_foundation_caddy_logs.stderr_lines | default([]))
+              }}
+
+        - name: Fail Caddy health verification
+          ansible.builtin.fail:
+            msg: >-
+              Caddy did not answer {{ vps_service_foundation_healthcheck_url }}.
+              Compose status and container logs were printed above.
