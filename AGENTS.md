@@ -23,6 +23,10 @@
 - The optional home server support node must never be required for the public website to stay online.
 - Use private networking or tunnels for support-node connectivity. Do not expose broad inbound ports.
 - Self-hosted GitHub Actions runners on the home server may run only trusted workflows unless explicitly approved later.
+- Every change in this repository must be documented in `ramideltoro/nutsnews-docs`.
+- Push the matching `ramideltoro/nutsnews-docs` documentation update directly to its `main` branch with no pull request unless GitHub blocks the push.
+- Keep only short operational pointers in this repository. Learning, explanation, diagrams, recovery context, and operating guides belong in `ramideltoro/nutsnews-docs`.
+- Documentation-only changes must never trigger app, Worker, VPS, or deployment workflows.
 
 ## Validation
 
@@ -34,6 +38,7 @@
 
 ## Documentation
 
-- Add or update docs and runbooks for operations, deployment, infrastructure, or security changes.
+- Add or update `ramideltoro/nutsnews-docs` for every change in this repository.
+- Add or update local docs and runbooks only as short operational pointers for operations, deployment, infrastructure, or security changes.
 - Security-sensitive changes must explain the operational impact and rollback path.
 - Deployment changes must document how they are applied and verified.
