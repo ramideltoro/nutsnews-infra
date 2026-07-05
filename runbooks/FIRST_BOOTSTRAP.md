@@ -1,6 +1,6 @@
 # First Bootstrap Runbook
 
-Use this only after the Ansible bootstrap PR is merged and the VPS bootstrap is explicitly approved.
+Use this only for the original root-assisted bootstrap path. That one-time bootstrap has been completed manually; future baseline runs should use the protected manual GitHub Actions workflow in [PROTECTED_ANSIBLE_APPLY.md](PROTECTED_ANSIBLE_APPLY.md).
 
 ## Preconditions
 
@@ -23,7 +23,7 @@ ansible-lint ansible
 
 ## Dry Run
 
-Do not run this from CI yet. From a trusted operator machine:
+From a trusted operator machine:
 
 ```bash
 cd ansible
@@ -58,3 +58,4 @@ ansible-playbook playbooks/bootstrap.yml \
 
 - Commit any required reconciliation changes through a PR.
 - Update `ramideltoro/nutsnews-docs` if the run revealed new facts or recovery notes.
+- Treat root SSH as break-glass only.

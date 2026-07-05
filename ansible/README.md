@@ -2,12 +2,12 @@
 
 Ansible inventory, playbooks, roles, and host configuration automation live here.
 
-This directory contains the first bootstrap baseline for `vps.nutsnews.com`. It does not include secrets, private keys, passwords, root credentials, or production apply workflows.
+This directory contains the first bootstrap baseline for `vps.nutsnews.com`. It does not include secrets, private keys, passwords, or root credentials.
 
 ## Layout
 
 - `inventories/production/hosts.yml`: production inventory for the primary VPS
-- `inventories/production/group_vars/vps_baseline_vps.yml`: non-secret host defaults
+- `inventories/production/group_vars/nutsnews_vps.yml`: non-secret host defaults
 - `playbooks/bootstrap.yml`: baseline bootstrap entry point
 - `roles/vps_baseline/`: lightweight Ubuntu baseline role
 - `facts/`: ignored local output directory for generated server fact snapshots
@@ -35,7 +35,7 @@ cd ansible
 ansible-lint .
 ```
 
-Do not run the playbook against the VPS until bootstrap is intentionally approved.
+Do not run the playbook against the VPS outside an approved local check or the protected manual workflow.
 
 ## Dry Run
 
@@ -48,6 +48,16 @@ ansible-playbook playbooks/bootstrap.yml --check --diff \
 ```
 
 Then run the real bootstrap only after the check-mode output is reviewed.
+
+## Protected Manual Workflow
+
+GitHub Actions can run the baseline through the `production-vps` Environment using `.github/workflows/protected-ansible-apply.yml`.
+
+- The workflow is `workflow_dispatch` only.
+- The default run mode is `check`.
+- Real apply mode requires Environment approval and the `confirm_apply` input.
+- The workflow connects as `nutsnews_ops`, never root.
+- Required secrets are documented in [../runbooks/PROTECTED_ANSIBLE_APPLY.md](../runbooks/PROTECTED_ANSIBLE_APPLY.md).
 
 ## Lockout Safety
 

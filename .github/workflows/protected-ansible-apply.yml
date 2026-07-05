@@ -1,0 +1,176 @@
+name: Protected Ansible Apply
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_mode:
+        description: Run the VPS baseline in check mode or apply mode.
+        required: true
+        default: check
+        type: choice
+        options:
+          - check
+          - apply
+      confirm_apply:
+        description: For apply mode only, type vps.nutsnews.com. Leave blank for check mode.
+        required: false
+        default: ""
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-vps-ansible-baseline
+  cancel-in-progress: false
+
+jobs:
+  baseline:
+    name: VPS baseline
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: production-vps
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6
+        with:
+          persist-credentials: false
+
+      - name: Validate dispatch inputs
+        shell: bash
+        env:
+          RUN_MODE: ${{ inputs.run_mode }}
+          CONFIRM_APPLY: ${{ inputs.confirm_apply }}
+        run: |
+          set -euo pipefail
+
+          if [[ "$RUN_MODE" != "check" && "$RUN_MODE" != "apply" ]]; then
+            echo "Unsupported run_mode: $RUN_MODE" >&2
+            exit 1
+          fi
+
+          if [[ "$RUN_MODE" == "apply" && "$CONFIRM_APPLY" != "vps.nutsnews.com" ]]; then
+            echo "Apply mode requires confirm_apply to be exactly vps.nutsnews.com." >&2
+            exit 1
+          fi
+
+      - name: Install Ansible
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m pip install --user ansible-core
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Install Ansible collections
+        shell: bash
+        working-directory: ansible
+        run: ansible-galaxy collection install -r requirements.yml
+
+      - name: Validate required environment secrets
+        shell: bash
+        env:
+          NUTSNEWS_VPS_SSH_PRIVATE_KEY: ${{ secrets.NUTSNEWS_VPS_SSH_PRIVATE_KEY }}
+          NUTSNEWS_VPS_KNOWN_HOSTS: ${{ secrets.NUTSNEWS_VPS_KNOWN_HOSTS }}
+          NUTSNEWS_VPS_ADMIN_AUTHORIZED_KEYS_JSON: ${{ secrets.NUTSNEWS_VPS_ADMIN_AUTHORIZED_KEYS_JSON }}
+        run: |
+          set -euo pipefail
+
+          missing=0
+          for secret_name in \
+            NUTSNEWS_VPS_SSH_PRIVATE_KEY \
+            NUTSNEWS_VPS_KNOWN_HOSTS \
+            NUTSNEWS_VPS_ADMIN_AUTHORIZED_KEYS_JSON
+          do
+            if [[ -z "${!secret_name}" ]]; then
+              echo "Missing required production-vps environment secret: $secret_name" >&2
+              missing=1
+            fi
+          done
+
+          exit "$missing"
+
+      - name: Prepare SSH material
+        shell: bash
+        env:
+          NUTSNEWS_VPS_SSH_PRIVATE_KEY: ${{ secrets.NUTSNEWS_VPS_SSH_PRIVATE_KEY }}
+          NUTSNEWS_VPS_KNOWN_HOSTS: ${{ secrets.NUTSNEWS_VPS_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+
+          install -m 0700 -d "$HOME/.ssh"
+          printf '%s\n' "$NUTSNEWS_VPS_SSH_PRIVATE_KEY" > "$HOME/.ssh/nutsnews_vps"
+          chmod 0600 "$HOME/.ssh/nutsnews_vps"
+
+          printf '%s\n' "$NUTSNEWS_VPS_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          chmod 0600 "$HOME/.ssh/known_hosts"
+
+          ssh-keygen -y -f "$HOME/.ssh/nutsnews_vps" > /dev/null
+          ssh-keygen -F 65.75.202.112 -f "$HOME/.ssh/known_hosts" > /dev/null
+
+      - name: Build runtime extra vars
+        shell: bash
+        working-directory: ansible
+        env:
+          NUTSNEWS_VPS_ADMIN_AUTHORIZED_KEYS_JSON: ${{ secrets.NUTSNEWS_VPS_ADMIN_AUTHORIZED_KEYS_JSON }}
+        run: |
+          set -euo pipefail
+
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          keys = json.loads(os.environ["NUTSNEWS_VPS_ADMIN_AUTHORIZED_KEYS_JSON"])
+          if not isinstance(keys, list) or not keys:
+              raise SystemExit("NUTSNEWS_VPS_ADMIN_AUTHORIZED_KEYS_JSON must be a non-empty JSON array.")
+
+          if not all(isinstance(key, str) and key.strip() for key in keys):
+              raise SystemExit("Every authorized key entry must be a non-empty string.")
+
+          extra_vars = {"vps_baseline_admin_authorized_keys": keys}
+          Path(".runtime-extra-vars.json").write_text(json.dumps(extra_vars) + "\n", encoding="utf-8")
+          PY
+
+          chmod 0600 .runtime-extra-vars.json
+
+      - name: Run Ansible baseline
+        shell: bash
+        working-directory: ansible
+        env:
+          ANSIBLE_HOST_KEY_CHECKING: "true"
+          RUN_MODE: ${{ inputs.run_mode }}
+        run: |
+          set -euo pipefail
+
+          args=(
+            playbooks/bootstrap.yml
+            --inventory inventories/production/hosts.yml
+            --limit vps.nutsnews.com
+            --user nutsnews_ops
+            --private-key "$HOME/.ssh/nutsnews_vps"
+            --extra-vars @.runtime-extra-vars.json
+            --ssh-common-args "-o UserKnownHostsFile=$HOME/.ssh/known_hosts -o StrictHostKeyChecking=yes -o IdentitiesOnly=yes"
+          )
+
+          if [[ "$RUN_MODE" == "check" ]]; then
+            args+=(--check --diff)
+          else
+            args+=(--diff)
+          fi
+
+          echo "Running Ansible baseline in $RUN_MODE mode as nutsnews_ops."
+          set +e
+          ansible-playbook "${args[@]}" 2>&1 | tee "$RUNNER_TEMP/ansible-output.log"
+          ansible_status="${PIPESTATUS[0]}"
+          set -e
+
+          echo
+          echo "Ansible recap"
+          sed -n '/PLAY RECAP/,$p' "$RUNNER_TEMP/ansible-output.log"
+
+          if [[ "$ansible_status" -ne 0 ]]; then
+            echo "Ansible failed with exit code $ansible_status." >&2
+          fi
+
+          exit "$ansible_status"
