@@ -15,8 +15,8 @@ services:
     pids_limit: 128
     cap_drop:
       - ALL
-    security_opt:
-      - no-new-privileges:true
+    cap_add:
+      - NET_BIND_SERVICE
     ports:
       - "127.0.0.1:8080:8080/tcp"
     volumes:

@@ -249,6 +249,12 @@ jobs:
           grep -q 'XDG_CONFIG_HOME: /config' compose/caddy/compose.yml
           grep -q 'XDG_DATA_HOME: /data' compose/caddy/compose.yml
           grep -q '/run:size=16m,mode=0755' compose/caddy/compose.yml
+          grep -q 'cap_add:' compose/caddy/compose.yml
+          grep -q 'NET_BIND_SERVICE' compose/caddy/compose.yml
+          if grep -q 'no-new-privileges:true' compose/caddy/compose.yml; then
+            echo "Caddy cannot run with no-new-privileges while using the official image file capability." >&2
+            exit 1
+          fi
           grep -q 'Show Caddy Compose status after health failure' ansible/roles/vps_service_foundation/tasks/main.yml
           grep -q 'Show Caddy logs after health failure' ansible/roles/vps_service_foundation/tasks/main.yml
 
