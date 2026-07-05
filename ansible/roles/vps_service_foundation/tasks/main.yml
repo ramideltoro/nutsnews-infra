@@ -5,133 +5,141 @@
     update_cache: true
     cache_valid_time: 3600
 
-- name: Ensure Docker service is enabled
-  ansible.builtin.service:
-    name: docker
-    enabled: true
-    state: started
+- name: Explain service foundation check mode limits
+  ansible.builtin.debug:
+    msg: >-
+      Docker package installation is simulated in check mode. Runtime tasks that
+      require the docker service, docker group, service user, or newly created
+      /opt/nutsnews directories are skipped until apply mode creates them.
+  when: ansible_check_mode
 
-- name: Configure Docker daemon defaults
-  ansible.builtin.template:
-    src: daemon.json.j2
-    dest: /etc/docker/daemon.json
-    owner: root
-    group: root
-    mode: "0644"
-  notify: Restart docker
-
-- name: Add approved operators to docker group
-  ansible.builtin.user:
-    name: "{{ item }}"
-    groups:
-      - docker
-    append: true
-  loop: "{{ vps_service_foundation_docker_users }}"
-
-- name: Ensure Caddy runtime group exists
-  ansible.builtin.group:
-    name: "{{ vps_service_foundation_caddy_group }}"
-    gid: "{{ vps_service_foundation_caddy_gid }}"
-    system: true
-    state: present
-
-- name: Ensure Caddy runtime user exists
-  ansible.builtin.user:
-    name: "{{ vps_service_foundation_caddy_user }}"
-    uid: "{{ vps_service_foundation_caddy_uid }}"
-    group: "{{ vps_service_foundation_caddy_group }}"
-    system: true
-    create_home: false
-    home: /nonexistent
-    shell: /usr/sbin/nologin
-    state: present
-
-- name: Create NutsNews service directory layout
-  ansible.builtin.file:
-    path: "{{ item.path }}"
-    owner: "{{ item.owner }}"
-    group: "{{ item.group }}"
-    mode: "{{ item.mode }}"
-    state: directory
-  loop: "{{ vps_service_foundation_directories }}"
-  loop_control:
-    label: "{{ item.path }}"
-
-- name: Install Caddy Compose file
-  ansible.builtin.copy:
-    src: "{{ vps_service_foundation_source_compose_file }}"
-    dest: "{{ vps_service_foundation_caddy_compose_file }}"
-    owner: root
-    group: root
-    mode: "0644"
-
-- name: Install Caddy placeholder config
-  ansible.builtin.copy:
-    src: "{{ vps_service_foundation_source_caddyfile }}"
-    dest: "{{ vps_service_foundation_caddy_config_dir }}/Caddyfile"
-    owner: root
-    group: root
-    mode: "0644"
-
-- name: Install local health placeholder page
-  ansible.builtin.copy:
-    src: "{{ vps_service_foundation_source_health_index }}"
-    dest: "{{ vps_service_foundation_health_dir }}/index.html"
-    owner: root
-    group: root
-    mode: "0644"
-
-- name: Apply pending Docker daemon changes
-  ansible.builtin.meta: flush_handlers
-
-- name: Validate Caddy Compose configuration
-  ansible.builtin.command:
-    argv:
-      - docker
-      - compose
-      - --project-directory
-      - "{{ vps_service_foundation_caddy_app_dir }}"
-      - -f
-      - "{{ vps_service_foundation_caddy_compose_file }}"
-      - config
-      - --quiet
-  changed_when: false
+- name: Manage Docker service and service foundation runtime
   when: not ansible_check_mode
+  block:
+    - name: Ensure Docker service is enabled
+      ansible.builtin.service:
+        name: docker
+        enabled: true
+        state: started
 
-- name: Start Caddy service foundation
-  ansible.builtin.command:
-    argv:
-      - docker
-      - compose
-      - --project-directory
-      - "{{ vps_service_foundation_caddy_app_dir }}"
-      - -f
-      - "{{ vps_service_foundation_caddy_compose_file }}"
-      - up
-      - -d
-      - --remove-orphans
-  register: vps_service_foundation_compose_up
-  changed_when: >-
-    'Created' in vps_service_foundation_compose_up.stdout
-    or 'Created' in vps_service_foundation_compose_up.stderr
-    or 'Recreated' in vps_service_foundation_compose_up.stdout
-    or 'Recreated' in vps_service_foundation_compose_up.stderr
-    or 'Started' in vps_service_foundation_compose_up.stdout
-    or 'Started' in vps_service_foundation_compose_up.stderr
-    or 'Pulling' in vps_service_foundation_compose_up.stdout
-    or 'Pulling' in vps_service_foundation_compose_up.stderr
-  when: not ansible_check_mode
+    - name: Configure Docker daemon defaults
+      ansible.builtin.template:
+        src: daemon.json.j2
+        dest: /etc/docker/daemon.json
+        owner: root
+        group: root
+        mode: "0644"
+      notify: Restart docker
 
-- name: Verify local Caddy health endpoint
-  ansible.builtin.uri:
-    url: "{{ vps_service_foundation_healthcheck_url }}"
-    return_content: true
-    status_code: 200
-  register: vps_service_foundation_healthcheck
-  changed_when: false
-  retries: 12
-  delay: 5
-  until:
-    - vps_service_foundation_healthcheck.status == 200
-    - vps_service_foundation_healthcheck.content | trim == "ok"
-  when: not ansible_check_mode
+    - name: Add approved operators to docker group
+      ansible.builtin.user:
+        name: "{{ item }}"
+        groups:
+          - docker
+        append: true
+      loop: "{{ vps_service_foundation_docker_users }}"
+
+    - name: Ensure Caddy runtime group exists
+      ansible.builtin.group:
+        name: "{{ vps_service_foundation_caddy_group }}"
+        gid: "{{ vps_service_foundation_caddy_gid }}"
+        system: true
+        state: present
+
+    - name: Ensure Caddy runtime user exists
+      ansible.builtin.user:
+        name: "{{ vps_service_foundation_caddy_user }}"
+        uid: "{{ vps_service_foundation_caddy_uid }}"
+        group: "{{ vps_service_foundation_caddy_group }}"
+        system: true
+        create_home: false
+        home: /nonexistent
+        shell: /usr/sbin/nologin
+        state: present
+
+    - name: Create NutsNews service directory layout
+      ansible.builtin.file:
+        path: "{{ item.path }}"
+        owner: "{{ item.owner }}"
+        group: "{{ item.group }}"
+        mode: "{{ item.mode }}"
+        state: directory
+      loop: "{{ vps_service_foundation_directories }}"
+      loop_control:
+        label: "{{ item.path }}"
+
+    - name: Install Caddy Compose file
+      ansible.builtin.copy:
+        src: "{{ vps_service_foundation_source_compose_file }}"
+        dest: "{{ vps_service_foundation_caddy_compose_file }}"
+        owner: root
+        group: root
+        mode: "0644"
+
+    - name: Install Caddy placeholder config
+      ansible.builtin.copy:
+        src: "{{ vps_service_foundation_source_caddyfile }}"
+        dest: "{{ vps_service_foundation_caddy_config_dir }}/Caddyfile"
+        owner: root
+        group: root
+        mode: "0644"
+
+    - name: Install local health placeholder page
+      ansible.builtin.copy:
+        src: "{{ vps_service_foundation_source_health_index }}"
+        dest: "{{ vps_service_foundation_health_dir }}/index.html"
+        owner: root
+        group: root
+        mode: "0644"
+
+    - name: Apply pending Docker daemon changes
+      ansible.builtin.meta: flush_handlers
+
+    - name: Validate Caddy Compose configuration
+      ansible.builtin.command:
+        argv:
+          - docker
+          - compose
+          - --project-directory
+          - "{{ vps_service_foundation_caddy_app_dir }}"
+          - -f
+          - "{{ vps_service_foundation_caddy_compose_file }}"
+          - config
+          - --quiet
+      changed_when: false
+
+    - name: Start Caddy service foundation
+      ansible.builtin.command:
+        argv:
+          - docker
+          - compose
+          - --project-directory
+          - "{{ vps_service_foundation_caddy_app_dir }}"
+          - -f
+          - "{{ vps_service_foundation_caddy_compose_file }}"
+          - up
+          - -d
+          - --remove-orphans
+      register: vps_service_foundation_compose_up
+      changed_when: >-
+        'Created' in vps_service_foundation_compose_up.stdout
+        or 'Created' in vps_service_foundation_compose_up.stderr
+        or 'Recreated' in vps_service_foundation_compose_up.stdout
+        or 'Recreated' in vps_service_foundation_compose_up.stderr
+        or 'Started' in vps_service_foundation_compose_up.stdout
+        or 'Started' in vps_service_foundation_compose_up.stderr
+        or 'Pulling' in vps_service_foundation_compose_up.stdout
+        or 'Pulling' in vps_service_foundation_compose_up.stderr
+
+    - name: Verify local Caddy health endpoint
+      ansible.builtin.uri:
+        url: "{{ vps_service_foundation_healthcheck_url }}"
+        return_content: true
+        status_code: 200
+      register: vps_service_foundation_healthcheck
+      changed_when: false
+      retries: 12
+      delay: 5
+      until:
+        - vps_service_foundation_healthcheck.status == 200
+        - vps_service_foundation_healthcheck.content | trim == "ok"

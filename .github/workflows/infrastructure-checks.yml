@@ -224,6 +224,21 @@ jobs:
           test -d roles/vps_service_foundation
           grep -q 'role: vps_service_foundation' playbooks/bootstrap.yml
 
+      - name: Validate service foundation check-mode guard
+        if: steps.detect.outputs.has_files == 'true'
+        shell: bash
+        working-directory: ansible
+        run: |
+          set -euo pipefail
+          tasks_file="roles/vps_service_foundation/tasks/main.yml"
+
+          grep -q 'Explain service foundation check mode limits' "$tasks_file"
+          awk '
+            /^- name: Manage Docker service and service foundation runtime$/ { found = 1 }
+            found && /^  when: not ansible_check_mode$/ { guarded = 1 }
+            END { exit !(found && guarded) }
+          ' "$tasks_file"
+
       - name: Run ansible-lint
         if: steps.detect.outputs.has_files == 'true'
         shell: bash
