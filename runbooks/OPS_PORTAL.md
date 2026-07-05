@@ -16,6 +16,30 @@ The portal is read-only for v1. It does not mount the Docker socket into the web
 
 Caddy remains bound to host loopback only. Do not expose the portal publicly until a later PR adds reviewed authentication and TLS routing.
 
+SSH hardening allows `nutsnews_ops` to create only local TCP forwards to `127.0.0.1:8080` or `localhost:8080` for portal access. Remote forwarding, gateway exposure, stream-local forwarding, and broad forwarding stay disabled.
+
+## Access Through SSH
+
+Use an approved key for `nutsnews_ops` and forward the local browser port to the portal loopback listener:
+
+```bash
+ssh -N -L 8080:127.0.0.1:8080 nutsnews_ops@vps.nutsnews.com
+```
+
+Then open:
+
+```text
+http://127.0.0.1:8080/
+```
+
+If your local `8080` is already busy, use a different left-side port while keeping the right-side target restricted:
+
+```bash
+ssh -N -L 18080:127.0.0.1:8080 nutsnews_ops@vps.nutsnews.com
+```
+
+Then open `http://127.0.0.1:18080/`.
+
 ## Apply Safely
 
 1. Open the `Protected Ansible Apply` workflow.

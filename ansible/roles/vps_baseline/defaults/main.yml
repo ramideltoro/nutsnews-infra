@@ -12,6 +12,10 @@ vps_baseline_ssh_password_authentication: "no"
 vps_baseline_ssh_kbd_interactive_authentication: "no"
 vps_baseline_ssh_client_alive_interval: 300
 vps_baseline_ssh_client_alive_count_max: 2
+vps_baseline_ssh_portal_forward_user: "{{ vps_baseline_admin_user }}"
+vps_baseline_ssh_portal_permit_open:
+  - 127.0.0.1:8080
+  - localhost:8080
 
 vps_baseline_ufw_allow_tcp_ports:
   - 22

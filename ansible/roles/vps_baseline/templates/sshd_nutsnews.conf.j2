@@ -5,5 +5,9 @@ KbdInteractiveAuthentication {{ vps_baseline_ssh_kbd_interactive_authentication 
 PermitRootLogin {{ vps_baseline_ssh_permit_root_login }}
 X11Forwarding no
 AllowTcpForwarding no
+AllowStreamLocalForwarding no
+GatewayPorts no
+PermitTunnel no
+PermitOpen none
 ClientAliveInterval {{ vps_baseline_ssh_client_alive_interval }}
 ClientAliveCountMax {{ vps_baseline_ssh_client_alive_count_max }}
