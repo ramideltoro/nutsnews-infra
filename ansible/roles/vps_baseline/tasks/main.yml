@@ -56,6 +56,17 @@
     owner: root
     group: root
     mode: "0644"
+    validate: "sshd -t -f %s"
+  notify: Reload ssh
+
+- name: Configure SSH portal forwarding drop-in
+  ansible.builtin.template:
+    src: sshd_portal_forwarding.conf.j2
+    dest: /etc/ssh/sshd_config.d/99-nutsnews-portal-forwarding.conf
+    owner: root
+    group: root
+    mode: "0644"
+    validate: "sshd -t -f %s"
   notify: Reload ssh
 
 - name: Ensure UFW supports IPv6
