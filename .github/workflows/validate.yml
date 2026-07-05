@@ -1,0 +1,75 @@
+name: Validate
+
+on:
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  validate:
+    name: Lightweight PR checks
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Gitleaks secret scan
+        uses: gitleaks/gitleaks-action@v3
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_ENABLE_COMMENTS: "false"
+          GITLEAKS_ENABLE_UPLOAD_ARTIFACT: "false"
+
+      - name: Install actionlint
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="1.7.12"
+          url="https://github.com/rhysd/actionlint/releases/download/v${version}/actionlint_${version}_linux_amd64.tar.gz"
+          mkdir -p .tools/actionlint
+          curl -sSfL "$url" -o .tools/actionlint/actionlint.tar.gz
+          tar -xzf .tools/actionlint/actionlint.tar.gz -C .tools/actionlint actionlint
+
+      - name: Actionlint workflow syntax
+        shell: bash
+        run: .tools/actionlint/actionlint -color
+
+      - name: Validate repo scaffold
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          required_paths=(
+            README.md
+            AGENTS.md
+            .github/CODEOWNERS
+            .github/pull_request_template.md
+            .github/workflows/validate.yml
+            terraform/README.md
+            ansible/README.md
+            compose/README.md
+            portal/README.md
+            runbooks/README.md
+            docs/README.md
+          )
+
+          for path in "${required_paths[@]}"; do
+            if [[ ! -f "$path" ]]; then
+              echo "Missing required scaffold file: $path" >&2
+              exit 1
+            fi
+          done
+
+          disallowed_tracked_pattern='(^|/)(terraform\.tfstate(\..*)?|[^/]+\.tfvars|\.env(\..*)?|[^/]+\.(pem|key))$'
+          if git ls-files | grep -E "$disallowed_tracked_pattern"; then
+            echo "Tracked local state, environment, or secret-like files are not allowed." >&2
+            exit 1
+          fi
