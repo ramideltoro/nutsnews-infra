@@ -29,10 +29,35 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Detect dependency review support
+        id: support
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          compare_path="repos/${REPOSITORY}/dependency-graph/compare/${BASE_SHA}...${HEAD_SHA}"
+          if gh api "$compare_path" >/tmp/dependency-review.json 2>/tmp/dependency-review.err; then
+            echo "supported=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::Dependency Review is not supported or Dependency Graph is not enabled for this repository yet."
+            cat /tmp/dependency-review.err
+            echo "supported=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Run dependency review
+        if: steps.support.outputs.supported == 'true'
         uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294  # v5.0.0
         with:
           fail-on-severity: moderate
+
+      - name: Skip dependency review
+        if: steps.support.outputs.supported != 'true'
+        shell: bash
+        run: echo "Dependency Graph is not enabled yet; skipping Dependency Review."
 
   osv:
     name: OSV recursive scan

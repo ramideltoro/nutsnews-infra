@@ -49,9 +49,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          mapfile -t yaml_files < <(git ls-files '*.yml' '*.yaml')
           "$HOME/.local/bin/yamllint" \
             -d "{extends: default, rules: {document-start: disable, line-length: disable, truthy: disable}}" \
-            $(git ls-files '*.yml' '*.yaml')
+            "${yaml_files[@]}"
 
       - name: Skip yamllint
         if: steps.detect.outputs.has_files != 'true'
