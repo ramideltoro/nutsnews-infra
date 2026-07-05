@@ -1,0 +1,201 @@
+- name: Configure hostname
+  ansible.builtin.hostname:
+    name: "{{ vps_baseline_hostname }}"
+
+- name: Install baseline packages
+  ansible.builtin.apt:
+    name:
+      - auditd
+      - ca-certificates
+      - curl
+      - fail2ban
+      - logrotate
+      - openssh-server
+      - python3
+      - rsync
+      - sudo
+      - systemd-timesyncd
+      - unattended-upgrades
+      - ufw
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Create automation admin user
+  ansible.builtin.user:
+    name: "{{ vps_baseline_admin_user }}"
+    groups: "{{ vps_baseline_admin_groups }}"
+    append: true
+    shell: /bin/bash
+    create_home: true
+    state: present
+
+- name: Install automation admin public keys
+  ansible.posix.authorized_key:
+    user: "{{ vps_baseline_admin_user }}"
+    key: "{{ item }}"
+    state: present
+    exclusive: false
+  loop: "{{ vps_baseline_admin_authorized_keys }}"
+  no_log: true
+
+- name: Configure passwordless sudo for automation user
+  ansible.builtin.copy:
+    dest: "/etc/sudoers.d/90-{{ vps_baseline_admin_user }}"
+    owner: root
+    group: root
+    mode: "0440"
+    content: "{{ vps_baseline_admin_user }} ALL=(ALL) NOPASSWD:ALL\n"
+    validate: "visudo -cf %s"
+  when: vps_baseline_admin_passwordless_sudo | bool
+
+- name: Configure SSH hardening drop-in
+  ansible.builtin.template:
+    src: sshd_nutsnews.conf.j2
+    dest: /etc/ssh/sshd_config.d/20-nutsnews-baseline.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Reload ssh
+
+- name: Ensure UFW supports IPv6
+  ansible.builtin.lineinfile:
+    path: /etc/default/ufw
+    regexp: "^IPV6="
+    line: 'IPV6=yes'
+    create: false
+
+- name: Allow required TCP ports before enabling UFW
+  community.general.ufw:
+    rule: allow
+    port: "{{ item }}"
+    proto: tcp
+  loop: "{{ vps_baseline_ufw_allow_tcp_ports }}"
+
+- name: Set UFW default incoming policy
+  community.general.ufw:
+    direction: incoming
+    policy: deny
+
+- name: Set UFW default outgoing policy
+  community.general.ufw:
+    direction: outgoing
+    policy: allow
+
+- name: Enable UFW
+  community.general.ufw:
+    state: enabled
+
+- name: Configure unattended upgrade periodic settings
+  ansible.builtin.template:
+    src: apt_periodic.conf
+    dest: /etc/apt/apt.conf.d/20auto-upgrades
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Configure unattended security updates
+  ansible.builtin.template:
+    src: unattended_upgrades.conf.j2
+    dest: /etc/apt/apt.conf.d/50unattended-upgrades
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Configure fail2ban sshd jail
+  ansible.builtin.template:
+    src: fail2ban_sshd.local.j2
+    dest: /etc/fail2ban/jail.d/sshd.local
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart fail2ban
+
+- name: Enable fail2ban
+  ansible.builtin.service:
+    name: fail2ban
+    enabled: true
+    state: started
+
+- name: Set timezone
+  community.general.timezone:
+    name: "{{ vps_baseline_timezone }}"
+
+- name: Enable systemd-timesyncd
+  ansible.builtin.service:
+    name: systemd-timesyncd
+    enabled: true
+    state: started
+
+- name: Ensure persistent journal directory exists
+  ansible.builtin.file:
+    path: /var/log/journal
+    owner: root
+    group: systemd-journal
+    mode: "2755"
+    state: directory
+  notify: Restart journald
+
+- name: Ensure journald drop-in directory exists
+  ansible.builtin.file:
+    path: /etc/systemd/journald.conf.d
+    owner: root
+    group: root
+    mode: "0755"
+    state: directory
+
+- name: Configure persistent journald
+  ansible.builtin.template:
+    src: journald.conf.j2
+    dest: /etc/systemd/journald.conf.d/20-nutsnews-baseline.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart journald
+
+- name: Ensure NutsNews log directory exists
+  ansible.builtin.file:
+    path: /var/log/nutsnews
+    owner: root
+    group: adm
+    mode: "0750"
+    state: directory
+
+- name: Configure NutsNews logrotate placeholder
+  ansible.builtin.template:
+    src: logrotate_nutsnews.j2
+    dest: /etc/logrotate.d/nutsnews
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Ensure local facts output directory exists
+  ansible.builtin.file:
+    path: "{{ vps_baseline_facts_output_dir }}"
+    mode: "0750"
+    state: directory
+  delegate_to: localhost
+  become: false
+
+- name: Write audit-friendly server facts snapshot locally
+  ansible.builtin.copy:
+    dest: "{{ vps_baseline_facts_output_dir }}/{{ inventory_hostname }}.json"
+    mode: "0640"
+    content: "{{ vps_baseline_server_facts | to_nice_json }}\n"
+  vars:
+    vps_baseline_server_facts:
+      inventory_hostname: "{{ inventory_hostname }}"
+      ansible_host: "{{ ansible_host | default(inventory_hostname) }}"
+      vps_baseline_hostname: "{{ vps_baseline_hostname }}"
+      vps_baseline_ipv4: "{{ vps_baseline_ipv4 | default('unknown') }}"
+      vps_baseline_ipv6: "{{ vps_baseline_ipv6 | default('unknown') }}"
+      distribution: "{{ ansible_facts.distribution }}"
+      distribution_version: "{{ ansible_facts.distribution_version }}"
+      kernel: "{{ ansible_facts.kernel }}"
+      architecture: "{{ ansible_facts.architecture }}"
+      processor_vcpus: "{{ ansible_facts.processor_vcpus | default('unknown') }}"
+      memory_mb: "{{ ansible_facts.memtotal_mb | default('unknown') }}"
+      mounts: "{{ ansible_facts.mounts | default([]) }}"
+      service_mgr: "{{ ansible_facts.service_mgr }}"
+  delegate_to: localhost
+  become: false

@@ -1,0 +1,8 @@
+[sshd]
+enabled = true
+port = {{ vps_baseline_ssh_port }}
+filter = sshd
+backend = systemd
+maxretry = {{ vps_baseline_fail2ban_maxretry }}
+findtime = {{ vps_baseline_fail2ban_findtime }}
+bantime = {{ vps_baseline_fail2ban_bantime }}

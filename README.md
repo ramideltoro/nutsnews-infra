@@ -28,6 +28,8 @@ Detailed learning and explanation docs for this repository live in [`ramideltoro
 
 The VPS hosts the self-managed NutsNews runtime and operational tooling that belongs outside the managed external platforms. It is intended to run only the services, configuration, observability hooks, and automation declared in this repository.
 
+The first Ansible bootstrap layer defines a lightweight Ubuntu baseline for `vps.nutsnews.com`: an automation admin user, SSH hardening with lockout protections, UFW, unattended security updates, fail2ban, time sync, persistent journald, log rotation, and local server facts output. It is not wired to any production deploy/apply workflow yet.
+
 ## Repo Layout
 
 ```text
