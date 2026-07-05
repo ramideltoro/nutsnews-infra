@@ -22,6 +22,8 @@ The platform should stay lightweight for solo maintenance on a cheap VPS. Securi
 
 See [docs/OPERATIONS_CHARTER.md](docs/OPERATIONS_CHARTER.md) for the full operating charter.
 
+Detailed learning and explanation docs for this repository live in [`ramideltoro/nutsnews-docs`](https://github.com/ramideltoro/nutsnews-docs). Every infra change must include a matching docs update there, pushed directly to that repo's `main` branch unless GitHub blocks the push. Local docs in this repo should stay short and operational.
+
 ## VPS Purpose
 
 The VPS hosts the self-managed NutsNews runtime and operational tooling that belongs outside the managed external platforms. It is intended to run only the services, configuration, observability hooks, and automation declared in this repository.
