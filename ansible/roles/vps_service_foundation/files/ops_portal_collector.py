@@ -6,6 +6,7 @@ from __future__ import annotations
 import json
 import os
 import platform
+import pwd
 import re
 import shutil
 import socket
@@ -31,6 +32,18 @@ DEPLOYED_COMMIT_FILE = Path(
     os.environ.get("NUTSNEWS_DEPLOYED_COMMIT_FILE", "/opt/nutsnews/ops/deployed-infra-commit")
 )
 APPLY_STATUS_FILE = Path(os.environ.get("NUTSNEWS_APPLY_STATUS_FILE", "/opt/nutsnews/ops/last-apply.json"))
+REPORTING_STATUS_FILE = Path(
+    os.environ.get("NUTSNEWS_REPORTING_STATUS_FILE", "/opt/nutsnews/portal-assets/data/reporting-status.json")
+)
+DISK_SCAN_CACHE_FILE = Path(
+    os.environ.get("NUTSNEWS_DISK_SCAN_CACHE_FILE", "/opt/nutsnews/portal-assets/data/disk-usage-cache.json")
+)
+DISK_SCAN_CACHE_SECONDS = int(os.environ.get("NUTSNEWS_DISK_SCAN_CACHE_SECONDS", "3600"))
+DISK_SCAN_ROOTS = [
+    item.strip()
+    for item in os.environ.get("NUTSNEWS_DISK_SCAN_ROOTS", "/opt/nutsnews,/var/log,/var/lib/docker,/home").split(",")
+    if item.strip()
+]
 DOCS_BASE_URL = os.environ.get("NUTSNEWS_DOCS_BASE_URL", "https://github.com/ramideltoro/nutsnews-docs")
 INFRA_REPO_URL = os.environ.get("NUTSNEWS_INFRA_REPO_URL", "https://github.com/ramideltoro/nutsnews-infra")
 
@@ -85,6 +98,20 @@ def read_json(path: Path, default: Any) -> Any:
         return json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return default
+
+
+def safe_int(value: Any, default: int = 0) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def username_for_uid(uid: int) -> str:
+    try:
+        return pwd.getpwuid(uid).pw_name
+    except KeyError:
+        return str(uid)
 
 
 def parse_os_release() -> str:
@@ -178,6 +205,63 @@ def disk_usage(path: Path) -> dict[str, Any]:
     }
 
 
+def cached_disk_hotspots() -> dict[str, Any]:
+    now = time.time()
+    cache = read_json(DISK_SCAN_CACHE_FILE, {})
+    scanned_at_epoch = safe_int(cache.get("scanned_at_epoch"))
+    if scanned_at_epoch and now - scanned_at_epoch < DISK_SCAN_CACHE_SECONDS:
+        cache["from_cache"] = True
+        cache["cache_seconds"] = DISK_SCAN_CACHE_SECONDS
+        return cache
+
+    rows: list[dict[str, Any]] = []
+    errors: list[str] = []
+    roots = [Path(item) for item in DISK_SCAN_ROOTS if Path(item).exists()]
+
+    for root in roots:
+        result = run(["du", "-x", "-B1", "--max-depth=1", str(root)], timeout=25)
+        if not result["ok"]:
+            errors.extend(safe_lines(result["stderr"], limit=4))
+            continue
+
+        for line in result["stdout"].splitlines():
+            raw_size, _, raw_path = line.partition("\t")
+            size_bytes = safe_int(raw_size, -1)
+            if size_bytes < 0 or not raw_path:
+                continue
+            rows.append({"path": raw_path, "size_bytes": size_bytes})
+
+    deduped: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        existing = deduped.get(row["path"])
+        if not existing or row["size_bytes"] > existing["size_bytes"]:
+            deduped[row["path"]] = row
+
+    top_folders = sorted(deduped.values(), key=lambda item: item["size_bytes"], reverse=True)[:10]
+    data = {
+        "available": bool(top_folders),
+        "from_cache": False,
+        "cache_seconds": DISK_SCAN_CACHE_SECONDS,
+        "scanned_at": utc_now(),
+        "scanned_at_epoch": int(now),
+        "scan_roots": [str(root) for root in roots],
+        "top_folders": top_folders,
+        "errors": errors[:10],
+        "method": "du -x -B1 --max-depth=1 with a cache to avoid rescanning every portal refresh",
+    }
+
+    try:
+        DISK_SCAN_CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
+        tmp_file = DISK_SCAN_CACHE_FILE.with_suffix(".tmp")
+        tmp_file.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        tmp_file.replace(DISK_SCAN_CACHE_FILE)
+        DISK_SCAN_CACHE_FILE.chmod(0o644)
+    except OSError as error:
+        data["errors"].append(f"Could not update disk scan cache: {error}")
+
+    return data
+
+
 def network_usage() -> dict[str, Any]:
     interfaces = []
     total_rx = 0
@@ -198,6 +282,113 @@ def network_usage() -> dict[str, Any]:
         total_tx += tx_bytes
         interfaces.append({"name": iface, "rx_bytes": rx_bytes, "tx_bytes": tx_bytes})
     return {"rx_bytes": total_rx, "tx_bytes": total_tx, "interfaces": interfaces}
+
+
+def process_network_state() -> dict[str, Any]:
+    return {
+        "available": False,
+        "top_receivers": [],
+        "top_senders": [],
+        "method": "Standard Linux /proc does not expose reliable per-process network byte totals without extra telemetry.",
+        "note": "Host interface counters are shown in Resource Utilization. Per-process network rankings need an approved lightweight agent in a later PR.",
+    }
+
+
+def read_process_cmdline(pid: str, fallback: str) -> str:
+    try:
+        raw = Path("/proc", pid, "cmdline").read_bytes()
+    except OSError:
+        return fallback
+    command = raw.replace(b"\0", b" ").decode("utf-8", errors="replace").strip()
+    return command or fallback
+
+
+def read_process_status(pid: str) -> dict[str, int]:
+    details = {"rss_bytes": 0, "threads": 0, "uid": -1}
+    for line in read_text(Path("/proc", pid, "status")).splitlines():
+        if line.startswith("Uid:"):
+            parts = line.split()
+            if len(parts) >= 2:
+                details["uid"] = safe_int(parts[1], -1)
+        elif line.startswith("VmRSS:"):
+            parts = line.split()
+            if len(parts) >= 2:
+                details["rss_bytes"] = safe_int(parts[1]) * 1024
+        elif line.startswith("Threads:"):
+            parts = line.split()
+            if len(parts) >= 2:
+                details["threads"] = safe_int(parts[1])
+    return details
+
+
+def read_process(pid: str, clock_ticks: int, uptime: int, cpu_count: int) -> dict[str, Any] | None:
+    try:
+        raw_stat = Path("/proc", pid, "stat").read_text(encoding="utf-8")
+        before, after = raw_stat.rsplit(")", 1)
+    except (OSError, ValueError):
+        return None
+
+    name_start = before.find("(")
+    name = before[name_start + 1 :] if name_start >= 0 else pid
+    fields = after.strip().split()
+    if len(fields) < 20:
+        return None
+
+    utime = safe_int(fields[11])
+    stime = safe_int(fields[12])
+    stat_threads = safe_int(fields[17])
+    start_ticks = safe_int(fields[19])
+    cpu_time_seconds = round((utime + stime) / clock_ticks, 2) if clock_ticks > 0 else 0
+    elapsed_seconds = max(int(uptime - (start_ticks / clock_ticks)), 0) if clock_ticks > 0 else 0
+    idle_seconds = max(round(elapsed_seconds - cpu_time_seconds, 2), 0)
+    cpu_percent = 0.0
+    if elapsed_seconds > 0 and cpu_count > 0:
+        cpu_percent = round((cpu_time_seconds / elapsed_seconds / cpu_count) * 100, 2)
+
+    status = read_process_status(pid)
+    uid = status["uid"]
+    if uid < 0:
+        try:
+            uid = Path("/proc", pid).stat().st_uid
+        except OSError:
+            uid = -1
+
+    return {
+        "pid": safe_int(pid),
+        "name": name,
+        "command": read_process_cmdline(pid, name),
+        "user": username_for_uid(uid) if uid >= 0 else "unknown",
+        "memory_bytes": status["rss_bytes"],
+        "cpu_percent": cpu_percent,
+        "threads": status["threads"] or stat_threads,
+        "cpu_time_seconds": cpu_time_seconds,
+        "elapsed_seconds": elapsed_seconds,
+        "idle_seconds": idle_seconds,
+    }
+
+
+def process_state() -> dict[str, Any]:
+    clock_ticks = os.sysconf(os.sysconf_names.get("SC_CLK_TCK", "SC_CLK_TCK"))
+    cpu_count = os.cpu_count() or 1
+    uptime = uptime_seconds()
+    processes = []
+    for entry in Path("/proc").iterdir():
+        if not entry.name.isdigit():
+            continue
+        item = read_process(entry.name, clock_ticks, uptime, cpu_count)
+        if item:
+            processes.append(item)
+
+    return {
+        "method": "CPU percent is a lifetime average normalized across available CPU cores, not a live sampling spike meter.",
+        "sampled_at": utc_now(),
+        "top_memory": sorted(processes, key=lambda item: item["memory_bytes"], reverse=True)[:10],
+        "top_cpu": sorted(
+            processes,
+            key=lambda item: (item["cpu_percent"], item["cpu_time_seconds"]),
+            reverse=True,
+        )[:10],
+    }
 
 
 def local_ip_addresses() -> list[str]:
@@ -392,6 +583,28 @@ def backup_state() -> dict[str, Any]:
     }
 
 
+def reporting_state() -> dict[str, Any]:
+    default = {
+        "enabled": False,
+        "configured": False,
+        "status": "disabled",
+        "updated_at": "unknown",
+        "last_alert_check_at": "unknown",
+        "last_alert_sent_at": "never",
+        "last_report_sent_at": "never",
+        "last_error": "",
+        "cooldown_seconds": 21600,
+        "pending_alerts": 0,
+        "suppressed_alerts": 0,
+        "recipients_count": 0,
+        "email_config_source": "Root-only environment file managed by Ansible.",
+    }
+    data = read_json(REPORTING_STATUS_FILE, default)
+    if not isinstance(data, dict):
+        return default
+    return {**default, **data}
+
+
 def resource_state() -> dict[str, Any]:
     mem = meminfo()
     memory_total = mem.get("MemTotal", 0)
@@ -500,8 +713,11 @@ def collect() -> dict[str, Any]:
             "fail2ban.service",
             "crowdsec.service",
             "nutsnews-ops-portal-collector.timer",
+            "nutsnews-ops-alert-check.timer",
+            "nutsnews-ops-health-report.timer",
         ]
     ]
+    reporting = reporting_state()
 
     return {
         "schema_version": 1,
@@ -523,13 +739,17 @@ def collect() -> dict[str, Any]:
             "architecture": platform.machine(),
         },
         "resources": resources,
+        "processes": process_state(),
+        "disk_usage": cached_disk_hotspots(),
+        "process_network": process_network_state(),
         "docker": docker,
         "services": services,
         "logs": log_sections(),
         "security": security_state(),
         "backups": backup_state(),
+        "email_reporting": reporting,
         "alerts": {
-            "email_configuration": "placeholder",
+            "email_configuration": reporting.get("status", "disabled"),
             "items": alert_state(resources, docker, services),
         },
         "gitops": gitops_state(),

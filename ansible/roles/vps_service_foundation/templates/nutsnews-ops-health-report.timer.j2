@@ -1,0 +1,13 @@
+[Unit]
+Description=Send the daily NutsNews VPS health report
+Documentation={{ vps_service_foundation_docs_base_url }}
+
+[Timer]
+OnCalendar=*-*-* 08:00:00
+RandomizedDelaySec=15min
+AccuracySec=5min
+Persistent=true
+Unit={{ vps_service_foundation_report_service }}
+
+[Install]
+WantedBy=timers.target

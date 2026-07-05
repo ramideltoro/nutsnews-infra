@@ -49,8 +49,17 @@ jobs:
 
           python3 -m json.tool portal/data/status.example.json > /dev/null
           node --check portal/assets/app.js
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
 
-          if grep -RniE '<button|docker[.]sock|/var/run/docker[.]sock|child_process|execFile|spawn|systemctl|docker compose up|docker rm' portal; then
+          data = json.loads(Path("portal/data/status.example.json").read_text(encoding="utf-8"))
+          for key in ("processes", "disk_usage", "process_network", "email_reporting"):
+              if key not in data:
+                  raise SystemExit(f"Missing portal status section: {key}")
+          PY
+
+          if grep -RniE '<button|<form|docker[.]sock|/var/run/docker[.]sock|child_process|execFile|spawn|systemctl|docker compose up|docker rm' portal; then
             echo "Portal v1 must stay read-only and must not expose local command or Docker socket controls." >&2
             exit 1
           fi

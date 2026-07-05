@@ -1,0 +1,13 @@
+[Unit]
+Description=Run NutsNews VPS email alert checks
+Documentation={{ vps_service_foundation_docs_base_url }}
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=5min
+AccuracySec=1min
+Persistent=true
+Unit={{ vps_service_foundation_alert_service }}
+
+[Install]
+WantedBy=timers.target

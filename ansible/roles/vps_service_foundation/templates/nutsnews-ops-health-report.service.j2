@@ -1,0 +1,33 @@
+[Unit]
+Description=NutsNews Operations Portal scheduled health report
+Documentation={{ vps_service_foundation_docs_base_url }}
+After=network-online.target {{ vps_service_foundation_collector_service }}
+Wants=network-online.target
+ConditionPathExists={{ vps_service_foundation_portal_status_file }}
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+EnvironmentFile=-{{ vps_service_foundation_reporter_env_file }}
+Environment="NUTSNEWS_PORTAL_STATUS_FILE={{ vps_service_foundation_portal_status_file }}"
+Environment="NUTSNEWS_REPORTING_STATUS_FILE={{ vps_service_foundation_reporting_status_file }}"
+Environment="NUTSNEWS_ALERT_STATE_FILE={{ vps_service_foundation_alert_state_file }}"
+Environment="HOME=/tmp"
+Environment="XDG_CACHE_HOME=/tmp/cache"
+ExecStart={{ vps_service_foundation_reporter_bin }} --mode report
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=read-only
+ProtectSystem=strict
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+SystemCallArchitectures=native
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+ReadWritePaths={{ vps_service_foundation_portal_data_dir }} {{ vps_service_foundation_ops_dir }}
+
+[Install]
+WantedBy=multi-user.target
