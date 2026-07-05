@@ -25,6 +25,8 @@ Use this runbook after the service foundation PR is merged and before applying t
 4. Run `apply` mode only after check mode looks safe.
 5. Keep root SSH as break-glass only.
 
+On a fresh VPS, check mode simulates Docker package installation but does not create the `docker` service, `docker` group, service users, or `/opt/nutsnews` directories. The role intentionally skips those runtime-dependent tasks in check mode and performs them during apply mode.
+
 ## Verify After Apply
 
 From a break-glass-free SSH session as `nutsnews_ops`:
