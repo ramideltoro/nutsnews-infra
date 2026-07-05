@@ -1,0 +1,211 @@
+name: Infrastructure Checks
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  yaml-lint:
+    name: YAML lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6
+        with:
+          persist-credentials: false
+
+      - name: Detect YAML files
+        id: detect
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git ls-files '*.yml' '*.yaml' | grep -q .; then
+            echo "has_files=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_files=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install yamllint
+        if: steps.detect.outputs.has_files == 'true'
+        shell: bash
+        run: python3 -m pip install --user yamllint
+
+      - name: Run yamllint
+        if: steps.detect.outputs.has_files == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t yaml_files < <(git ls-files '*.yml' '*.yaml')
+          "$HOME/.local/bin/yamllint" \
+            -d "{extends: default, rules: {document-start: disable, line-length: disable, truthy: disable}}" \
+            "${yaml_files[@]}"
+
+      - name: Skip yamllint
+        if: steps.detect.outputs.has_files != 'true'
+        shell: bash
+        run: echo "No YAML files found."
+
+  opentofu:
+    name: OpenTofu fmt and validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6
+        with:
+          persist-credentials: false
+
+      - name: Detect Terraform files
+        id: detect
+        shell: bash
+        run: |
+          set -euo pipefail
+          if find terraform -type f -name '*.tf' | grep -q .; then
+            echo "has_files=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_files=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install OpenTofu
+        if: steps.detect.outputs.has_files == 'true'
+        uses: opentofu/setup-opentofu@a1320f892987e89d278cc92dc5adc984fb93aca4  # v2
+        with:
+          tofu_wrapper: false
+
+      - name: Run OpenTofu fmt and validate
+        if: steps.detect.outputs.has_files == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          tofu fmt -check -recursive terraform
+          find terraform -type f -name '*.tf' -exec dirname {} \; | sort -u | while read -r dir; do
+            tofu -chdir="$dir" init -backend=false -input=false
+            tofu -chdir="$dir" validate -no-color
+          done
+
+      - name: Skip OpenTofu
+        if: steps.detect.outputs.has_files != 'true'
+        shell: bash
+        run: echo "No Terraform files found."
+
+  tflint:
+    name: TFLint
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6
+        with:
+          persist-credentials: false
+
+      - name: Detect Terraform files
+        id: detect
+        shell: bash
+        run: |
+          set -euo pipefail
+          if find terraform -type f -name '*.tf' | grep -q .; then
+            echo "has_files=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_files=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install TFLint
+        if: steps.detect.outputs.has_files == 'true'
+        uses: terraform-linters/setup-tflint@c750028ac0f3831886a261f96da68ab58a92e7ec  # v6
+        with:
+          cache: true
+
+      - name: Run TFLint
+        if: steps.detect.outputs.has_files == 'true'
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          find terraform -type f -name '*.tf' -exec dirname {} \; | sort -u | while read -r dir; do
+            (
+              cd "$dir"
+              tflint --init
+              tflint -f compact
+            )
+          done
+
+      - name: Skip TFLint
+        if: steps.detect.outputs.has_files != 'true'
+        shell: bash
+        run: echo "No Terraform files found."
+
+  checkov:
+    name: Checkov
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6
+        with:
+          persist-credentials: false
+
+      - name: Run Checkov
+        uses: bridgecrewio/checkov-action@a7683e7b72a04503521247973281ec8142e1ac1f  # v12
+        with:
+          directory: .
+          framework: terraform,github_actions,dockerfile,yaml,json,secrets
+          quiet: true
+          soft_fail: true
+
+  ansible-lint:
+    name: Ansible lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6
+        with:
+          persist-credentials: false
+
+      - name: Detect Ansible content
+        id: detect
+        shell: bash
+        run: |
+          set -euo pipefail
+          if find ansible -type f \( -name '*.yml' -o -name '*.yaml' \) | grep -q .; then
+            echo "has_files=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_files=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install ansible-lint
+        if: steps.detect.outputs.has_files == 'true'
+        shell: bash
+        run: python3 -m pip install --user ansible-lint
+
+      - name: Run ansible-lint
+        if: steps.detect.outputs.has_files == 'true'
+        shell: bash
+        run: |
+          "$HOME/.local/bin/ansible-lint" ansible
+
+      - name: Skip ansible-lint
+        if: steps.detect.outputs.has_files != 'true'
+        shell: bash
+        run: echo "No Ansible YAML files found."

@@ -12,7 +12,7 @@
 - Do not commit Terraform state, `.tfvars`, private keys, tokens, credentials, or local environment files.
 - All changes must go through commit, pull request, checks, merge, and pipeline apply.
 - Do not make manual server changes after bootstrap.
-- Do not prefix PR titles, branch names, commit messages, docs, headings, or generated content with "[codex]" or any agent branding. Use normal human-readable project language.
+- Do not prefix PR titles, branch names, commit messages, docs, headings, or generated content with any agent branding. Use normal human-readable project language.
 
 ## Validation
 
