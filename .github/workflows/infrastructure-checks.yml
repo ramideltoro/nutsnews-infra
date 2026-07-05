@@ -245,27 +245,13 @@ jobs:
         run: |
           set -euo pipefail
 
-          defaults_file="ansible/roles/vps_baseline/defaults/main.yml"
-          tasks_file="ansible/roles/vps_baseline/tasks/main.yml"
-          hardening_template="ansible/roles/vps_baseline/templates/sshd_nutsnews.conf.j2"
-          tunnel_template="ansible/roles/vps_baseline/templates/sshd_portal_forwarding.conf.j2"
-
-          grep -Fq 'validate: "sshd -t -f %s"' "$tasks_file"
-          grep -Fq '99-nutsnews-portal-forwarding.conf' "$tasks_file"
-          grep -Fq 'AllowTcpForwarding no' "$hardening_template"
-          grep -Fq 'GatewayPorts no' "$hardening_template"
-          grep -Fq 'PermitTunnel no' "$hardening_template"
-          grep -Fq 'PermitOpen none' "$hardening_template"
-          grep -Fq 'Match User {{ vps_baseline_ssh_portal_forward_user }}' "$tunnel_template"
-          grep -Fq 'AllowTcpForwarding local' "$tunnel_template"
-          grep -Fq "PermitOpen {{ vps_baseline_ssh_portal_permit_open | join(' ') }}" "$tunnel_template"
-          grep -Fq '127.0.0.1:8080' "$defaults_file"
-          grep -Fq 'localhost:8080' "$defaults_file"
-
-          if grep -Fq 'AllowTcpForwarding yes' "$hardening_template" "$tunnel_template"; then
-            echo "Do not enable broad SSH TCP forwarding." >&2
-            exit 1
+          if ! command -v sshd >/dev/null 2>&1 && [[ ! -x /usr/sbin/sshd ]]; then
+            sudo apt-get update
+            sudo apt-get install -y openssh-server
           fi
+
+          sudo mkdir -p /run/sshd
+          python3 ansible/tests/validate_portal_ssh_forwarding.py
 
       - name: Validate service foundation Caddy diagnostics
         if: steps.detect.outputs.has_files == 'true'

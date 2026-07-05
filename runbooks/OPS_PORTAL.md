@@ -16,7 +16,9 @@ The portal is read-only for v1. It does not mount the Docker socket into the web
 
 Caddy remains bound to host loopback only. Do not expose the portal publicly until a later PR adds reviewed authentication and TLS routing.
 
-SSH hardening allows `nutsnews_ops` to create only local TCP forwards to `127.0.0.1:8080` or `localhost:8080` for portal access. Remote forwarding, gateway exposure, stream-local forwarding, and broad forwarding stay disabled.
+SSH hardening allows `nutsnews_ops` to create only local TCP forwards to `127.0.0.1:8080` or `localhost:8080` for portal access. Remote forwarding, gateway exposure, stream-local forwarding, tunnel devices, and broad forwarding stay disabled.
+
+The portal forwarding policy is intentionally modeled with explicit SSH `Match` blocks. Do not put `AllowTcpForwarding no` or `PermitOpen none` back into the global baseline drop-in; those global directives can block the operator exception and bring back the `administratively prohibited` tunnel failure.
 
 ## Access Through SSH
 

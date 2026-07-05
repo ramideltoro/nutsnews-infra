@@ -3,3 +3,7 @@ Match User {{ vps_baseline_ssh_portal_forward_user }}
     AllowTcpForwarding local
     PermitOpen {{ vps_baseline_ssh_portal_permit_open | join(' ') }}
     X11Forwarding no
+
+Match all
+    AllowTcpForwarding no
+    PermitOpen none
