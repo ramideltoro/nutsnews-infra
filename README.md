@@ -28,7 +28,9 @@ Detailed learning and explanation docs for this repository live in [`ramideltoro
 
 The VPS hosts the self-managed NutsNews runtime and operational tooling that belongs outside the managed external platforms. It is intended to run only the services, configuration, observability hooks, and automation declared in this repository.
 
-The first Ansible bootstrap layer defines a lightweight Ubuntu baseline for `vps.nutsnews.com`: an automation admin user, SSH hardening with lockout protections, UFW, unattended security updates, fail2ban, time sync, persistent journald, log rotation, and local server facts output. It is not wired to any production deploy/apply workflow yet.
+The first Ansible bootstrap layer defines a lightweight Ubuntu baseline for `vps.nutsnews.com`: an automation admin user, SSH hardening with lockout protections, UFW, unattended security updates, fail2ban, time sync, persistent journald, log rotation, and local server facts output.
+
+Ansible baseline applies are now designed to run through the protected `production-vps` GitHub Environment. The apply workflow is manual-only, defaults to check mode, connects as `nutsnews_ops`, and requires environment secrets for SSH material. It is not automatic on merge yet.
 
 ## Repo Layout
 
@@ -63,6 +65,10 @@ The first Ansible bootstrap layer defines a lightweight Ubuntu baseline for `vps
 - Runtime Checks: validates Compose files when present, runs Hadolint for Dockerfiles, and scans filesystem/config risk with Trivy.
 - Portal Checks: skips cleanly for the scaffold, then runs install, lint, test, and build scripts when `portal/package.json` exists.
 - Nightly Audit: runs deeper workflow, dependency, and configuration scans on a schedule.
+
+## Protected Manual Applies
+
+Use [runbooks/PROTECTED_ANSIBLE_APPLY.md](runbooks/PROTECTED_ANSIBLE_APPLY.md) before running the manual Ansible workflow. Root SSH was only for the initial bootstrap and is now break-glass only.
 
 ## External Systems
 

@@ -20,3 +20,4 @@ crash.*.log
 
 # Local Ansible output
 ansible/facts/*.json
+ansible/.runtime-extra-vars.json
