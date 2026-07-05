@@ -1,0 +1,19 @@
+# IDE
+.idea/
+.vscode/
+
+# macOS
+.DS_Store
+
+# Terraform
+.terraform/
+terraform.tfstate
+terraform.tfstate.*
+*.tfvars
+crash.log
+crash.*.log
+
+# Local secrets
+.env
+*.pem
+*.key
