@@ -1,0 +1,24 @@
+- name: Bootstrap NutsNews VPS baseline
+  hosts: vps_baseline_vps
+  gather_facts: true
+
+  pre_tasks:
+    - name: Require at least one public key for the automation user
+      ansible.builtin.assert:
+        that:
+          - vps_baseline_admin_authorized_keys is defined
+          - vps_baseline_admin_authorized_keys | length > 0
+        fail_msg: >-
+          Set vps_baseline_admin_authorized_keys with at least one public SSH key via
+          an uncommitted vars file or --extra-vars before running bootstrap.
+          No keys are committed to this repository.
+
+    - name: Confirm supported OS family
+      ansible.builtin.assert:
+        that:
+          - ansible_facts.os_family == "Debian"
+          - ansible_facts.distribution == "Ubuntu"
+        fail_msg: "This bootstrap baseline is currently written for Ubuntu hosts."
+
+  roles:
+    - role: vps_baseline

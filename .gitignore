@@ -17,3 +17,6 @@ crash.*.log
 .env
 *.pem
 *.key
+
+# Local Ansible output
+ansible/facts/*.json

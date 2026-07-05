@@ -199,11 +199,28 @@ jobs:
         shell: bash
         run: python3 -m pip install --user ansible-lint
 
+      - name: Install Ansible collections
+        if: steps.detect.outputs.has_files == 'true'
+        shell: bash
+        working-directory: ansible
+        run: |
+          set -euo pipefail
+          if [[ -f requirements.yml ]]; then
+            ansible-galaxy collection install -r requirements.yml
+          fi
+
+      - name: Run Ansible syntax check
+        if: steps.detect.outputs.has_files == 'true'
+        shell: bash
+        working-directory: ansible
+        run: ansible-playbook playbooks/bootstrap.yml --syntax-check
+
       - name: Run ansible-lint
         if: steps.detect.outputs.has_files == 'true'
         shell: bash
+        working-directory: ansible
         run: |
-          "$HOME/.local/bin/ansible-lint" ansible
+          "$HOME/.local/bin/ansible-lint" .
 
       - name: Skip ansible-lint
         if: steps.detect.outputs.has_files != 'true'

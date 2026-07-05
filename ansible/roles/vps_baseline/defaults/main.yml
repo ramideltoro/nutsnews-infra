@@ -1,0 +1,34 @@
+vps_baseline_hostname: vps.nutsnews.com
+vps_baseline_admin_user: nutsnews_ops
+vps_baseline_admin_groups:
+  - sudo
+vps_baseline_admin_authorized_keys: []
+vps_baseline_admin_passwordless_sudo: true
+
+vps_baseline_timezone: UTC
+vps_baseline_ssh_port: 22
+vps_baseline_ssh_permit_root_login: prohibit-password
+vps_baseline_ssh_password_authentication: "no"
+vps_baseline_ssh_kbd_interactive_authentication: "no"
+vps_baseline_ssh_client_alive_interval: 300
+vps_baseline_ssh_client_alive_count_max: 2
+
+vps_baseline_ufw_allow_tcp_ports:
+  - 22
+  - 80
+  - 443
+
+vps_baseline_unattended_reboot: "false"
+vps_baseline_unattended_reboot_time: "04:30"
+
+vps_baseline_fail2ban_bantime: 1h
+vps_baseline_fail2ban_findtime: 10m
+vps_baseline_fail2ban_maxretry: 5
+
+vps_baseline_journald_system_max_use: 1G
+vps_baseline_journald_max_retention_sec: 14day
+
+vps_baseline_logrotate_retention_days: 14
+vps_baseline_logrotate_rotate_count: 14
+
+vps_baseline_facts_output_dir: "{{ playbook_dir }}/../facts"
