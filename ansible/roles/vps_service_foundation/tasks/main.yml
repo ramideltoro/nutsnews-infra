@@ -750,7 +750,7 @@
             url: "{{ vps_service_foundation_portal_status_url }}"
             return_content: true
             status_code: 302
-            follow_redirects: none
+            follow_redirects: "no"
           register: vps_service_foundation_portal_status
           changed_when: false
           retries: 6
