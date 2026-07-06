@@ -544,7 +544,7 @@
               }}
           when: vps_service_foundation_apply_metadata_enabled | bool
 
-          - name: Verify app container health when enabled
+        - name: Verify app container health when enabled
           ansible.builtin.command:
             argv:
               - docker
