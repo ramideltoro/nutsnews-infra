@@ -745,19 +745,26 @@
             - vps_service_foundation_infra_healthcheck.status == 200
             - vps_service_foundation_infra_healthcheck.content is search('"ok":true')
 
-        - name: Wait for local operations portal status data
-          ansible.builtin.uri:
-            url: "{{ vps_service_foundation_portal_status_url }}"
-            return_content: true
-            status_code: 302
-            follow_redirects: "none"
+        - name: Wait for local operations portal status data  # noqa command-instead-of-module
+          ansible.builtin.command:
+            argv:
+              - curl
+              - --silent
+              - --show-error
+              - --dump-header
+              - "-"
+              - --output
+              - /dev/null
+              - --max-redirs
+              - "0"
+              - "{{ vps_service_foundation_portal_status_url }}"
           register: vps_service_foundation_portal_status
           changed_when: false
           retries: 6
           delay: 5
           until:
-            - vps_service_foundation_portal_status.status == 302
-            - vps_service_foundation_portal_status.location == '/api/auth/signin/google'
+            - vps_service_foundation_portal_status.stdout is search('(?im)^HTTP/[0-9.]+ 302')
+            - vps_service_foundation_portal_status.stdout is search('(?im)^location: /api/auth/signin/google\r?$')
 
       rescue:
         - name: Show Caddy Compose status after health failure
