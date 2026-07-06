@@ -763,8 +763,8 @@
           retries: 6
           delay: 5
           until:
-            - vps_service_foundation_portal_status.stdout is search('(?im)^HTTP/[0-9.]+ 302')
-            - vps_service_foundation_portal_status.stdout is search('(?im)^location: /api/auth/signin/google\r?$')
+            - "vps_service_foundation_portal_status.stdout is search('(?im)^HTTP/[0-9.]+ 302')"
+            - "vps_service_foundation_portal_status.stdout is search('(?im)^location: /api/auth/signin/google\\r?$')"
 
       rescue:
         - name: Show Caddy Compose status after health failure
