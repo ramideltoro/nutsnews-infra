@@ -1024,7 +1024,7 @@ def collect() -> dict[str, Any]:
         "generated_at": utc_now(),
         "portal": {
             "mode": "read-only",
-            "public_exposure": "Caddy binds the portal to host loopback only on 127.0.0.1:8080.",
+            "public_exposure": "Caddy binds the portal to host loopback only on 127.0.0.1:8080 and routes dashboard access through Google OAuth.",
             "management_policy": "Mutating actions must go through PR, CI, merge, and protected apply.",
         },
         "host": {

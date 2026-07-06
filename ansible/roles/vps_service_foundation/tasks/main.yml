@@ -93,6 +93,41 @@
         group: root
         mode: "0644"
 
+    - name: Validate operations portal Google OAuth configuration
+      ansible.builtin.assert:
+        that:
+          - vps_service_foundation_ops_portal_allowed_email == 'rami.deltoro@gmail.com'
+          - vps_service_foundation_ops_portal_callback_path == '/api/auth/callback/google'
+          - vps_service_foundation_ops_portal_callback_url is match('^https://[^/]+/api/auth/callback/google$')
+          - vps_service_foundation_ops_portal_callback_url in (vps_service_foundation_ops_portal_callback_urls | dict2items | map(attribute='value') | list)
+          - vps_service_foundation_ops_portal_google_client_id | trim | length > 0
+          - vps_service_foundation_ops_portal_google_client_secret | trim | length > 0
+          - vps_service_foundation_ops_portal_session_secret | length >= 32
+        fail_msg: >-
+          Ops Portal Google OAuth is incomplete or misaligned. Set Google client
+          credentials, a 32+ character session secret, allowed email
+          rami.deltoro@gmail.com, and an authorized redirect URI ending exactly
+          /api/auth/callback/google.
+        success_msg: Ops Portal Google OAuth configuration is valid.
+      no_log: true
+
+    - name: Install operations portal auth gateway
+      ansible.builtin.copy:
+        src: "{{ vps_service_foundation_source_portal_auth_gateway }}"
+        dest: "{{ vps_service_foundation_ops_portal_auth_file }}"
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Install operations portal auth environment
+      ansible.builtin.template:
+        src: ops-portal-auth.env.j2
+        dest: "{{ vps_service_foundation_ops_portal_auth_env_file }}"
+        owner: root
+        group: root
+        mode: "0600"
+      no_log: true
+
     - name: Validate app deployment inputs
       ansible.builtin.assert:
         that:
@@ -714,14 +749,15 @@
           ansible.builtin.uri:
             url: "{{ vps_service_foundation_portal_status_url }}"
             return_content: true
-            status_code: 200
+            status_code: 302
+            follow_redirects: none
           register: vps_service_foundation_portal_status
           changed_when: false
           retries: 6
           delay: 5
           until:
-            - vps_service_foundation_portal_status.status == 200
-            - "'generated_at' in vps_service_foundation_portal_status.content"
+            - vps_service_foundation_portal_status.status == 302
+            - vps_service_foundation_portal_status.location == '/api/auth/signin/google'
 
       rescue:
         - name: Show Caddy Compose status after health failure
@@ -766,5 +802,5 @@
           ansible.builtin.fail:
             msg: >-
               Caddy did not answer {{ vps_service_foundation_healthcheck_url }}
-              or the portal status feed did not answer {{ vps_service_foundation_portal_status_url }}.
+              or the portal status feed was not protected by Google OAuth at {{ vps_service_foundation_portal_status_url }}.
               Compose status and container logs were printed above.
