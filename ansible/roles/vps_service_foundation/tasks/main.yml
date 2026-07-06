@@ -76,6 +76,7 @@
         owner: root
         group: root
         mode: "0644"
+      register: vps_service_foundation_caddy_compose_install
 
     - name: Install Caddy placeholder config
       ansible.builtin.copy:
@@ -84,6 +85,7 @@
         owner: root
         group: root
         mode: "0644"
+      register: vps_service_foundation_caddyfile_install
 
     - name: Install Caddy app route template
       ansible.builtin.template:
@@ -92,6 +94,7 @@
         owner: root
         group: root
         mode: "0644"
+      register: vps_service_foundation_caddy_route_install
 
     - name: Validate operations portal Google OAuth configuration
       ansible.builtin.assert:
@@ -118,6 +121,7 @@
         owner: root
         group: root
         mode: "0755"
+      register: vps_service_foundation_ops_auth_gateway_install
 
     - name: Install operations portal auth environment
       ansible.builtin.template:
@@ -126,6 +130,7 @@
         owner: root
         group: root
         mode: "0600"
+      register: vps_service_foundation_ops_auth_env_install
       no_log: true
 
     - name: Validate app deployment inputs
@@ -540,6 +545,28 @@
           - config
           - --quiet
       changed_when: false
+
+    - name: Recreate Caddy service foundation after config changes
+      ansible.builtin.command:
+        argv:
+          - docker
+          - compose
+          - --project-directory
+          - "{{ vps_service_foundation_caddy_app_dir }}"
+          - -f
+          - "{{ vps_service_foundation_caddy_compose_file }}"
+          - up
+          - -d
+          - --remove-orphans
+          - --force-recreate
+      register: vps_service_foundation_compose_recreate
+      changed_when: true
+      when: >-
+        vps_service_foundation_caddy_compose_install.changed
+        or vps_service_foundation_caddyfile_install.changed
+        or vps_service_foundation_caddy_route_install.changed
+        or vps_service_foundation_ops_auth_gateway_install.changed
+        or vps_service_foundation_ops_auth_env_install.changed
 
     - name: Start Caddy service foundation
       ansible.builtin.command:
