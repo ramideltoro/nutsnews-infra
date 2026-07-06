@@ -28,6 +28,30 @@ Example shape for `NUTSNEWS_VPS_ADMIN_AUTHORIZED_KEYS_JSON`:
 
 Do not commit any of these values. Verify host keys before adding `NUTSNEWS_VPS_KNOWN_HOSTS`; do not blindly trust a fresh network scan if something looks wrong.
 
+## Add Optional Backup Environment Secrets
+
+Add these to the same `production-vps` Environment before enabling encrypted VPS backups:
+
+| Secret | Purpose |
+| --- | --- |
+| `NUTSNEWS_BACKUP_ENABLED` | Set to `true` to enable the restic backup timer |
+| `NUTSNEWS_BACKUP_RESTIC_PASSWORD` | Restic repository password; keep a separate offline copy for disaster recovery |
+| `NUTSNEWS_BACKUP_RCLONE_CONFIG` | Complete rclone config for the dedicated `nutsnews-onedrive` OneDrive remote |
+
+Optional backup tuning secrets:
+
+| Secret | Default |
+| --- | --- |
+| `NUTSNEWS_BACKUP_REPOSITORY` | `rclone:nutsnews-onedrive:nutsnews-backups/vps` |
+| `NUTSNEWS_BACKUP_STALE_AFTER_HOURS` | `30` |
+| `NUTSNEWS_BACKUP_CHECK_READ_DATA_SUBSET` | `5%` |
+| `NUTSNEWS_BACKUP_KEEP_DAILY` | `14` |
+| `NUTSNEWS_BACKUP_KEEP_WEEKLY` | `8` |
+| `NUTSNEWS_BACKUP_KEEP_MONTHLY` | `12` |
+| `NUTSNEWS_BACKUP_KEEP_YEARLY` | `2` |
+
+The protected workflow rejects enabled backups unless the restic password and rclone config are present. It also rejects backup repositories that do not use the dedicated `nutsnews-onedrive` rclone remote.
+
 ## Run Check Mode
 
 1. Open GitHub Actions.

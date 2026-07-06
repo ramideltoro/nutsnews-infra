@@ -41,7 +41,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
         with:
           persist-credentials: false
 
@@ -140,6 +140,27 @@ jobs:
           NUTSNEWS_REPORT_SUBJECT_PREFIX: ${{ secrets.NUTSNEWS_REPORT_SUBJECT_PREFIX }}
           NUTSNEWS_CLOUDFLARE_DDNS_API_TOKEN: ${{ secrets.NUTSNEWS_CLOUDFLARE_DDNS_API_TOKEN }}
           ENABLE_CLOUDFLARE_DDNS: ${{ inputs.enable_cloudflare_ddns }}
+          NUTSNEWS_BACKUP_ENABLED: ${{ secrets.NUTSNEWS_BACKUP_ENABLED }}
+          NUTSNEWS_BACKUP_REPOSITORY: ${{ secrets.NUTSNEWS_BACKUP_REPOSITORY }}
+          NUTSNEWS_BACKUP_RESTIC_PASSWORD: ${{ secrets.NUTSNEWS_BACKUP_RESTIC_PASSWORD }}
+          NUTSNEWS_BACKUP_RCLONE_CONFIG: ${{ secrets.NUTSNEWS_BACKUP_RCLONE_CONFIG }}
+          NUTSNEWS_BACKUP_STALE_AFTER_HOURS: ${{ secrets.NUTSNEWS_BACKUP_STALE_AFTER_HOURS }}
+          NUTSNEWS_BACKUP_CHECK_READ_DATA_SUBSET: ${{ secrets.NUTSNEWS_BACKUP_CHECK_READ_DATA_SUBSET }}
+          NUTSNEWS_BACKUP_KEEP_DAILY: ${{ secrets.NUTSNEWS_BACKUP_KEEP_DAILY }}
+          NUTSNEWS_BACKUP_KEEP_WEEKLY: ${{ secrets.NUTSNEWS_BACKUP_KEEP_WEEKLY }}
+          NUTSNEWS_BACKUP_KEEP_MONTHLY: ${{ secrets.NUTSNEWS_BACKUP_KEEP_MONTHLY }}
+          NUTSNEWS_BACKUP_KEEP_YEARLY: ${{ secrets.NUTSNEWS_BACKUP_KEEP_YEARLY }}
+          NUTSNEWS_APP_ENABLED: ${{ secrets.NUTSNEWS_APP_ENABLED }}
+          NUTSNEWS_APP_ROUTE_ENABLED: ${{ secrets.NUTSNEWS_APP_ROUTE_ENABLED }}
+          NUTSNEWS_APP_ROUTE_PATH: ${{ secrets.NUTSNEWS_APP_ROUTE_PATH }}
+          NUTSNEWS_APP_CONTAINER_NAME: ${{ secrets.NUTSNEWS_APP_CONTAINER_NAME }}
+          NUTSNEWS_APP_CONTAINER_PORT: ${{ secrets.NUTSNEWS_APP_CONTAINER_PORT }}
+          NUTSNEWS_APP_HEALTH_PATH: ${{ secrets.NUTSNEWS_APP_HEALTH_PATH }}
+          NUTSNEWS_APP_IMAGE_REPO: ${{ secrets.NUTSNEWS_APP_IMAGE_REPO }}
+          NUTSNEWS_APP_IMAGE_TAG: ${{ secrets.NUTSNEWS_APP_IMAGE_TAG }}
+          NUTSNEWS_APP_SECRET_ENV_KEYS: ${{ secrets.NUTSNEWS_APP_SECRET_ENV_KEYS }}
+          NUTSNEWS_APP_REQUIRED_SECRETS: ${{ secrets.NUTSNEWS_APP_REQUIRED_SECRETS }}
+          NUTSNEWS_APP_ENVS_JSON: ${{ secrets.NUTSNEWS_APP_ENVS_JSON }}
           RUN_MODE: ${{ inputs.run_mode }}
         run: |
           set -euo pipefail
@@ -167,6 +188,94 @@ jobs:
                   return int(value)
               except ValueError as exc:
                   raise SystemExit(f"{name} must be an integer when set.") from exc
+
+          def parse_csv(name):
+              raw = os.environ.get(name, "").strip()
+              if not raw:
+                  return []
+              values = []
+              for value in raw.split(","):
+                  value = value.strip()
+                  if value:
+                      values.append(value)
+              return values
+
+          def parse_app_envs(name):
+              raw = os.environ.get(name, "").strip()
+              if not raw:
+                  return {}
+              try:
+                  data = json.loads(raw)
+              except json.JSONDecodeError as exc:
+                  raise SystemExit(f"{name} must be valid JSON.") from exc
+              if not isinstance(data, dict):
+                  raise SystemExit(f"{name} must be a JSON object.")
+              return {str(key): str(value).strip() for key, value in data.items()}
+
+          backup_enabled = truthy("NUTSNEWS_BACKUP_ENABLED")
+          backup_repository = (
+              os.environ.get("NUTSNEWS_BACKUP_REPOSITORY", "").strip()
+              or "rclone:nutsnews-onedrive:nutsnews-backups/vps"
+          )
+          if backup_enabled:
+              missing = [
+                  name
+                  for name in ("NUTSNEWS_BACKUP_RESTIC_PASSWORD", "NUTSNEWS_BACKUP_RCLONE_CONFIG")
+                  if not os.environ.get(name, "").strip()
+              ]
+              if missing:
+                  raise SystemExit(
+                      "Backups are enabled, but missing required production-vps Environment secrets: "
+                      + ", ".join(missing)
+                  )
+              if not backup_repository.startswith("rclone:nutsnews-onedrive:"):
+                  raise SystemExit(
+                      "NUTSNEWS_BACKUP_REPOSITORY must use the dedicated nutsnews-onedrive rclone remote."
+                  )
+
+          app_enabled = truthy("NUTSNEWS_APP_ENABLED")
+          app_route_enabled = truthy("NUTSNEWS_APP_ROUTE_ENABLED")
+          if app_route_enabled and not app_enabled:
+              raise SystemExit("NUTSNEWS_APP_ROUTE_ENABLED requires NUTSNEWS_APP_ENABLED to also be true.")
+
+          app_image_repo = os.environ.get("NUTSNEWS_APP_IMAGE_REPO", "ghcr.io/ramideltoro/nutsnews").strip() or "ghcr.io/ramideltoro/nutsnews"
+          app_image_tag = os.environ.get("NUTSNEWS_APP_IMAGE_TAG", "latest").strip() or "latest"
+          app_container_name = os.environ.get("NUTSNEWS_APP_CONTAINER_NAME", "nutsnews-app").strip() or "nutsnews-app"
+          app_container_port = env_int("NUTSNEWS_APP_CONTAINER_PORT", 3000)
+          if app_container_port <= 0:
+              raise SystemExit("NUTSNEWS_APP_CONTAINER_PORT must be a positive integer.")
+
+          app_health_path = os.environ.get("NUTSNEWS_APP_HEALTH_PATH", "/healthz").strip() or "/healthz"
+          if not app_health_path.startswith("/"):
+              raise SystemExit("NUTSNEWS_APP_HEALTH_PATH must start with '/'.")
+
+          app_route_path = os.environ.get("NUTSNEWS_APP_ROUTE_PATH", "/app-stage").strip() or "/app-stage"
+          if not app_route_path.startswith("/"):
+              raise SystemExit("NUTSNEWS_APP_ROUTE_PATH must start with '/'.")
+
+          app_secret_env_keys = parse_csv("NUTSNEWS_APP_SECRET_ENV_KEYS")
+          app_required_secrets = parse_csv("NUTSNEWS_APP_REQUIRED_SECRETS")
+          app_envs = parse_app_envs("NUTSNEWS_APP_ENVS_JSON")
+
+          if app_required_secrets:
+              for required_key in app_required_secrets:
+                  if not isinstance(required_key, str) or not required_key.strip():
+                      raise SystemExit("NUTSNEWS_APP_REQUIRED_SECRETS must be a comma-separated list of non-empty keys.")
+
+          if app_required_secrets:
+              missing_declared = [key for key in app_required_secrets if key not in app_secret_env_keys]
+              if missing_declared and app_enabled:
+                  raise SystemExit(
+                      "NUTSNEWS_APP_REQUIRED_SECRETS contains keys not listed in NUTSNEWS_APP_SECRET_ENV_KEYS: "
+                      + ", ".join(missing_declared)
+                  )
+
+          if app_enabled and app_required_secrets:
+              for key in app_required_secrets:
+                  if key not in app_envs or not str(app_envs[key]).strip():
+                      raise SystemExit(
+                          f"Required app secret '{key}' is missing or empty in NUTSNEWS_APP_ENVS_JSON."
+                      )
 
           repository = os.environ["GITHUB_REPOSITORY"]
           run_url = (
@@ -196,6 +305,40 @@ jobs:
                   "NUTSNEWS_CLOUDFLARE_DDNS_API_TOKEN",
                   "",
               ),
+              "vps_service_foundation_backup_enabled": backup_enabled,
+              "vps_service_foundation_backup_repository": backup_repository,
+              "vps_service_foundation_backup_restic_password": os.environ.get(
+                  "NUTSNEWS_BACKUP_RESTIC_PASSWORD",
+                  "",
+              ),
+              "vps_service_foundation_backup_rclone_config": os.environ.get(
+                  "NUTSNEWS_BACKUP_RCLONE_CONFIG",
+                  "",
+              ),
+              "vps_service_foundation_backup_stale_after_hours": env_int(
+                  "NUTSNEWS_BACKUP_STALE_AFTER_HOURS",
+                  30,
+              ),
+              "vps_service_foundation_backup_check_read_data_subset": os.environ.get(
+                  "NUTSNEWS_BACKUP_CHECK_READ_DATA_SUBSET",
+                  "5%",
+              )
+              or "5%",
+              "vps_service_foundation_backup_keep_daily": env_int("NUTSNEWS_BACKUP_KEEP_DAILY", 14),
+              "vps_service_foundation_backup_keep_weekly": env_int("NUTSNEWS_BACKUP_KEEP_WEEKLY", 8),
+              "vps_service_foundation_backup_keep_monthly": env_int("NUTSNEWS_BACKUP_KEEP_MONTHLY", 12),
+              "vps_service_foundation_backup_keep_yearly": env_int("NUTSNEWS_BACKUP_KEEP_YEARLY", 2),
+              "vps_service_foundation_nutsnews_app_enabled": app_enabled,
+              "vps_service_foundation_nutsnews_app_route_enabled": app_route_enabled,
+              "vps_service_foundation_nutsnews_app_route_path": app_route_path,
+              "vps_service_foundation_nutsnews_app_container_name": app_container_name,
+              "vps_service_foundation_nutsnews_app_container_port": app_container_port,
+              "vps_service_foundation_nutsnews_app_health_path": app_health_path,
+              "vps_service_foundation_nutsnews_app_image_repo": app_image_repo,
+              "vps_service_foundation_nutsnews_app_image_tag": app_image_tag,
+              "vps_service_foundation_nutsnews_app_secret_env_keys": app_secret_env_keys,
+              "vps_service_foundation_nutsnews_app_required_secrets": app_required_secrets,
+              "vps_service_foundation_nutsnews_app_envs": app_envs,
               "vps_service_foundation_apply_context": {
                   "status": "apply_started",
                   "repository": repository,

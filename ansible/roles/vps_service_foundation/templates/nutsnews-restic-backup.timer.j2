@@ -1,0 +1,12 @@
+[Unit]
+Description=Run NutsNews encrypted VPS backup on a schedule
+Documentation={{ vps_service_foundation_docs_base_url }}/blob/main/NUTSNEWS_VPS_BACKUPS.md
+
+[Timer]
+OnCalendar={{ vps_service_foundation_backup_on_calendar }}
+RandomizedDelaySec={{ vps_service_foundation_backup_randomized_delay_seconds }}
+Persistent=true
+Unit={{ vps_service_foundation_backup_service }}
+
+[Install]
+WantedBy=timers.target

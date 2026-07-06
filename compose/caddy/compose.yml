@@ -21,6 +21,7 @@ services:
       - "127.0.0.1:8080:8080/tcp"
     volumes:
       - /opt/nutsnews/config/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - /opt/nutsnews/config/caddy/app.routes:/etc/nutsnews/caddy/app.routes:ro
       - /opt/nutsnews/config/caddy/runtime:/config
       - /opt/nutsnews/data/caddy:/data
       - /opt/nutsnews/portal-assets:/srv/nutsnews-portal:ro

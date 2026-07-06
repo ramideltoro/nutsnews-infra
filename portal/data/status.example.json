@@ -9,11 +9,102 @@
     ]
   },
   "backups": {
+    "backup_paths": [
+      "/opt/nutsnews",
+      "/etc/nutsnews",
+      "/etc/systemd/system/nutsnews-restic-backup.service",
+      "/etc/systemd/system/nutsnews-restic-backup.timer"
+    ],
+    "backup_paths_file": "/etc/nutsnews/vps-backup-paths.txt",
+    "backup_service": {
+      "active": "inactive",
+      "enabled": "static",
+      "name": "nutsnews-restic-backup.service"
+    },
+    "configured": true,
     "directory": "/opt/nutsnews/backups",
+    "enabled": true,
+    "encrypted_before_transport": true,
+    "encryption": "restic",
+    "exclude_file": "/etc/nutsnews/vps-backup-excludes.txt",
+    "last_backup": {
+      "data_added_bytes": 1048576,
+      "duration_seconds": 38.2,
+      "error": "",
+      "files_changed": 3,
+      "files_new": 12,
+      "files_unmodified": 128,
+      "finished_at": "2026-07-05T00:30:00+00:00",
+      "snapshot_id": "abc123def456",
+      "started_at": "2026-07-05T00:29:20+00:00",
+      "status": "success",
+      "total_bytes_processed": 52428800
+    },
+    "last_check": {
+      "duration_seconds": 94.1,
+      "error": "",
+      "finished_at": "2026-07-05T01:00:00+00:00",
+      "latest_snapshot_id": "abc123de",
+      "latest_snapshot_time": "2026-07-05T00:30:00+00:00",
+      "listed_entries": 180,
+      "read_data_subset": "5%",
+      "started_at": "2026-07-05T00:58:20+00:00",
+      "status": "success"
+    },
+    "last_prune": {
+      "duration_seconds": 12.4,
+      "error": "",
+      "finished_at": "2026-07-05T00:30:14+00:00",
+      "started_at": "2026-07-05T00:30:00+00:00",
+      "status": "success"
+    },
+    "last_timer_trigger_at": "2026-07-05 03:25:00 UTC",
     "latest": null,
-    "latest_status": "placeholder",
+    "latest_snapshot": {
+      "hostname": "vps.nutsnews.com",
+      "id": "abc123def456",
+      "paths": [
+        "/opt/nutsnews",
+        "/etc/nutsnews"
+      ],
+      "short_id": "abc123de",
+      "time": "2026-07-05T00:30:00+00:00"
+    },
+    "latest_snapshot_age_seconds": 3600,
+    "latest_status": "fresh",
+    "missing_configuration": [],
+    "missing_paths": [],
+    "next_run_at": "2026-07-06 03:25:00 UTC",
+    "raw_onedrive_backups": false,
+    "rclone_remote": "nutsnews-onedrive",
+    "repository": "rclone:nutsnews-onedrive:nutsnews-backups/vps",
+    "repository_path": "nutsnews-backups/vps",
+    "retention": {
+      "keep_daily": 14,
+      "keep_monthly": 12,
+      "keep_weekly": 8,
+      "keep_yearly": 2,
+      "prune_after_backup": true
+    },
+    "schema_version": 1,
+    "security_model": "restic encrypts snapshots locally before rclone transports ciphertext to OneDrive.",
     "size_bytes": 0,
-    "snapshot_reminder": "Provider snapshots and encrypted offsite backups are planned but not managed by this portal yet."
+    "snapshot_reminder": "Encrypted restic snapshots go to OneDrive through the dedicated nutsnews-onedrive rclone remote.",
+    "stale_after_hours": 30,
+    "stale_after_seconds": 108000,
+    "status": "success",
+    "status_file": "/opt/nutsnews/portal-assets/data/backup-status.json",
+    "timer": "nutsnews-restic-backup.timer",
+    "timer_active": "active",
+    "timer_result": "success",
+    "timer_sub_state": "waiting",
+    "transport": "rclone OneDrive remote dedicated to NutsNews backups",
+    "updated_at": "2026-07-05T01:00:00+00:00",
+    "verify_service": {
+      "active": "inactive",
+      "enabled": "static",
+      "name": "nutsnews-restic-verify.service"
+    }
   },
   "docker": {
     "available": true,
@@ -86,6 +177,79 @@
     "updated_at": "2026-07-05T00:00:00+00:00"
   },
   "generated_at": "2026-07-05T00:00:00+00:00",
+  "app": {
+    "container_name": "nutsnews-app",
+    "container_port": 3000,
+    "deploy_status": {
+      "container_health": "n/a",
+      "container_ports": "no published ports",
+      "container_state": "absent",
+      "compose_project": "nutsnews-app",
+      "deployment_state": "disabled",
+      "status": "disabled"
+    },
+    "enabled": false,
+    "image": "ghcr.io/ramideltoro/nutsnews:latest",
+    "image_repo": "ghcr.io/ramideltoro/nutsnews",
+    "image_tag": "latest",
+    "health_path": "/healthz",
+    "route_enabled": false,
+    "route_path": "/app-stage",
+    "routing": {
+      "health_status": "disabled",
+      "health_url": "",
+      "status": "disabled"
+    },
+    "secrets": {
+      "configured_secret_keys": [],
+      "env_file": "/etc/nutsnews/nutsnews-app.env",
+      "env_file_present": true,
+      "missing_required_secret_keys": [
+        "NUTSNEWS_APP_DATABASE_URL",
+        "NUTSNEWS_APP_API_TOKEN"
+      ],
+      "required_secret_keys": [
+        "NUTSNEWS_APP_DATABASE_URL",
+        "NUTSNEWS_APP_API_TOKEN"
+      ],
+      "required_secrets_configured": false,
+      "secret_env_keys": [
+        "NUTSNEWS_APP_DATABASE_URL",
+        "NUTSNEWS_APP_API_TOKEN"
+      ]
+    },
+    "marker": {
+      "container_name": "nutsnews-app",
+      "image_repo": "ghcr.io/ramideltoro/nutsnews",
+      "image_tag": "latest",
+      "recorded_at": "2026-07-04T20:45:00+00:00",
+      "route_enabled": false,
+      "route_path": "/app-stage",
+      "status": "disabled"
+    }
+  },
+  "app_links": [
+    {
+      "name": "NutsNews app layer setup",
+      "url": "https://github.com/ramideltoro/nutsnews-docs/blob/main/NUTSNEWS_VPS_SERVICE_FOUNDATION.md#nutsnews-app-layer"
+    },
+    {
+      "name": "Ops Portal app state",
+      "url": "https://github.com/ramideltoro/nutsnews-docs/blob/main/NUTSNEWS_OPERATIONS_PORTAL_V1.md#app-layer"
+    },
+    {
+      "name": "Protected app rollout",
+      "url": "https://github.com/ramideltoro/nutsnews-docs/blob/main/NUTSNEWS_PROTECTED_ANSIBLE_APPLY.md#nutsnews-app-rollout-path"
+    },
+    {
+      "name": "Rollback app rollout",
+      "url": "https://github.com/ramideltoro/nutsnews-docs/blob/main/TROUBLESHOOTING.md#nutsnews-app-rollback"
+    },
+    {
+      "name": "Troubleshoot app rollout",
+      "url": "https://github.com/ramideltoro/nutsnews-docs/blob/main/TROUBLESHOOTING.md#nutsnews-app-rollout"
+    }
+  ],
   "gitops": {
     "deployed_commit": "unknown",
     "drift_warning": "The portal reads local state only. Drift still has to be reconciled by PR and protected apply.",
@@ -102,6 +266,14 @@
       {
         "name": "Send VPS Health Report",
         "url": "https://github.com/ramideltoro/nutsnews-infra/actions/workflows/send-vps-health-report.yml"
+      },
+      {
+        "name": "Run VPS Backup",
+        "url": "https://github.com/ramideltoro/nutsnews-infra/actions/workflows/run-vps-backup.yml"
+      },
+      {
+        "name": "Verify VPS Backup",
+        "url": "https://github.com/ramideltoro/nutsnews-infra/actions/workflows/verify-vps-backup.yml"
       }
     ]
   },
@@ -217,6 +389,18 @@
     {
       "name": "Infrastructure operations guide",
       "url": "https://github.com/ramideltoro/nutsnews-docs/blob/main/NUTSNEWS_OPERATIONS_PORTAL_V1.md"
+    },
+    {
+      "name": "VPS backup setup",
+      "url": "https://github.com/ramideltoro/nutsnews-docs/blob/main/NUTSNEWS_VPS_BACKUPS.md"
+    },
+    {
+      "name": "VPS restore",
+      "url": "https://github.com/ramideltoro/nutsnews-docs/blob/main/NUTSNEWS_VPS_RESTORE.md"
+    },
+    {
+      "name": "VPS disaster recovery",
+      "url": "https://github.com/ramideltoro/nutsnews-docs/blob/main/NUTSNEWS_VPS_DISASTER_RECOVERY.md"
     }
   ],
   "schema_version": 1,
@@ -265,6 +449,21 @@
       "active": "active",
       "enabled": "enabled",
       "name": "nutsnews-ops-health-report.timer"
+    },
+    {
+      "active": "active",
+      "enabled": "enabled",
+      "name": "nutsnews-restic-backup.timer"
+    },
+    {
+      "active": "inactive",
+      "enabled": "static",
+      "name": "nutsnews-restic-backup.service"
+    },
+    {
+      "active": "inactive",
+      "enabled": "static",
+      "name": "nutsnews-restic-verify.service"
     }
   ]
 }

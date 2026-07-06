@@ -24,7 +24,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
         with:
           persist-credentials: false
 
@@ -47,12 +47,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
-      actions: read
+      actions: read  # Required for workflow security scan to inspect workflow/action data.
       contents: read
 
     steps:
       - name: Checkout
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
         with:
           persist-credentials: false
 
@@ -73,7 +73,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
         with:
           persist-credentials: false
 
@@ -104,3 +104,15 @@ jobs:
       - name: Validate manual health report workflow guardrails
         shell: bash
         run: python3 ansible/tests/validate_health_report_workflow.py
+
+      - name: Validate manual backup workflow guardrails
+        shell: bash
+        run: python3 ansible/tests/validate_backup_workflows.py
+
+      - name: Validate backup secrets are not committed
+        shell: bash
+        run: python3 ansible/tests/validate_no_backup_secrets.py
+
+      - name: Validate app secrets are not committed
+        shell: bash
+        run: python3 ansible/tests/validate_no_app_secrets.py

@@ -1,0 +1,119 @@
+name: Verify VPS Backup
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-vps-backup-verify
+  cancel-in-progress: false
+
+jobs:
+  verify-backup:
+    name: Verify latest encrypted VPS backup
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    environment: production-vps
+
+    steps:
+      - name: Validate required environment secrets
+        shell: bash
+        env:
+          NUTSNEWS_VPS_SSH_PRIVATE_KEY: ${{ secrets.NUTSNEWS_VPS_SSH_PRIVATE_KEY }}
+          NUTSNEWS_VPS_KNOWN_HOSTS: ${{ secrets.NUTSNEWS_VPS_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+
+          missing=0
+          for secret_name in \
+            NUTSNEWS_VPS_SSH_PRIVATE_KEY \
+            NUTSNEWS_VPS_KNOWN_HOSTS
+          do
+            if [[ -z "${!secret_name}" ]]; then
+              echo "Missing required production-vps environment secret: $secret_name" >&2
+              missing=1
+            fi
+          done
+
+          exit "$missing"
+
+      - name: Prepare SSH material
+        shell: bash
+        env:
+          NUTSNEWS_VPS_SSH_PRIVATE_KEY: ${{ secrets.NUTSNEWS_VPS_SSH_PRIVATE_KEY }}
+          NUTSNEWS_VPS_KNOWN_HOSTS: ${{ secrets.NUTSNEWS_VPS_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+
+          install -m 0700 -d "$HOME/.ssh"
+          printf '%s\n' "$NUTSNEWS_VPS_SSH_PRIVATE_KEY" > "$HOME/.ssh/nutsnews_vps"
+          chmod 0600 "$HOME/.ssh/nutsnews_vps"
+
+          printf '%s\n' "$NUTSNEWS_VPS_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          chmod 0600 "$HOME/.ssh/known_hosts"
+
+          ssh-keygen -y -f "$HOME/.ssh/nutsnews_vps" > /dev/null
+          ssh-keygen -F 65.75.202.112 -f "$HOME/.ssh/known_hosts" > /dev/null
+
+      - name: Trigger fixed verification service
+        shell: bash
+        env:
+          VPS_HOST: 65.75.202.112
+          VPS_USER: nutsnews_ops
+          VERIFY_SERVICE: nutsnews-restic-verify.service
+          BACKUP_STATUS_FILE: /opt/nutsnews/portal-assets/data/backup-status.json
+        run: |
+          set -euo pipefail
+
+          ssh_args=(
+            -i "$HOME/.ssh/nutsnews_vps"
+            -o UserKnownHostsFile="$HOME/.ssh/known_hosts"
+            -o StrictHostKeyChecking=yes
+            -o IdentitiesOnly=yes
+            -o BatchMode=yes
+            -o LogLevel=ERROR
+          )
+          target="${VPS_USER}@${VPS_HOST}"
+
+          echo "Triggering ${VERIFY_SERVICE} on ${VPS_HOST} as ${VPS_USER}."
+          set +e
+          # shellcheck disable=SC2029
+          ssh "${ssh_args[@]}" "$target" "sudo -n /bin/systemctl start ${VERIFY_SERVICE}"
+          trigger_status="$?"
+          set -e
+
+          echo
+          echo "Verification service result"
+          set +e
+          # shellcheck disable=SC2029
+          ssh "${ssh_args[@]}" "$target" "sudo -n /bin/systemctl show ${VERIFY_SERVICE} --property=ActiveState,SubState,Result,ExecMainCode,ExecMainStatus,InactiveEnterTimestamp --no-pager"
+          service_status="$?"
+          set -e
+
+          echo
+          echo "Backup verification status snapshot"
+          set +e
+          # shellcheck disable=SC2029
+          ssh "${ssh_args[@]}" "$target" "/usr/bin/python3 -c 'import json,sys; from pathlib import Path; p=Path(\"${BACKUP_STATUS_FILE}\"); p.exists() or sys.exit(\"backup status file is missing\"); data=json.loads(p.read_text()); latest=data.get(\"latest_snapshot\",{}); check=data.get(\"last_check\",{}); keys=(\"enabled\",\"configured\",\"status\",\"latest_status\",\"latest_snapshot_age_seconds\",\"updated_at\"); [print(\"{}: {}\".format(k, data.get(k, \"unknown\"))) for k in keys]; print(\"latest_snapshot: {}\".format(latest.get(\"short_id\") or latest.get(\"id\") or \"none\")); print(\"latest_snapshot_time: {}\".format(latest.get(\"time\", \"never\"))); print(\"last_check.status: {}\".format(check.get(\"status\", \"unknown\"))); print(\"last_check.finished_at: {}\".format(check.get(\"finished_at\", \"never\"))); print(\"last_check.read_data_subset: {}\".format(check.get(\"read_data_subset\", \"unknown\"))); ok=data.get(\"enabled\") is True and data.get(\"configured\") is True and check.get(\"status\") == \"success\" and bool(latest); sys.exit(0 if ok else 2)'"
+          backup_status="$?"
+          set -e
+
+          if [[ "$trigger_status" -ne 0 ]]; then
+            echo "Verification service failed to start or complete. Exit code: $trigger_status" >&2
+            exit "$trigger_status"
+          fi
+
+          if [[ "$service_status" -ne 0 ]]; then
+            echo "Could not read systemd status for ${VERIFY_SERVICE}. Exit code: $service_status" >&2
+            exit "$service_status"
+          fi
+
+          if [[ "$backup_status" -ne 0 ]]; then
+            echo "Backup verification did not reach a successful state. Check the status snapshot above." >&2
+            exit "$backup_status"
+          fi
+
+          echo
+          echo "Latest encrypted VPS backup snapshot verified successfully."

@@ -19,6 +19,8 @@
     respond "ok" 200
   }
 
+  import /etc/nutsnews/caddy/app.routes
+
   handle /data/* {
     header Cache-Control "no-store"
     root * /srv/nutsnews-portal

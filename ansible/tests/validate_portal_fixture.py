@@ -13,10 +13,17 @@ APP_JS = (ROOT / "portal/assets/app.js").read_text(encoding="utf-8")
 STYLES = (ROOT / "portal/assets/styles.css").read_text(encoding="utf-8")
 COLLECTOR = (ROOT / "ansible/roles/vps_service_foundation/files/ops_portal_collector.py").read_text(encoding="utf-8")
 REPORTER = (ROOT / "ansible/roles/vps_service_foundation/files/ops_portal_reporter.py").read_text(encoding="utf-8")
+BACKUP_RUNNER = (ROOT / "ansible/roles/vps_service_foundation/files/vps_restic_backup.py").read_text(encoding="utf-8")
 TASKS = (ROOT / "ansible/roles/vps_service_foundation/tasks/main.yml").read_text(encoding="utf-8")
 COLLECTOR_UNIT = (
     ROOT / "ansible/roles/vps_service_foundation/templates/nutsnews-ops-portal-collector.service.j2"
 ).read_text(encoding="utf-8")
+BACKUP_SERVICE = (
+    ROOT / "ansible/roles/vps_service_foundation/templates/nutsnews-restic-backup.service.j2"
+).read_text(encoding="utf-8")
+BACKUP_ENV = (ROOT / "ansible/roles/vps_service_foundation/templates/vps-backup.env.j2").read_text(encoding="utf-8")
+RUN_BACKUP_WORKFLOW = (ROOT / ".github/workflows/run-vps-backup.yml").read_text(encoding="utf-8")
+VERIFY_BACKUP_WORKFLOW = (ROOT / ".github/workflows/verify-vps-backup.yml").read_text(encoding="utf-8")
 
 
 def require(condition: bool, message: str) -> None:
@@ -52,8 +59,77 @@ for word in ("token", "secret", "password", "authorization", "credential", "priv
     require(word in redaction, f"Log redaction description missing {word}.")
     require(word.replace("-", "_") in COLLECTOR.lower() or word in COLLECTOR.lower(), f"Collector redaction missing {word}.")
 
-for token in ("gauge-card", "temperature-card", "Health Score", "renderEmailReporting"):
+for token in (
+    "gauge-card",
+    "temperature-card",
+    "Health Score",
+    "renderEmailReporting",
+    "renderAppLayer",
+    "app-links",
+):
     require(token in APP_JS or token in STYLES, f"Portal UI missing {token}.")
+
+app = STATUS["app"]
+require(isinstance(app, dict), "Fixture app section is missing.")
+for key in (
+    "enabled",
+    "route_enabled",
+    "route_path",
+    "routing",
+    "secrets",
+    "deploy_status",
+    "marker",
+    "image_repo",
+    "image_tag",
+    "image",
+):
+    require(key in app, f"App fixture is missing {key}.")
+require(app["enabled"] is False, "App fixture should remain disabled by default.")
+require(app["route_enabled"] is False, "App fixture should keep route disabled by default.")
+require(app["routing"]["status"] == "disabled", "App route status should be disabled by default.")
+app_links = STATUS["app_links"]
+require(isinstance(app_links, list) and len(app_links) >= 3, "Fixture app links missing app-layer links.")
+for required_name in (
+    "NutsNews app layer setup",
+    "Ops Portal app state",
+    "Protected app rollout",
+    "Troubleshoot app rollout",
+):
+    require(
+        any(item.get("name") == required_name for item in app_links),
+        f"App fixture missing app link: {required_name}.",
+    )
+
+backups = STATUS["backups"]
+require(backups.get("enabled") is True, "Backup fixture must show enabled backups.")
+require(backups.get("configured") is True, "Backup fixture must show configured backups.")
+require(backups.get("encryption") == "restic", "Backups must use restic encryption.")
+require(backups.get("encrypted_before_transport") is True, "Backups must be encrypted before transport.")
+require(backups.get("raw_onedrive_backups") is False, "Fixture must not describe raw readable OneDrive backups.")
+require(backups.get("repository") == "rclone:nutsnews-onedrive:nutsnews-backups/vps", "Unexpected backup repo.")
+require(backups.get("rclone_remote") == "nutsnews-onedrive", "Backup remote must be dedicated to NutsNews.")
+require(backups.get("latest_status") == "fresh", "Fixture latest backup must be fresh.")
+require(backups.get("last_backup", {}).get("status") == "success", "Fixture backup status must be success.")
+require(backups.get("last_prune", {}).get("status") == "success", "Fixture prune status must be success.")
+require(backups.get("last_check", {}).get("status") == "success", "Fixture verify status must be success.")
+require(backups.get("retention", {}).get("prune_after_backup") is True, "Backups must prune after backup.")
+require("/opt/nutsnews" in backups.get("backup_paths", []), "Backups must include /opt/nutsnews.")
+require("/etc/nutsnews" in backups.get("backup_paths", []), "Backups must include /etc/nutsnews.")
+require("backup_paths" in APP_JS and "Last Prune" in APP_JS and "Last Verify" in APP_JS, "Portal UI missing backup status.")
+require("NUTSNEWS_BACKUP_STATUS_FILE" in COLLECTOR_UNIT, "Collector unit must pass backup status file path.")
+require("vps-backup.env.j2" in TASKS, "Backup environment template must be managed by Ansible.")
+require("vps_service_foundation_backup_restic_password_file" in TASKS, "Restic password file must be managed by Ansible.")
+require("vps_service_foundation_backup_rclone_config_file" in TASKS, "rclone config must be managed by Ansible.")
+require("no_log: true" in TASKS, "Secret-bearing backup tasks must use no_log.")
+require("RESTIC_PASSWORD_FILE" in BACKUP_ENV, "Backup service must use RESTIC_PASSWORD_FILE.")
+require("RCLONE_CONFIG" in BACKUP_ENV, "Backup service must use an explicit rclone config.")
+require("ReadWritePaths=" in BACKUP_SERVICE, "Backup service must constrain writable paths.")
+require("restic encrypts snapshots locally" in BACKUP_RUNNER, "Backup status must explain encryption before transport.")
+require("--keep-daily" in BACKUP_RUNNER and "--prune" in BACKUP_RUNNER, "Backup runner must enforce retention pruning.")
+require("Run VPS Backup" in RUN_BACKUP_WORKFLOW, "Manual run backup workflow missing.")
+require("Verify VPS Backup" in VERIFY_BACKUP_WORKFLOW, "Manual verify backup workflow missing.")
+require("inputs:" not in RUN_BACKUP_WORKFLOW, "Run backup workflow must not accept arbitrary input.")
+require("inputs:" not in VERIFY_BACKUP_WORKFLOW, "Verify backup workflow must not accept arbitrary input.")
 
 for forbidden in ("<button", "<form", "docker.sock", "child_process", "execFile", "spawn"):
     require(forbidden not in APP_JS, f"Portal JavaScript includes forbidden control surface: {forbidden}.")

@@ -1,0 +1,13 @@
+{% if vps_service_foundation_nutsnews_app_route_enabled | bool %}
+handle_path {{ vps_service_foundation_nutsnews_app_route_path }}* {
+  # Route to the staged app backend; keep this path under GitOps review before production cutover.
+  reverse_proxy {{ vps_service_foundation_nutsnews_app_container_name }}:{{ vps_service_foundation_nutsnews_app_container_port }} {
+    health_uri {{ vps_service_foundation_nutsnews_app_health_path | default('/healthz') }}
+  }
+}
+{% else %}
+# App route staging is currently disabled.
+# To stage this in a future PR, set:
+# vps_service_foundation_nutsnews_app_route_enabled: true
+# vps_service_foundation_nutsnews_app_route_path: "/app-stage"
+{% endif %}

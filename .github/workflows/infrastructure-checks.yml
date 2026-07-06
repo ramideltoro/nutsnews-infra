@@ -24,7 +24,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
         with:
           persist-credentials: false
 
@@ -66,7 +66,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
         with:
           persist-credentials: false
 
@@ -112,7 +112,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
         with:
           persist-credentials: false
 
@@ -129,7 +129,7 @@ jobs:
 
       - name: Install TFLint
         if: steps.detect.outputs.has_files == 'true'
-        uses: terraform-linters/setup-tflint@c750028ac0f3831886a261f96da68ab58a92e7ec  # v6
+        uses: terraform-linters/setup-tflint@6e1e0642c0289bd619021bf6b34e3c08ed1e005a  # v6
         with:
           cache: true
 
@@ -160,7 +160,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
         with:
           persist-credentials: false
 
@@ -179,7 +179,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
         with:
           persist-credentials: false
 
@@ -280,11 +280,15 @@ jobs:
 
           python3 -m py_compile ansible/roles/vps_service_foundation/files/ops_portal_collector.py
           python3 -m py_compile ansible/roles/vps_service_foundation/files/ops_portal_reporter.py
+          python3 -m py_compile ansible/roles/vps_service_foundation/files/vps_restic_backup.py
           grep -Fq 'vps_service_foundation_collector_timer' ansible/roles/vps_service_foundation/tasks/main.yml
           grep -Fq 'nutsnews-ops-portal-collector.timer' ansible/roles/vps_service_foundation/defaults/main.yml
           grep -Fq 'nutsnews-ops-alert-check.timer' ansible/roles/vps_service_foundation/defaults/main.yml
           grep -Fq 'nutsnews-ops-health-report.timer' ansible/roles/vps_service_foundation/defaults/main.yml
+          grep -Fq 'nutsnews-restic-backup.timer' ansible/roles/vps_service_foundation/defaults/main.yml
+          grep -Fq 'nutsnews-restic-verify.service' ansible/roles/vps_service_foundation/defaults/main.yml
           grep -Fq 'ops-reporter.env.j2' ansible/roles/vps_service_foundation/tasks/main.yml
+          grep -Fq 'vps-backup.env.j2' ansible/roles/vps_service_foundation/tasks/main.yml
           grep -Fq 'no_log: true' ansible/roles/vps_service_foundation/tasks/main.yml
           grep -Fq 'Refresh operations portal status snapshot' ansible/roles/vps_service_foundation/tasks/main.yml
           grep -Fq 'Refresh operations portal reporting status snapshot' ansible/roles/vps_service_foundation/tasks/main.yml
@@ -293,8 +297,17 @@ jobs:
           grep -Fq 'handle /data/*' compose/caddy/Caddyfile
           grep -Fq 'ReadWritePaths=' ansible/roles/vps_service_foundation/templates/nutsnews-ops-portal-collector.service.j2
           grep -Fq 'NUTSNEWS_EMAIL_ENABLED' ansible/roles/vps_service_foundation/templates/ops-reporter.env.j2
+          grep -Fq 'RESTIC_PASSWORD_FILE' ansible/roles/vps_service_foundation/templates/vps-backup.env.j2
+          grep -Fq 'RCLONE_CONFIG' ansible/roles/vps_service_foundation/templates/vps-backup.env.j2
           grep -Fq 'EnvironmentFile=-{{ vps_service_foundation_reporter_env_file }}' ansible/roles/vps_service_foundation/templates/nutsnews-ops-alert-check.service.j2
           grep -Fq 'ExecStart={{ vps_service_foundation_reporter_bin }} --mode report' ansible/roles/vps_service_foundation/templates/nutsnews-ops-health-report.service.j2
+          grep -Fq 'ExecStart={{ vps_service_foundation_backup_bin }} --mode backup' ansible/roles/vps_service_foundation/templates/nutsnews-restic-backup.service.j2
+          grep -Fq 'ExecStart={{ vps_service_foundation_backup_bin }} --mode verify-latest' ansible/roles/vps_service_foundation/templates/nutsnews-restic-verify.service.j2
+          python3 ansible/tests/validate_backup_workflows.py
+          python3 ansible/tests/validate_no_backup_secrets.py
+          python3 ansible/tests/validate_no_app_secrets.py
+          grep -q 'nutsnews-app.env.j2' ansible/roles/vps_service_foundation/tasks/main.yml
+          grep -q 'nutsnews-app.routes.j2' ansible/roles/vps_service_foundation/tasks/main.yml
 
       - name: Run ansible-lint
         if: steps.detect.outputs.has_files == 'true'
