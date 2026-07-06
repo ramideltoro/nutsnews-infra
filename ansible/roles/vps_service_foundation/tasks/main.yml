@@ -588,7 +588,7 @@
           delay: 3
           until:
             - vps_service_foundation_nutsnews_app_route_health.status == 200
-            - "ok" in vps_service_foundation_nutsnews_app_route_health.content | lower
+            - '"ok" in vps_service_foundation_nutsnews_app_route_health.content | lower'
           when: vps_service_foundation_nutsnews_app_enabled | bool and vps_service_foundation_nutsnews_app_route_enabled | bool
 
         - name: Wait for local Caddy health endpoint
