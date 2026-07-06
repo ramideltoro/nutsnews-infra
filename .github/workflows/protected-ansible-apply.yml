@@ -223,7 +223,7 @@ jobs:
           CLOUDFLARE_DDNS_INSPECT_ONLY: "1"
         run: |
           set -euo pipefail
-          ansible/roles/vps_service_foundation/files/cloudflare_ddns.py
+          python3 ansible/roles/vps_service_foundation/files/cloudflare_ddns.py
 
       - name: Run Ansible baseline
         shell: bash
