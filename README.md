@@ -38,6 +38,8 @@ The first Ops Portal layer adds a read-only static dashboard served by the local
 
 The `Send VPS Health Report` workflow can be triggered manually through the same protected `production-vps` Environment. It connects as `nutsnews_ops` with the existing SSH secret and known-hosts pattern, then starts only the existing `nutsnews-ops-health-report.service` unit on the VPS.
 
+The encrypted VPS backup layer uses restic with the rclone backend to write ciphertext to the dedicated OneDrive remote `nutsnews-onedrive` at `rclone:nutsnews-onedrive:nutsnews-backups/vps`. Backup secrets come only from the protected `production-vps` Environment, Ansible writes root-only config on the VPS, and manual backup/verification workflows start only fixed systemd units.
+
 ## Repo Layout
 
 ```text
@@ -81,6 +83,8 @@ Use [runbooks/VPS_SERVICE_FOUNDATION.md](runbooks/VPS_SERVICE_FOUNDATION.md) bef
 Use [runbooks/OPS_PORTAL.md](runbooks/OPS_PORTAL.md) before applying or verifying the read-only operations portal.
 
 Use the manual `Send VPS Health Report` workflow when you need an on-demand email report without opening an interactive SSH session.
+
+Use [runbooks/VPS_BACKUP_SETUP.md](runbooks/VPS_BACKUP_SETUP.md), [runbooks/VPS_RESTORE.md](runbooks/VPS_RESTORE.md), and [runbooks/VPS_DISASTER_RECOVERY.md](runbooks/VPS_DISASTER_RECOVERY.md) before enabling backups, restoring files, or rebuilding on another VPS provider.
 
 ## External Systems
 

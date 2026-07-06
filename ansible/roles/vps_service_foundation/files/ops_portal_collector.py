@@ -39,6 +39,9 @@ APPLY_STATUS_FILE = Path(os.environ.get("NUTSNEWS_APPLY_STATUS_FILE", "/opt/nuts
 REPORTING_STATUS_FILE = Path(
     os.environ.get("NUTSNEWS_REPORTING_STATUS_FILE", "/opt/nutsnews/portal-assets/data/reporting-status.json")
 )
+BACKUP_STATUS_FILE = Path(
+    os.environ.get("NUTSNEWS_BACKUP_STATUS_FILE", "/opt/nutsnews/portal-assets/data/backup-status.json")
+)
 DISK_SCAN_CACHE_FILE = Path(
     os.environ.get("NUTSNEWS_DISK_SCAN_CACHE_FILE", "/opt/nutsnews/portal-assets/data/disk-usage-cache.json")
 )
@@ -54,6 +57,28 @@ INFRA_REPO_URL = os.environ.get("NUTSNEWS_INFRA_REPO_URL", "https://github.com/r
 
 def utc_now() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+
+
+def parse_timestamp(value: Any) -> datetime | None:
+    if not isinstance(value, str) or not value.strip():
+        return None
+    raw = value.strip()
+    if raw.endswith("Z"):
+        raw = raw[:-1] + "+00:00"
+    try:
+        parsed = datetime.fromisoformat(raw)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed
+
+
+def age_seconds(value: Any) -> int | None:
+    parsed = parse_timestamp(value)
+    if not parsed:
+        return None
+    return max(int((datetime.now(timezone.utc) - parsed).total_seconds()), 0)
 
 
 def run(argv: list[str], timeout: int = 8) -> dict[str, Any]:
@@ -439,12 +464,17 @@ def systemd_timer_schedule(timer: str) -> dict[str, str]:
             key, value = line.split("=", 1)
             values[key] = value.strip()
 
+    next_run_at = values.get("NextElapseUSecRealtime", "unknown") or "unknown"
+    last_timer_trigger_at = values.get("LastTriggerUSec", "never") or "never"
+
     return {
         "timer": timer,
         "timer_active": values.get("ActiveState", "unknown") or "unknown",
         "timer_sub_state": values.get("SubState", "unknown") or "unknown",
-        "next_report_run_at": values.get("NextElapseUSecRealtime", "unknown") or "unknown",
-        "last_report_timer_trigger_at": values.get("LastTriggerUSec", "never") or "never",
+        "next_run_at": next_run_at,
+        "last_timer_trigger_at": last_timer_trigger_at,
+        "next_report_run_at": next_run_at,
+        "last_report_timer_trigger_at": last_timer_trigger_at,
         "timer_result": values.get("Result", "unknown") or "unknown",
     }
 
@@ -607,13 +637,58 @@ def backup_state() -> dict[str, Any]:
         except OSError:
             latest = None
 
-    return {
+    default = {
+        "schema_version": 1,
+        "updated_at": "unknown",
+        "enabled": False,
+        "configured": False,
+        "repository": "rclone:nutsnews-onedrive:nutsnews-backups/vps",
+        "repository_path": "nutsnews-backups/vps",
+        "transport": "rclone OneDrive remote dedicated to NutsNews backups",
+        "encryption": "restic",
+        "encrypted_before_transport": True,
+        "raw_onedrive_backups": False,
         "directory": str(BACKUPS_DIR),
         "size_bytes": size_bytes,
         "latest": latest,
-        "latest_status": "placeholder",
-        "snapshot_reminder": "Provider snapshots and encrypted offsite backups are planned but not managed by this portal yet.",
+        "latest_snapshot": None,
+        "latest_snapshot_age_seconds": None,
+        "latest_status": "disabled",
+        "last_backup": {"status": "never"},
+        "last_prune": {"status": "never"},
+        "last_check": {"status": "never"},
+        "retention": {},
+        "stale_after_hours": 30,
+        "stale_after_seconds": 108000,
+        "missing_configuration": [],
+        "backup_paths": [],
+        "missing_paths": [],
+        "security_model": "restic encrypts snapshots locally before rclone transports ciphertext to OneDrive.",
+        "snapshot_reminder": "Encrypted restic snapshots go to OneDrive through the dedicated nutsnews-onedrive rclone remote.",
     }
+    data = read_json(BACKUP_STATUS_FILE, {})
+    if not isinstance(data, dict):
+        data = {}
+
+    combined = {**default, **data}
+    combined["directory"] = str(BACKUPS_DIR)
+    combined["size_bytes"] = size_bytes
+    combined["latest"] = latest
+    combined["status_file"] = str(BACKUP_STATUS_FILE)
+    combined.update(systemd_timer_schedule("nutsnews-restic-backup.timer"))
+    combined["backup_service"] = systemd_status("nutsnews-restic-backup.service")
+    combined["verify_service"] = systemd_status("nutsnews-restic-verify.service")
+
+    snapshot = combined.get("latest_snapshot")
+    if isinstance(snapshot, dict) and combined.get("latest_snapshot_age_seconds") is None:
+        combined["latest_snapshot_age_seconds"] = age_seconds(snapshot.get("time"))
+    if combined.get("enabled") and combined.get("latest_snapshot_age_seconds") is not None:
+        combined["latest_status"] = (
+            "fresh"
+            if safe_int(combined.get("latest_snapshot_age_seconds")) <= safe_int(combined.get("stale_after_seconds"), 108000)
+            else "stale"
+        )
+    return combined
 
 
 def reporting_state() -> dict[str, Any]:
@@ -671,7 +746,12 @@ def resource_state() -> dict[str, Any]:
     }
 
 
-def alert_state(resources: dict[str, Any], docker: dict[str, Any], services: list[dict[str, str]]) -> list[dict[str, str]]:
+def alert_state(
+    resources: dict[str, Any],
+    docker: dict[str, Any],
+    services: list[dict[str, str]],
+    backups: dict[str, Any],
+) -> list[dict[str, str]]:
     alerts = []
     disk = resources.get("disk", {})
     memory = resources.get("memory", {})
@@ -703,6 +783,31 @@ def alert_state(resources: dict[str, Any], docker: dict[str, Any], services: lis
     if inactive:
         alerts.append({"level": "critical", "message": "Important services are not active: " + ", ".join(inactive)})
 
+    if backups.get("enabled"):
+        if not backups.get("configured"):
+            missing = ", ".join(backups.get("missing_configuration", [])) or "backup secrets"
+            alerts.append({"level": "critical", "message": f"VPS backups are enabled but misconfigured: {missing}."})
+
+        backup_status = str(backups.get("last_backup", {}).get("status", "")).lower()
+        prune_status = str(backups.get("last_prune", {}).get("status", "")).lower()
+        check_status = str(backups.get("last_check", {}).get("status", "")).lower()
+        latest_status = str(backups.get("latest_status", "")).lower()
+        latest_age = backups.get("latest_snapshot_age_seconds")
+        stale_after = safe_int(backups.get("stale_after_seconds"), 108000)
+
+        if backup_status == "failed":
+            alerts.append({"level": "critical", "message": "The latest VPS restic backup failed."})
+        if prune_status == "failed":
+            alerts.append({"level": "warning", "message": "The latest VPS restic prune failed after backup."})
+        if check_status == "failed":
+            alerts.append({"level": "warning", "message": "The latest VPS backup verification failed."})
+        if backups.get("timer_active") not in ("active", "activating"):
+            alerts.append({"level": "warning", "message": "The VPS backup timer is not active."})
+        if not backups.get("latest_snapshot"):
+            alerts.append({"level": "warning", "message": "No VPS restic backup snapshot is available yet."})
+        elif latest_status == "stale" or (isinstance(latest_age, int) and latest_age > stale_after):
+            alerts.append({"level": "critical", "message": "The latest VPS restic backup snapshot is stale."})
+
     if not alerts:
         alerts.append({"level": "ok", "message": "No local threshold alerts from the current snapshot."})
     return alerts
@@ -724,6 +829,14 @@ def gitops_state() -> dict[str, Any]:
                 "name": "Send VPS Health Report",
                 "url": f"{INFRA_REPO_URL}/actions/workflows/send-vps-health-report.yml",
             },
+            {
+                "name": "Run VPS Backup",
+                "url": f"{INFRA_REPO_URL}/actions/workflows/run-vps-backup.yml",
+            },
+            {
+                "name": "Verify VPS Backup",
+                "url": f"{INFRA_REPO_URL}/actions/workflows/verify-vps-backup.yml",
+            },
             {"name": "Pull requests", "url": f"{INFRA_REPO_URL}/pulls"},
             {"name": "Actions", "url": f"{INFRA_REPO_URL}/actions"},
         ],
@@ -736,6 +849,9 @@ def runbook_links() -> list[dict[str, str]]:
         {"name": "Infrastructure operations guide", "url": f"{DOCS_BASE_URL}/blob/main/NUTSNEWS_OPERATIONS_PORTAL_V1.md"},
         {"name": "Protected Ansible apply", "url": f"{DOCS_BASE_URL}/blob/main/NUTSNEWS_PROTECTED_ANSIBLE_APPLY.md"},
         {"name": "VPS service foundation", "url": f"{DOCS_BASE_URL}/blob/main/NUTSNEWS_VPS_SERVICE_FOUNDATION.md"},
+        {"name": "VPS backup setup", "url": f"{DOCS_BASE_URL}/blob/main/NUTSNEWS_VPS_BACKUPS.md"},
+        {"name": "VPS restore", "url": f"{DOCS_BASE_URL}/blob/main/NUTSNEWS_VPS_RESTORE.md"},
+        {"name": "VPS disaster recovery", "url": f"{DOCS_BASE_URL}/blob/main/NUTSNEWS_VPS_DISASTER_RECOVERY.md"},
         {"name": "Infra operations platform", "url": f"{DOCS_BASE_URL}/blob/main/NUTSNEWS_INFRA_OPERATIONS_PLATFORM.md"},
     ]
 
@@ -755,10 +871,14 @@ def collect() -> dict[str, Any]:
             "nutsnews-ops-portal-collector.timer",
             "nutsnews-ops-alert-check.timer",
             "nutsnews-ops-health-report.timer",
+            "nutsnews-restic-backup.timer",
+            "nutsnews-restic-backup.service",
+            "nutsnews-restic-verify.service",
         ]
     ]
     reporting = reporting_state()
     reporting.update(systemd_timer_schedule("nutsnews-ops-health-report.timer"))
+    backups = backup_state()
 
     return {
         "schema_version": 1,
@@ -787,11 +907,11 @@ def collect() -> dict[str, Any]:
         "services": services,
         "logs": log_sections(),
         "security": security_state(),
-        "backups": backup_state(),
+        "backups": backups,
         "email_reporting": reporting,
         "alerts": {
             "email_configuration": reporting.get("status", "disabled"),
-            "items": alert_state(resources, docker, services),
+            "items": alert_state(resources, docker, services, backups),
         },
         "gitops": gitops_state(),
         "runbooks": runbook_links(),

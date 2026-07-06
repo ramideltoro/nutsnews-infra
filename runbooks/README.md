@@ -12,5 +12,8 @@ Add runbooks for deployment, rollback, incident response, security changes, back
 - [Protected Ansible Apply](PROTECTED_ANSIBLE_APPLY.md)
 - [VPS Service Foundation](VPS_SERVICE_FOUNDATION.md)
 - [Operations Portal](OPS_PORTAL.md)
+- [VPS Backup Setup](VPS_BACKUP_SETUP.md)
+- [VPS Restore](VPS_RESTORE.md)
+- [VPS Disaster Recovery](VPS_DISASTER_RECOVERY.md)
 
 The `Send VPS Health Report` GitHub Actions workflow manually triggers the existing VPS report email without an interactive SSH session.

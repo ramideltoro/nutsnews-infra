@@ -75,13 +75,13 @@ function shortCommit(value) {
 
 function levelClass(level) {
   const normalized = String(level).toLowerCase();
-  if (["critical", "failed", "inactive", "exited", "unhealthy", "send failed"].includes(normalized)) {
+  if (["critical", "failed", "inactive", "exited", "unhealthy", "send failed", "stale"].includes(normalized)) {
     return "pill--danger";
   }
-  if (["warning", "degraded", "unknown", "misconfigured", "disabled"].includes(normalized)) {
+  if (["warning", "degraded", "unknown", "misconfigured", "disabled", "never", "busy"].includes(normalized)) {
     return "pill--warn";
   }
-  if (["ok", "active", "running", "healthy", "enabled", "configured", "sent", "success"].includes(normalized)) {
+  if (["ok", "active", "running", "healthy", "enabled", "configured", "sent", "success", "fresh"].includes(normalized)) {
     return "pill--ok";
   }
   return "pill--muted";
@@ -510,11 +510,33 @@ function renderSecurity(data) {
 
 function renderBackups(data) {
   const backups = data.backups || {};
-  const latest = backups.latest || {};
+  const latestSnapshot = backups.latest_snapshot || {};
+  const lastBackup = backups.last_backup || {};
+  const lastPrune = backups.last_prune || {};
+  const lastCheck = backups.last_check || {};
+  const retention = backups.retention || {};
+  const enabledLabel = backups.enabled ? "enabled" : "disabled";
+  const configuredLabel = backups.configured ? "configured" : "misconfigured";
+  const snapshotId = latestSnapshot.short_id || latestSnapshot.id || "none";
+  const age = backups.latest_snapshot_age_seconds;
   renderMetrics("backup-grid", [
-    { label: "Backup Directory", value: text(backups.directory), hint: `${bytes(backups.size_bytes)} used` },
-    { label: "Latest Backup", value: text(latest.path, "placeholder"), hint: text(latest.updated_at || backups.latest_status) },
-    { label: "Snapshot Reminder", value: "planned", hint: text(backups.snapshot_reminder) },
+    { label: "Backup State", value: `${enabledLabel} / ${configuredLabel}`, hint: text(backups.status || backups.security_model) },
+    { label: "Repository", value: text(backups.repository_path), hint: text(backups.repository) },
+    {
+      label: "Latest Snapshot",
+      value: snapshotId,
+      hint: `${text(latestSnapshot.time || backups.latest_status)}${Number.isFinite(Number(age)) ? ` age ${duration(age)}` : ""}`,
+    },
+    { label: "Freshness", value: text(backups.latest_status), hint: `stale after ${duration(backups.stale_after_seconds)}` },
+    { label: "Last Backup", value: text(lastBackup.status), hint: text(lastBackup.finished_at || lastBackup.error) },
+    { label: "Last Prune", value: text(lastPrune.status), hint: `keep ${text(retention.keep_daily)}d ${text(retention.keep_weekly)}w ${text(retention.keep_monthly)}m` },
+    { label: "Last Verify", value: text(lastCheck.status), hint: text(lastCheck.finished_at || lastCheck.error) },
+    { label: "Next Run", value: text(backups.next_run_at), hint: `${text(backups.timer_active)} ${text(backups.timer_sub_state)}` },
+    {
+      label: "Protected Paths",
+      value: text((backups.backup_paths || []).length, "0"),
+      hint: (backups.missing_paths || []).length ? `missing ${backups.missing_paths.length}` : "all configured paths found",
+    },
   ]);
 }
 

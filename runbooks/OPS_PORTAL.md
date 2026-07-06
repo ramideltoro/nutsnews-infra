@@ -11,6 +11,7 @@ Use this runbook after the Ops Portal v1 PR is merged and before applying the se
 - A root-run email reporter at `/usr/local/bin/nutsnews-ops-portal-reporter`
 - Root-only reporter configuration at `/etc/nutsnews/ops-reporter.env`
 - Alert and daily report timers named `nutsnews-ops-alert-check.timer` and `nutsnews-ops-health-report.timer`
+- Backup status from `/opt/nutsnews/portal-assets/data/backup-status.json`
 - Caddy serving the portal on host loopback only at `127.0.0.1:8080`
 
 ## Security Model
@@ -100,6 +101,18 @@ Use the `Send VPS Health Report` workflow in GitHub Actions for an on-demand rep
 
 The workflow has no dispatch inputs and does not accept remote commands. If email is disabled, SMTP is incomplete, or the report fails to send, the workflow prints the safe reporting status fields and exits failed.
 
+## Backups In The Portal
+
+The portal shows encrypted VPS backup status from the local restic runner: enabled/configured state, repository path, latest snapshot freshness, last backup, last prune, last verify, next timer run, and protected path count.
+
+Backup failures, stale snapshots, prune failures, verification failures, and inactive backup timers are emitted as warning or critical alerts. The existing email alert timer sends those alerts when email reporting is enabled.
+
+Manual backup workflows stay narrow:
+
+- `Run VPS Backup` starts only `nutsnews-restic-backup.service`
+- `Verify VPS Backup` starts only `nutsnews-restic-verify.service`
+- neither workflow accepts dispatch inputs or arbitrary remote commands
+
 ## Verify After Apply
 
 From an approved administrative session on the VPS:
@@ -110,6 +123,7 @@ curl -fsS http://127.0.0.1:8080/data/status.json
 systemctl status nutsnews-ops-portal-collector.timer
 systemctl status nutsnews-ops-alert-check.timer
 systemctl status nutsnews-ops-health-report.timer
+systemctl status nutsnews-restic-backup.timer
 sudo docker compose -f /opt/nutsnews/apps/caddy/compose.yml ps
 ```
 

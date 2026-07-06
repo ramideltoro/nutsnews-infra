@@ -214,6 +214,22 @@ def process_lines(processes: list[dict[str, Any]]) -> list[str]:
     return lines or ["- No process data available."]
 
 
+def backup_lines(backups: dict[str, Any]) -> list[str]:
+    latest = backups.get("latest_snapshot") or {}
+    last_backup = backups.get("last_backup") or {}
+    last_prune = backups.get("last_prune") or {}
+    last_check = backups.get("last_check") or {}
+
+    return [
+        f"- Enabled/configured: {backups.get('enabled', False)} / {backups.get('configured', False)}",
+        f"- Latest status: {backups.get('latest_status', 'unknown')}",
+        f"- Latest snapshot: {latest.get('short_id') or latest.get('id') or 'none'} at {latest.get('time', 'never')}",
+        f"- Last backup: {last_backup.get('status', 'unknown')} at {last_backup.get('finished_at', 'never')}",
+        f"- Last prune: {last_prune.get('status', 'unknown')} at {last_prune.get('finished_at', 'never')}",
+        f"- Last verify: {last_check.get('status', 'unknown')} at {last_check.get('finished_at', 'never')}",
+    ]
+
+
 def health_report_body(status: dict[str, Any]) -> str:
     host = status.get("host", {})
     resources = status.get("resources", {})
@@ -222,6 +238,7 @@ def health_report_body(status: dict[str, Any]) -> str:
     alerts = relevant_alerts(status)
     processes = status.get("processes", {})
     disk_usage = status.get("disk_usage", {})
+    backups = status.get("backups", {})
 
     lines = [
         "NutsNews VPS health report",
@@ -258,6 +275,9 @@ def health_report_body(status: dict[str, Any]) -> str:
         lines.append("- No cached folder scan data available.")
     lines.extend(
         [
+            "",
+            "VPS backup summary",
+            *backup_lines(backups),
             "",
             "Reminder: this report is read-only. Fixes still go through PR, CI, merge, and protected apply.",
         ]
