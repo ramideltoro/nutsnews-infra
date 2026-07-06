@@ -305,6 +305,9 @@ jobs:
           grep -Fq 'ExecStart={{ vps_service_foundation_backup_bin }} --mode verify-latest' ansible/roles/vps_service_foundation/templates/nutsnews-restic-verify.service.j2
           python3 ansible/tests/validate_backup_workflows.py
           python3 ansible/tests/validate_no_backup_secrets.py
+          python3 ansible/tests/validate_no_app_secrets.py
+          grep -q 'nutsnews-app.env.j2' ansible/roles/vps_service_foundation/tasks/main.yml
+          grep -q 'nutsnews-app.routes.j2' ansible/roles/vps_service_foundation/tasks/main.yml
 
       - name: Run ansible-lint
         if: steps.detect.outputs.has_files == 'true'

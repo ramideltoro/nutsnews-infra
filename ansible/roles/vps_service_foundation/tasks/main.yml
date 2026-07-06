@@ -85,6 +85,92 @@
         group: root
         mode: "0644"
 
+    - name: Install Caddy app route template
+      ansible.builtin.template:
+        src: nutsnews-app.routes.j2
+        dest: "{{ vps_service_foundation_caddy_route_file }}"
+        owner: root
+        group: root
+        mode: "0644"
+
+    - name: Validate app deployment inputs
+      ansible.builtin.assert:
+        that:
+          - "vps_service_foundation_nutsnews_app_container_name is match('^[a-z0-9][a-z0-9._-]*$')"
+          - "vps_service_foundation_nutsnews_app_container_port | int > 0"
+          - "vps_service_foundation_nutsnews_app_health_path is match('^/.+$')"
+          - "vps_service_foundation_nutsnews_app_route_path is match('^/.+$')"
+          - >-
+            not (vps_service_foundation_nutsnews_app_route_enabled | bool) or
+            (vps_service_foundation_nutsnews_app_enabled | bool)
+          - "vps_service_foundation_nutsnews_app_env_file is match('^/.+$')"
+        fail_msg: >-
+          App deployment settings are incomplete. Ensure app env file naming, route,
+          port, and enablement rules are valid.
+        success_msg: NutsNews app deployment inputs are valid.
+
+    - name: Validate app env dict type
+      ansible.builtin.assert:
+        that:
+          - vps_service_foundation_nutsnews_app_envs is mapping
+          - vps_service_foundation_nutsnews_app_secret_env_keys is iterable
+          - vps_service_foundation_nutsnews_app_required_secrets is iterable
+        fail_msg: "NutsNews app env or app secret key lists are not valid types."
+      when: vps_service_foundation_nutsnews_app_enabled | bool
+      no_log: true
+
+    - name: Normalize app secret key lists
+      ansible.builtin.set_fact:
+        vps_service_foundation_nutsnews_app_secret_env_keys: "{{
+          vps_service_foundation_nutsnews_app_secret_env_keys | default([]) | map('string') | unique | list
+        }}"
+        vps_service_foundation_nutsnews_app_required_secret_keys: "{{
+          vps_service_foundation_nutsnews_app_required_secrets | default([]) | map('string') | unique | list
+        }}"
+      when: vps_service_foundation_nutsnews_app_enabled | bool
+
+    - name: Validate required app secret declarations
+      ansible.builtin.assert:
+        that:
+          - "{{ (vps_service_foundation_nutsnews_app_required_secret_keys | difference(vps_service_foundation_nutsnews_app_secret_env_keys)) | length == 0 }}"
+          - "{{ (vps_service_foundation_nutsnews_app_required_secret_keys | difference(vps_service_foundation_nutsnews_app_envs.keys() | list)) | length == 0 }}"
+        fail_msg: >-
+          App secrets are required for app deployment, but required secret keys are
+          missing from vps_service_foundation_nutsnews_app_secret_env_keys or app env values.
+          Add the key names to vps_service_foundation_nutsnews_app_secret_env_keys and
+          ensure vps_service_foundation_nutsnews_app_envs has them with non-empty values.
+      when: vps_service_foundation_nutsnews_app_enabled | bool
+      no_log: true
+
+    - name: Validate required app secret values
+      ansible.builtin.assert:
+        that:
+          - "vps_service_foundation_nutsnews_app_envs[item] is defined"
+          - "(vps_service_foundation_nutsnews_app_envs[item] | trim | length) > 0"
+        fail_msg: "Required app secret '{{ item }}' is empty. Set it in vps_service_foundation_nutsnews_app_envs."
+      loop: "{{ vps_service_foundation_nutsnews_app_required_secret_keys | default([]) }}"
+      loop_control:
+        label: "{{ item }}"
+      when: vps_service_foundation_nutsnews_app_enabled | bool and vps_service_foundation_nutsnews_app_required_secret_keys | length > 0
+      no_log: true
+
+    - name: Install NutsNews app Compose file
+      ansible.builtin.copy:
+        src: "{{ vps_service_foundation_nutsnews_app_source_compose_file }}"
+        dest: "{{ vps_service_foundation_nutsnews_app_compose_file }}"
+        owner: root
+        group: root
+        mode: "0644"
+
+    - name: Install NutsNews app environment
+      ansible.builtin.template:
+        src: nutsnews-app.env.j2
+        dest: "{{ vps_service_foundation_nutsnews_app_env_file }}"
+        owner: root
+        group: root
+        mode: "0600"
+      no_log: true
+
     - name: Install local health placeholder page
       ansible.builtin.copy:
         src: "{{ vps_service_foundation_source_health_index }}"
@@ -350,34 +436,49 @@
         or 'Pulling' in vps_service_foundation_compose_up.stdout
         or 'Pulling' in vps_service_foundation_compose_up.stderr
 
+    - name: Validate NutsNews app Compose configuration
+      ansible.builtin.command:
+        argv:
+          - docker
+          - compose
+          - --project-directory
+          - "{{ vps_service_foundation_nutsnews_app_dir }}"
+          - --env-file
+          - "{{ vps_service_foundation_nutsnews_app_env_file }}"
+          - -f
+          - "{{ vps_service_foundation_nutsnews_app_compose_file }}"
+          - config
+          - --quiet
+      changed_when: false
+
+    - name: Start NutsNews app service layer when enabled
+      ansible.builtin.command:
+        argv:
+          - docker
+          - compose
+          - --project-directory
+          - "{{ vps_service_foundation_nutsnews_app_dir }}"
+          - --env-file
+          - "{{ vps_service_foundation_nutsnews_app_env_file }}"
+          - -f
+          - "{{ vps_service_foundation_nutsnews_app_compose_file }}"
+          - up
+          - -d
+          - --remove-orphans
+      register: vps_service_foundation_nutsnews_app_compose_up
+      when: vps_service_foundation_nutsnews_app_enabled | bool
+      changed_when: >-
+        'Created' in vps_service_foundation_nutsnews_app_compose_up.stdout
+        or 'Created' in vps_service_foundation_nutsnews_app_compose_up.stderr
+        or 'Recreated' in vps_service_foundation_nutsnews_app_compose_up.stdout
+        or 'Recreated' in vps_service_foundation_nutsnews_app_compose_up.stderr
+        or 'Started' in vps_service_foundation_nutsnews_app_compose_up.stdout
+        or 'Started' in vps_service_foundation_nutsnews_app_compose_up.stderr
+        or 'Pulling' in vps_service_foundation_nutsnews_app_compose_up.stdout
+        or 'Pulling' in vps_service_foundation_nutsnews_app_compose_up.stderr
+
     - name: Verify local Caddy health endpoint
       block:
-        - name: Wait for local Caddy health endpoint
-          ansible.builtin.uri:
-            url: "{{ vps_service_foundation_healthcheck_url }}"
-            return_content: true
-            status_code: 200
-          register: vps_service_foundation_healthcheck
-          changed_when: false
-          retries: 12
-          delay: 5
-          until:
-            - vps_service_foundation_healthcheck.status == 200
-            - vps_service_foundation_healthcheck.content | trim == "ok"
-
-        - name: Wait for local operations portal status data
-          ansible.builtin.uri:
-            url: "{{ vps_service_foundation_portal_status_url }}"
-            return_content: true
-            status_code: 200
-          register: vps_service_foundation_portal_status
-          changed_when: false
-          retries: 6
-          delay: 5
-          until:
-            - vps_service_foundation_portal_status.status == 200
-            - "'generated_at' in vps_service_foundation_portal_status.content"
-
         - name: Write deployed infrastructure commit marker
           ansible.builtin.copy:
             dest: "{{ vps_service_foundation_deployed_infra_commit_file }}"
@@ -416,6 +517,105 @@
               - "{{ vps_service_foundation_collector_bin }}"
           changed_when: false
           when: vps_service_foundation_apply_metadata_enabled | bool
+
+        - name: Write deployed app metadata marker
+          ansible.builtin.copy:
+            dest: "{{ vps_service_foundation_nutsnews_app_apply_marker_file }}"
+            owner: root
+            group: root
+            mode: "0644"
+            content: |
+              {{
+                {
+                  'status': (vps_service_foundation_nutsnews_app_enabled | ternary('enabled', 'disabled')),
+                  'route_enabled': (vps_service_foundation_nutsnews_app_route_enabled | bool),
+                  'route_path': vps_service_foundation_nutsnews_app_route_path,
+                  'image_repo': vps_service_foundation_nutsnews_app_image_repo,
+                  'image_tag': vps_service_foundation_nutsnews_app_image_tag,
+                  'recorded_at': ansible_date_time.iso8601,
+                  'container_name': vps_service_foundation_nutsnews_app_container_name,
+                }
+                | to_nice_json
+              }}
+          when: vps_service_foundation_apply_metadata_enabled | bool
+
+        - name: Verify app container health when enabled
+          ansible.builtin.command:
+            argv:
+              - docker
+              - inspect
+              - --format
+              - "{{`{{.State.Running}}`}}|{{`{{.State.Health.Status}}`}}"
+              - "{{ vps_service_foundation_nutsnews_app_container_name }}"
+          register: vps_service_foundation_nutsnews_app_healthcheck
+          changed_when: false
+          when: vps_service_foundation_nutsnews_app_enabled | bool
+          failed_when: false
+
+        - name: Define app route health URL for staged rollout checks
+          ansible.builtin.set_fact:
+            vps_service_foundation_nutsnews_app_route_health_url: >-
+              {{
+                "http://127.0.0.1:8080/"
+                ~ (vps_service_foundation_nutsnews_app_route_path | regex_replace("^/+|/+$", ""))
+                ~ "/"
+                ~ (vps_service_foundation_nutsnews_app_health_path | regex_replace("^/+|/+$", ""))
+              }}
+          when: vps_service_foundation_nutsnews_app_enabled | bool
+
+        - name: Assert app container health when route enabled
+          ansible.builtin.assert:
+            that:
+              - >-
+                not (vps_service_foundation_nutsnews_app_route_enabled | bool) or
+                (
+                  vps_service_foundation_nutsnews_app_healthcheck.stdout is search('True\|healthy')
+                  or vps_service_foundation_nutsnews_app_healthcheck.stdout is search('True\|none')
+                )
+            fail_msg: >-
+              App route is enabled, but the app container is not healthy enough to
+              support staged routing.
+          when: vps_service_foundation_nutsnews_app_enabled | bool
+
+        - name: Wait for app route health endpoint when app route is enabled
+          ansible.builtin.uri:
+            url: "{{ vps_service_foundation_nutsnews_app_route_health_url }}"
+            return_content: true
+            status_code: 200
+          register: vps_service_foundation_nutsnews_app_route_health
+          changed_when: false
+          retries: 10
+          delay: 3
+          until:
+            - vps_service_foundation_nutsnews_app_route_health.status == 200
+            - "ok" in vps_service_foundation_nutsnews_app_route_health.content | lower
+          when: vps_service_foundation_nutsnews_app_enabled | bool and vps_service_foundation_nutsnews_app_route_enabled | bool
+
+        - name: Wait for local Caddy health endpoint
+          ansible.builtin.uri:
+            url: "{{ vps_service_foundation_healthcheck_url }}"
+            return_content: true
+            status_code: 200
+          register: vps_service_foundation_healthcheck
+          changed_when: false
+          retries: 12
+          delay: 5
+          until:
+            - vps_service_foundation_healthcheck.status == 200
+            - vps_service_foundation_healthcheck.content | trim == "ok"
+
+        - name: Wait for local operations portal status data
+          ansible.builtin.uri:
+            url: "{{ vps_service_foundation_portal_status_url }}"
+            return_content: true
+            status_code: 200
+          register: vps_service_foundation_portal_status
+          changed_when: false
+          retries: 6
+          delay: 5
+          until:
+            - vps_service_foundation_portal_status.status == 200
+            - "'generated_at' in vps_service_foundation_portal_status.content"
 
       rescue:
         - name: Show Caddy Compose status after health failure

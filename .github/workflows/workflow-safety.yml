@@ -112,3 +112,7 @@ jobs:
       - name: Validate backup secrets are not committed
         shell: bash
         run: python3 ansible/tests/validate_no_backup_secrets.py
+
+      - name: Validate app secrets are not committed
+        shell: bash
+        run: python3 ansible/tests/validate_no_app_secrets.py

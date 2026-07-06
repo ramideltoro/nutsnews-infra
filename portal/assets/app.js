@@ -540,6 +540,59 @@ function renderBackups(data) {
   ]);
 }
 
+function renderAppLayer(data) {
+  const app = data.app || {};
+  const deployStatus = app.deploy_status || {};
+  const routing = app.routing || {};
+  const secrets = app.secrets || {};
+  const marker = app.marker || {};
+  const requiredKeys = secrets.required_secret_keys || [];
+  const missingRequiredKeys = secrets.missing_required_secret_keys || [];
+  const configuredKeys = secrets.configured_secret_keys || [];
+  const missingCount = Number.isFinite(Number(missingRequiredKeys.length)) ? missingRequiredKeys.length : 0;
+  const requiredCount = Number.isFinite(Number(requiredKeys.length)) ? requiredKeys.length : 0;
+  const containerHealth = text(deployStatus.container_health);
+  const containerState = text(deployStatus.container_state);
+  const routeHealthStatus = text(routing.health_status, "unknown");
+
+  const readinessLabel = app.enabled ? "enabled" : "not enabled";
+  const readinessHint = app.enabled ? "App service layer is configured by Ansible vars or protected secrets." : "Staged setup is ready for explicit rollout.";
+  const routeStatus = text(routing.status, "disabled");
+  const routeHint = routing.health_url
+    ? `Health check: ${routing.health_url}`
+    : "Route is disabled; no public path is currently active.";
+  const secretHint = requiredCount
+    ? `${text(requiredCount)} required secret keys, ${text(configuredKeys.length)} configured, ${text(missingCount)} missing`
+    : "No required app secrets are declared.";
+  const envFile = secrets.env_file || "/etc/nutsnews/nutsnews-app.env";
+  const envState = secrets.env_file_present === false ? "missing" : "present";
+  const imageRepo = text(app.image_repo);
+  const imageTag = text(app.image_tag);
+  const image = text(app.image);
+  const markerStatus = text(marker.status, "unknown");
+  const markerUpdated = text(marker.recorded_at, "no marker");
+  const container = `${text(app.container_name)}` + (app.container_port ? `:${text(app.container_port)}` : "");
+
+  renderMetrics("app-grid", [
+    { label: "App readiness", value: readinessLabel, hint: readinessHint },
+    { label: "Deployment", value: text(deployStatus.status, "unknown"), hint: `${containerState} (${containerHealth})` },
+    { label: "Route", value: routeStatus, hint: routeHint },
+    { label: "Image", value: image, hint: text(app.image) },
+    { label: "Image repository", value: imageRepo, hint: "Configured image repo" },
+    { label: "Image tag", value: imageTag, hint: "Configured image tag" },
+    { label: "Container", value: container, hint: `${text(deployStatus.container_ports, "no published ports")} • ${text(deployStatus.compose_project)}` },
+    { label: "Secrets", value: `missing ${text(missingCount)}`, hint: secretHint },
+    { label: "Env file", value: envState, hint: text(envFile) },
+    { label: "Route health", value: routeHealthStatus, hint: routeStatus === "staged" ? "Route probe succeeded" : "No staged route probe yet" },
+    { label: "App marker", value: markerStatus, hint: markerUpdated },
+  ]);
+  $("app-method").textContent = `Env file: ${envFile} • Route enabled: ${text(app.route_enabled, false)} • Marker: ${markerStatus}`;
+  $("app-notes").textContent = app.route_enabled
+    ? "Route checks target the configured staged path and will gate rollout until endpoint health is ready."
+    : "Staged route is disabled. App service can be configured without changing public paths.";
+  renderLinks("app-links", data.app_links);
+}
+
 function renderGitopsAndRunbooks(data) {
   const gitops = data.gitops || {};
   const lastApply = gitops.last_apply || {};
@@ -569,6 +622,7 @@ function render(data) {
   renderLogs(data);
   renderSecurity(data);
   renderBackups(data);
+  renderAppLayer(data);
   renderGitopsAndRunbooks(data);
 }
 

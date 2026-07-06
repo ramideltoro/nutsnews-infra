@@ -36,6 +36,9 @@ jobs:
           required_service_files=(
             compose/caddy/compose.yml
             compose/caddy/Caddyfile
+            compose/nutsnews/compose.yml
+            ansible/roles/vps_service_foundation/templates/nutsnews-app.routes.j2
+            ansible/roles/vps_service_foundation/templates/nutsnews-app.env.j2
             compose/health/index.html
             portal/index.html
             portal/assets/app.js
