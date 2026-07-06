@@ -61,6 +61,7 @@ def main() -> None:
     require("Validate operations portal Google OAuth configuration" in tasks, "Ansible auth validation is missing.")
     require("Install operations portal auth environment" in tasks, "Ansible auth env install task is missing.")
     require("Recreate Caddy service foundation after config changes" in tasks, "Caddy must reload mounted auth routing config changes.")
+    require("caddy-oauth-routing-reload-marker" in tasks, "Caddy OAuth routing rollout must have a one-time reload marker.")
     require("--force-recreate" in tasks, "Caddy config changes must force-recreate running containers.")
     require("--max-redirs" in tasks, "Portal OAuth verification must not follow redirects to Google.")
     require("^location: /api/auth/signin/google" in tasks, "Portal OAuth verification must assert the local sign-in redirect.")
