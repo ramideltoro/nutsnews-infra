@@ -294,7 +294,13 @@ jobs:
           grep -Fq 'Refresh operations portal reporting status snapshot' ansible/roles/vps_service_foundation/tasks/main.yml
           grep -Fq '/opt/nutsnews/portal-assets:/srv/nutsnews-portal:ro' compose/caddy/compose.yml
           grep -Fq '127.0.0.1:8080:8080/tcp' compose/caddy/compose.yml
-          grep -Fq 'handle /data/*' compose/caddy/Caddyfile
+          grep -Fq 'ops-auth:' compose/caddy/compose.yml
+          grep -Fq 'handle /api/auth/*' compose/caddy/Caddyfile
+          grep -Fq 'reverse_proxy ops-auth:8090' compose/caddy/Caddyfile
+          if grep -Fq 'handle /data/*' compose/caddy/Caddyfile; then
+            echo "Portal data must be routed through the OAuth gateway, not served directly." >&2
+            exit 1
+          fi
           grep -Fq 'ReadWritePaths=' ansible/roles/vps_service_foundation/templates/nutsnews-ops-portal-collector.service.j2
           grep -Fq 'NUTSNEWS_EMAIL_ENABLED' ansible/roles/vps_service_foundation/templates/ops-reporter.env.j2
           grep -Fq 'RESTIC_PASSWORD_FILE' ansible/roles/vps_service_foundation/templates/vps-backup.env.j2
