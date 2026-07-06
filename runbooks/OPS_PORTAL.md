@@ -12,13 +12,28 @@ Use this runbook after the Ops Portal v1 PR is merged and before applying the se
 - Root-only reporter configuration at `/etc/nutsnews/ops-reporter.env`
 - Alert and daily report timers named `nutsnews-ops-alert-check.timer` and `nutsnews-ops-health-report.timer`
 - Backup status from `/opt/nutsnews/portal-assets/data/backup-status.json`
-- Caddy serving the portal on host loopback only at `127.0.0.1:8080`
+- A Google OAuth gateway in front of every portal route and data endpoint
+- Caddy serving the protected portal on host loopback only at `127.0.0.1:8080`
 
 ## Security Model
 
 The portal is read-only for v1. It does not mount the Docker socket into the web app, does not expose a shell, and does not include install, uninstall, restart, or reconfigure buttons.
 
-Caddy remains bound to host loopback only. Do not expose the portal publicly until a later PR adds reviewed authentication and TLS routing.
+Caddy remains bound to host loopback only. All dashboard routes, static assets, and `/data/*` status endpoints are served through the Ops Portal auth gateway. The only Google account allowed through the dashboard is `rami.deltoro@gmail.com`; every other Google user receives a clear access-denied response.
+
+The OAuth route path is fixed at:
+
+```text
+/api/auth/callback/google
+```
+
+Google OAuth authorized redirect URIs must match the app callback URL exactly. The configured callback is `https://<dashboard-domain>/api/auth/callback/google`. The documented environment URLs are:
+
+- Production: `https://ops.nutsnews.com/api/auth/callback/google`
+- Staging: `https://staging.ops.nutsnews.com/api/auth/callback/google`
+- Dev: `https://dev.ops.nutsnews.com/api/auth/callback/google`
+
+The shorthand `https:///api/auth/callback/google` is not a valid runtime URL because it has no host. If a concrete URL is required, use the dashboard domain form above consistently in the app config and the Google OAuth authorized redirect URI list.
 
 Email reporting is opt-in. SMTP host, credentials, sender, recipients, and cooldown values come from the protected `production-vps` GitHub Environment and are rendered into a root-only env file during protected apply. If email is disabled or incomplete, the reporter exits cleanly and the portal shows reporting as disabled or misconfigured.
 
@@ -73,6 +88,18 @@ Add these optional secrets to the existing `production-vps` GitHub Environment b
 
 Do not commit SMTP values. Do not paste them into committed vars files. The protected apply workflow passes them as runtime Ansible extra vars, and the env file task is `no_log` so diffs do not leak them.
 
+## Configure Google OAuth
+
+Add these required secrets to the existing `production-vps` GitHub Environment before running protected apply:
+
+- `NUTSNEWS_GOOGLE_CLIENT_ID`: Google OAuth web client ID
+- `NUTSNEWS_GOOGLE_CLIENT_SECRET`: Google OAuth web client secret
+- `NUTSNEWS_OPS_PORTAL_SESSION_SECRET`: random 32+ character session signing secret
+- `NUTSNEWS_OPS_PORTAL_CALLBACK_URL`: one of the documented callback URLs, usually `https://ops.nutsnews.com/api/auth/callback/google`
+- `NUTSNEWS_OPS_PORTAL_DOMAIN`: optional host used to derive the callback URL when the explicit callback URL is not set, default `ops.nutsnews.com`
+
+Do not commit Google OAuth values. Ansible renders them into `/etc/nutsnews/ops-portal-auth.env` with mode `0600`, and the task is `no_log`.
+
 ## Run Email Checks
 
 Check mode should remain safe even if no SMTP secrets are configured:
@@ -119,7 +146,7 @@ From an approved administrative session on the VPS:
 
 ```bash
 curl -fsS http://127.0.0.1:8080/healthz
-curl -fsS http://127.0.0.1:8080/data/status.json
+curl -i http://127.0.0.1:8080/data/status.json
 systemctl status nutsnews-ops-portal-collector.timer
 systemctl status nutsnews-ops-alert-check.timer
 systemctl status nutsnews-ops-health-report.timer
@@ -133,11 +160,14 @@ Expected `/healthz` output:
 ok
 ```
 
-Expected portal status data:
+Expected unauthenticated portal status response:
 
 ```text
-generated_at
+HTTP/1.1 302 Found
+Location: /api/auth/signin/google
 ```
+
+After signing in as `rami.deltoro@gmail.com`, `/data/status.json` should return the JSON feed. Signing in as any other Google account should return `403` with the access-denied message.
 
 ## Troubleshooting
 

@@ -1,6 +1,32 @@
 name: nutsnews-service-foundation
 
 services:
+  ops-auth:
+    image: python:3.13-alpine
+    container_name: nutsnews-ops-auth
+    restart: unless-stopped
+    read_only: true
+    env_file:
+      - ${NUTSNEWS_OPS_PORTAL_AUTH_ENV_FILE:-/etc/nutsnews/ops-portal-auth.env}
+    command: ["python", "/opt/nutsnews/portal/auth_gateway.py"]
+    mem_limit: 128m
+    pids_limit: 128
+    cap_drop:
+      - ALL
+    volumes:
+      - /opt/nutsnews/portal/auth_gateway.py:/opt/nutsnews/portal/auth_gateway.py:ro
+      - /opt/nutsnews/portal-assets:/srv/nutsnews-portal:ro
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8090/healthz | grep -qx ok"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    networks:
+      - edge
+
   caddy:
     image: caddy:2-alpine
     container_name: nutsnews-caddy
@@ -38,6 +64,9 @@ services:
       timeout: 5s
       retries: 3
       start_period: 10s
+    depends_on:
+      ops-auth:
+        condition: service_healthy
     networks:
       - edge
 

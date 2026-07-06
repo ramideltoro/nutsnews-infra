@@ -161,6 +161,11 @@ jobs:
           NUTSNEWS_APP_SECRET_ENV_KEYS: ${{ secrets.NUTSNEWS_APP_SECRET_ENV_KEYS }}
           NUTSNEWS_APP_REQUIRED_SECRETS: ${{ secrets.NUTSNEWS_APP_REQUIRED_SECRETS }}
           NUTSNEWS_APP_ENVS_JSON: ${{ secrets.NUTSNEWS_APP_ENVS_JSON }}
+          NUTSNEWS_OPS_PORTAL_DOMAIN: ${{ secrets.NUTSNEWS_OPS_PORTAL_DOMAIN }}
+          NUTSNEWS_OPS_PORTAL_CALLBACK_URL: ${{ secrets.NUTSNEWS_OPS_PORTAL_CALLBACK_URL }}
+          NUTSNEWS_OPS_PORTAL_SESSION_SECRET: ${{ secrets.NUTSNEWS_OPS_PORTAL_SESSION_SECRET }}
+          NUTSNEWS_GOOGLE_CLIENT_ID: ${{ secrets.NUTSNEWS_GOOGLE_CLIENT_ID }}
+          NUTSNEWS_GOOGLE_CLIENT_SECRET: ${{ secrets.NUTSNEWS_GOOGLE_CLIENT_SECRET }}
           RUN_MODE: ${{ inputs.run_mode }}
         run: |
           set -euo pipefail
@@ -256,6 +261,43 @@ jobs:
           app_secret_env_keys = parse_csv("NUTSNEWS_APP_SECRET_ENV_KEYS")
           app_required_secrets = parse_csv("NUTSNEWS_APP_REQUIRED_SECRETS")
           app_envs = parse_app_envs("NUTSNEWS_APP_ENVS_JSON")
+          ops_portal_domain = os.environ.get("NUTSNEWS_OPS_PORTAL_DOMAIN", "ops.nutsnews.com").strip() or "ops.nutsnews.com"
+          ops_portal_callback_path = "/api/auth/callback/google"
+          ops_portal_callback_url = (
+              os.environ.get("NUTSNEWS_OPS_PORTAL_CALLBACK_URL", "").strip()
+              or f"https://{ops_portal_domain}{ops_portal_callback_path}"
+          )
+          allowed_callback_urls = {
+              "production": "https://ops.nutsnews.com/api/auth/callback/google",
+              "staging": "https://staging.ops.nutsnews.com/api/auth/callback/google",
+              "dev": "https://dev.ops.nutsnews.com/api/auth/callback/google",
+          }
+          if ops_portal_callback_url not in allowed_callback_urls.values():
+              raise SystemExit(
+                  "NUTSNEWS_OPS_PORTAL_CALLBACK_URL must be one of the documented Google redirect URIs: "
+                  + ", ".join(allowed_callback_urls.values())
+              )
+          parsed_callback = ops_portal_callback_url.removeprefix("https://")
+          if "/" not in parsed_callback or parsed_callback.endswith("//api/auth/callback/google"):
+              raise SystemExit("NUTSNEWS_OPS_PORTAL_CALLBACK_URL must include a concrete host.")
+          if not ops_portal_callback_url.startswith("https://") or not ops_portal_callback_url.endswith(ops_portal_callback_path):
+              raise SystemExit("NUTSNEWS_OPS_PORTAL_CALLBACK_URL must be https://<host>/api/auth/callback/google.")
+          missing_auth = [
+              name
+              for name in (
+                  "NUTSNEWS_GOOGLE_CLIENT_ID",
+                  "NUTSNEWS_GOOGLE_CLIENT_SECRET",
+                  "NUTSNEWS_OPS_PORTAL_SESSION_SECRET",
+              )
+              if not os.environ.get(name, "").strip()
+          ]
+          if missing_auth:
+              raise SystemExit(
+                  "Ops Portal Google OAuth is enabled by default but missing production-vps Environment secrets: "
+                  + ", ".join(missing_auth)
+              )
+          if len(os.environ["NUTSNEWS_OPS_PORTAL_SESSION_SECRET"]) < 32:
+              raise SystemExit("NUTSNEWS_OPS_PORTAL_SESSION_SECRET must be at least 32 characters.")
 
           if app_required_secrets:
               for required_key in app_required_secrets:
@@ -339,6 +381,14 @@ jobs:
               "vps_service_foundation_nutsnews_app_secret_env_keys": app_secret_env_keys,
               "vps_service_foundation_nutsnews_app_required_secrets": app_required_secrets,
               "vps_service_foundation_nutsnews_app_envs": app_envs,
+              "vps_service_foundation_ops_portal_allowed_email": "rami.deltoro@gmail.com",
+              "vps_service_foundation_ops_portal_domain": ops_portal_domain,
+              "vps_service_foundation_ops_portal_callback_path": ops_portal_callback_path,
+              "vps_service_foundation_ops_portal_callback_url": ops_portal_callback_url,
+              "vps_service_foundation_ops_portal_callback_urls": allowed_callback_urls,
+              "vps_service_foundation_ops_portal_google_client_id": os.environ["NUTSNEWS_GOOGLE_CLIENT_ID"],
+              "vps_service_foundation_ops_portal_google_client_secret": os.environ["NUTSNEWS_GOOGLE_CLIENT_SECRET"],
+              "vps_service_foundation_ops_portal_session_secret": os.environ["NUTSNEWS_OPS_PORTAL_SESSION_SECRET"],
               "vps_service_foundation_apply_context": {
                   "status": "apply_started",
                   "repository": repository,

@@ -49,7 +49,9 @@ jobs:
 
           python3 -m json.tool portal/data/status.example.json > /dev/null
           node --check portal/assets/app.js
+          python3 -m py_compile portal/auth_gateway.py
           python3 ansible/tests/validate_portal_fixture.py
+          python3 ansible/tests/validate_ops_portal_auth.py
           python3 - <<'PY'
           import json
           from pathlib import Path

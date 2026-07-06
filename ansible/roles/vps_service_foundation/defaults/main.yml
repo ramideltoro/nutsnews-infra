@@ -41,6 +41,20 @@ vps_service_foundation_caddy_data_dir: "{{ vps_service_foundation_data_dir }}/ca
 vps_service_foundation_caddy_logs_dir: "{{ vps_service_foundation_logs_dir }}/caddy"
 vps_service_foundation_caddy_compose_file: "{{ vps_service_foundation_caddy_app_dir }}/compose.yml"
 vps_service_foundation_caddy_route_file: "{{ vps_service_foundation_caddy_config_dir }}/app.routes"
+vps_service_foundation_ops_portal_auth_env_file: "{{ vps_service_foundation_private_config_dir }}/ops-portal-auth.env"
+vps_service_foundation_ops_portal_auth_dir: "{{ vps_service_foundation_root }}/portal"
+vps_service_foundation_ops_portal_auth_file: "{{ vps_service_foundation_ops_portal_auth_dir }}/auth_gateway.py"
+vps_service_foundation_ops_portal_allowed_email: rami.deltoro@gmail.com
+vps_service_foundation_ops_portal_google_client_id: ""
+vps_service_foundation_ops_portal_google_client_secret: ""
+vps_service_foundation_ops_portal_session_secret: ""
+vps_service_foundation_ops_portal_domain: ops.nutsnews.com
+vps_service_foundation_ops_portal_callback_path: /api/auth/callback/google
+vps_service_foundation_ops_portal_callback_url: "https://{{ vps_service_foundation_ops_portal_domain }}{{ vps_service_foundation_ops_portal_callback_path }}"
+vps_service_foundation_ops_portal_callback_urls:
+  production: https://ops.nutsnews.com/api/auth/callback/google
+  staging: https://staging.ops.nutsnews.com/api/auth/callback/google
+  dev: https://dev.ops.nutsnews.com/api/auth/callback/google
 
 vps_service_foundation_nutsnews_app_dir: "{{ vps_service_foundation_apps_dir }}/nutsnews"
 vps_service_foundation_nutsnews_app_compose_file: "{{ vps_service_foundation_nutsnews_app_dir }}/compose.yml"
@@ -64,6 +78,7 @@ vps_service_foundation_repo_root: "{{ playbook_dir }}/../.."
 vps_service_foundation_source_compose_file: "{{ vps_service_foundation_repo_root }}/compose/caddy/compose.yml"
 vps_service_foundation_source_caddyfile: "{{ vps_service_foundation_repo_root }}/compose/caddy/Caddyfile"
 vps_service_foundation_source_health_index: "{{ vps_service_foundation_repo_root }}/compose/health/index.html"
+vps_service_foundation_source_portal_auth_gateway: "{{ vps_service_foundation_repo_root }}/portal/auth_gateway.py"
 vps_service_foundation_source_portal_index: "{{ vps_service_foundation_repo_root }}/portal/index.html"
 vps_service_foundation_source_portal_app: "{{ vps_service_foundation_repo_root }}/portal/assets/app.js"
 vps_service_foundation_source_portal_styles: "{{ vps_service_foundation_repo_root }}/portal/assets/styles.css"
@@ -236,6 +251,10 @@ vps_service_foundation_directories:
     group: root
     mode: "0755"
   - path: "{{ vps_service_foundation_caddy_app_dir }}"
+    owner: root
+    group: root
+    mode: "0755"
+  - path: "{{ vps_service_foundation_ops_portal_auth_dir }}"
     owner: root
     group: root
     mode: "0755"

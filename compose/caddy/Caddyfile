@@ -42,18 +42,13 @@ vps.nutsnews.com {
     reverse_proxy host.docker.internal:18080
   }
 
-  import /etc/nutsnews/caddy/app.routes
-
-  handle /data/* {
-    header Cache-Control "no-store"
-    root * /srv/nutsnews-portal
-    file_server
+  handle /api/auth/* {
+    reverse_proxy ops-auth:8090
   }
 
+  import /etc/nutsnews/caddy/app.routes
+
   handle {
-    header Cache-Control "no-store"
-    root * /srv/nutsnews-portal
-    try_files {path} /index.html
-    file_server
+    reverse_proxy ops-auth:8090
   }
 }

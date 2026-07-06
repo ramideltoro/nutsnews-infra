@@ -69,6 +69,15 @@ jobs:
             exit 0
           fi
 
+          export NUTSNEWS_OPS_PORTAL_AUTH_ENV_FILE="$RUNNER_TEMP/ops-portal-auth.env"
+          cat > "$NUTSNEWS_OPS_PORTAL_AUTH_ENV_FILE" <<'EOF'
+          GOOGLE_CLIENT_ID=dummy
+          GOOGLE_CLIENT_SECRET=dummy
+          NUTSNEWS_OPS_PORTAL_ALLOWED_EMAIL=rami.deltoro@gmail.com
+          NUTSNEWS_OPS_PORTAL_CALLBACK_URL=https://ops.nutsnews.com/api/auth/callback/google
+          NUTSNEWS_OPS_PORTAL_SESSION_SECRET=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+          EOF
+
           for file in "${compose_files[@]}"; do
             docker compose -f "$file" config --quiet
           done
