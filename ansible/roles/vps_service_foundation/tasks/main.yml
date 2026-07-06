@@ -133,6 +133,16 @@
       register: vps_service_foundation_ops_auth_env_install
       no_log: true
 
+    - name: Write Caddy OAuth routing reload marker
+      ansible.builtin.copy:
+        dest: "{{ vps_service_foundation_ops_dir }}/caddy-oauth-routing-reload-marker"
+        owner: root
+        group: root
+        mode: "0644"
+        content: |
+          caddy-oauth-routing-v1
+      register: vps_service_foundation_caddy_oauth_reload_marker_install
+
     - name: Validate app deployment inputs
       ansible.builtin.assert:
         that:
@@ -567,6 +577,7 @@
         or vps_service_foundation_caddy_route_install.changed
         or vps_service_foundation_ops_auth_gateway_install.changed
         or vps_service_foundation_ops_auth_env_install.changed
+        or vps_service_foundation_caddy_oauth_reload_marker_install.changed
 
     - name: Start Caddy service foundation
       ansible.builtin.command:
