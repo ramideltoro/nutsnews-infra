@@ -4,6 +4,7 @@
 
 - Read this file and the relevant README, docs, or runbook before making changes.
 - Inspect the current git status before editing.
+- Show me the plan before you begin edits.
 - Preserve user changes. Do not overwrite, delete, or revert work you did not make unless explicitly instructed.
 
 ## Repository Rules
