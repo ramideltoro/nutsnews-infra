@@ -47,7 +47,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
-      actions: read
+      actions: read # Required for workflow security scan to inspect workflow/action data.
       contents: read
 
     steps:
