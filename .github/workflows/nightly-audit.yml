@@ -6,7 +6,7 @@ on:
     - cron: "42 4 * * *"
 
 permissions:
-  actions: read # Needed for workflow security scan to access Actions metadata.
+  actions: read  # Needed for workflow security scan to access Actions metadata.
   contents: read
 
 concurrency:

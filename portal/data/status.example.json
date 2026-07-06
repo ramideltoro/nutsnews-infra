@@ -177,6 +177,79 @@
     "updated_at": "2026-07-05T00:00:00+00:00"
   },
   "generated_at": "2026-07-05T00:00:00+00:00",
+  "app": {
+    "container_name": "nutsnews-app",
+    "container_port": 3000,
+    "deploy_status": {
+      "container_health": "n/a",
+      "container_ports": "no published ports",
+      "container_state": "absent",
+      "compose_project": "nutsnews-app",
+      "deployment_state": "disabled",
+      "status": "disabled"
+    },
+    "enabled": false,
+    "image": "ghcr.io/ramideltoro/nutsnews:latest",
+    "image_repo": "ghcr.io/ramideltoro/nutsnews",
+    "image_tag": "latest",
+    "health_path": "/healthz",
+    "route_enabled": false,
+    "route_path": "/app-stage",
+    "routing": {
+      "health_status": "disabled",
+      "health_url": "",
+      "status": "disabled"
+    },
+    "secrets": {
+      "configured_secret_keys": [],
+      "env_file": "/etc/nutsnews/nutsnews-app.env",
+      "env_file_present": true,
+      "missing_required_secret_keys": [
+        "NUTSNEWS_APP_DATABASE_URL",
+        "NUTSNEWS_APP_API_TOKEN"
+      ],
+      "required_secret_keys": [
+        "NUTSNEWS_APP_DATABASE_URL",
+        "NUTSNEWS_APP_API_TOKEN"
+      ],
+      "required_secrets_configured": false,
+      "secret_env_keys": [
+        "NUTSNEWS_APP_DATABASE_URL",
+        "NUTSNEWS_APP_API_TOKEN"
+      ]
+    },
+    "marker": {
+      "container_name": "nutsnews-app",
+      "image_repo": "ghcr.io/ramideltoro/nutsnews",
+      "image_tag": "latest",
+      "recorded_at": "2026-07-04T20:45:00+00:00",
+      "route_enabled": false,
+      "route_path": "/app-stage",
+      "status": "disabled"
+    }
+  },
+  "app_links": [
+    {
+      "name": "NutsNews app layer setup",
+      "url": "https://github.com/ramideltoro/nutsnews-docs/blob/main/NUTSNEWS_VPS_SERVICE_FOUNDATION.md#nutsnews-app-layer"
+    },
+    {
+      "name": "Ops Portal app state",
+      "url": "https://github.com/ramideltoro/nutsnews-docs/blob/main/NUTSNEWS_OPERATIONS_PORTAL_V1.md#app-layer"
+    },
+    {
+      "name": "Protected app rollout",
+      "url": "https://github.com/ramideltoro/nutsnews-docs/blob/main/NUTSNEWS_PROTECTED_ANSIBLE_APPLY.md#nutsnews-app-rollout-path"
+    },
+    {
+      "name": "Rollback app rollout",
+      "url": "https://github.com/ramideltoro/nutsnews-docs/blob/main/TROUBLESHOOTING.md#nutsnews-app-rollback"
+    },
+    {
+      "name": "Troubleshoot app rollout",
+      "url": "https://github.com/ramideltoro/nutsnews-docs/blob/main/TROUBLESHOOTING.md#nutsnews-app-rollout"
+    }
+  ],
   "gitops": {
     "deployed_commit": "unknown",
     "drift_warning": "The portal reads local state only. Drift still has to be reconciled by PR and protected apply.",

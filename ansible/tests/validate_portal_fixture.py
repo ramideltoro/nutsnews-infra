@@ -59,8 +59,46 @@ for word in ("token", "secret", "password", "authorization", "credential", "priv
     require(word in redaction, f"Log redaction description missing {word}.")
     require(word.replace("-", "_") in COLLECTOR.lower() or word in COLLECTOR.lower(), f"Collector redaction missing {word}.")
 
-for token in ("gauge-card", "temperature-card", "Health Score", "renderEmailReporting"):
+for token in (
+    "gauge-card",
+    "temperature-card",
+    "Health Score",
+    "renderEmailReporting",
+    "renderAppLayer",
+    "app-links",
+):
     require(token in APP_JS or token in STYLES, f"Portal UI missing {token}.")
+
+app = STATUS["app"]
+require(isinstance(app, dict), "Fixture app section is missing.")
+for key in (
+    "enabled",
+    "route_enabled",
+    "route_path",
+    "routing",
+    "secrets",
+    "deploy_status",
+    "marker",
+    "image_repo",
+    "image_tag",
+    "image",
+):
+    require(key in app, f"App fixture is missing {key}.")
+require(app["enabled"] is False, "App fixture should remain disabled by default.")
+require(app["route_enabled"] is False, "App fixture should keep route disabled by default.")
+require(app["routing"]["status"] == "disabled", "App route status should be disabled by default.")
+app_links = STATUS["app_links"]
+require(isinstance(app_links, list) and len(app_links) >= 3, "Fixture app links missing app-layer links.")
+for required_name in (
+    "NutsNews app layer setup",
+    "Ops Portal app state",
+    "Protected app rollout",
+    "Troubleshoot app rollout",
+):
+    require(
+        any(item.get("name") == required_name for item in app_links),
+        f"App fixture missing app link: {required_name}.",
+    )
 
 backups = STATUS["backups"]
 require(backups.get("enabled") is True, "Backup fixture must show enabled backups.")

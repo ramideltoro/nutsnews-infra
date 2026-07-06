@@ -36,12 +36,25 @@ DEPLOYED_COMMIT_FILE = Path(
     os.environ.get("NUTSNEWS_DEPLOYED_COMMIT_FILE", "/opt/nutsnews/ops/deployed-infra-commit")
 )
 APPLY_STATUS_FILE = Path(os.environ.get("NUTSNEWS_APPLY_STATUS_FILE", "/opt/nutsnews/ops/last-apply.json"))
+APP_APPLY_MARKER_FILE = Path(os.environ.get("NUTSNEWS_APP_APPLY_MARKER_FILE", "/opt/nutsnews/ops/last-app-apply.json"))
 REPORTING_STATUS_FILE = Path(
     os.environ.get("NUTSNEWS_REPORTING_STATUS_FILE", "/opt/nutsnews/portal-assets/data/reporting-status.json")
 )
 BACKUP_STATUS_FILE = Path(
     os.environ.get("NUTSNEWS_BACKUP_STATUS_FILE", "/opt/nutsnews/portal-assets/data/backup-status.json")
 )
+APP_ENABLED = os.environ.get("NUTSNEWS_APP_ENABLED", "0").strip().lower() in {"1", "true", "yes", "on"}
+APP_ROUTE_ENABLED = os.environ.get("NUTSNEWS_APP_ROUTE_ENABLED", "0").strip().lower() in {"1", "true", "yes", "on"}
+APP_CONTAINER_NAME = os.environ.get("NUTSNEWS_APP_CONTAINER_NAME", "nutsnews-app").strip()
+APP_CONTAINER_PORT = int(os.environ.get("NUTSNEWS_APP_CONTAINER_PORT", "3000") or 0)
+APP_IMAGE = os.environ.get("NUTSNEWS_APP_IMAGE", "").strip()
+APP_IMAGE_REPO = os.environ.get("NUTSNEWS_APP_IMAGE_REPO", "").strip()
+APP_IMAGE_TAG = os.environ.get("NUTSNEWS_APP_IMAGE_TAG", "").strip()
+APP_HEALTH_PATH = os.environ.get("NUTSNEWS_APP_HEALTH_PATH", "/healthz").strip() or "/healthz"
+APP_ROUTE_PATH = os.environ.get("NUTSNEWS_APP_ROUTE_PATH", "/app-stage").strip() or "/app-stage"
+APP_ENV_FILE = Path(os.environ.get("NUTSNEWS_APP_ENV_FILE", "/etc/nutsnews/nutsnews-app.env")).resolve()
+APP_SECRET_ENV_KEYS = [item.strip() for item in os.environ.get("NUTSNEWS_APP_SECRET_ENV_KEYS", "").split(",") if item.strip()]
+APP_REQUIRED_SECRET_KEYS = [item.strip() for item in os.environ.get("NUTSNEWS_APP_REQUIRED_SECRET_KEYS", "").split(",") if item.strip()]
 DISK_SCAN_CACHE_FILE = Path(
     os.environ.get("NUTSNEWS_DISK_SCAN_CACHE_FILE", "/opt/nutsnews/portal-assets/data/disk-usage-cache.json")
 )
@@ -134,6 +147,40 @@ def safe_int(value: Any, default: int = 0) -> int:
         return int(value)
     except (TypeError, ValueError):
         return default
+
+
+def app_health_url() -> str:
+    if not APP_ENABLED or not APP_ROUTE_ENABLED:
+        return ""
+    route_path = APP_ROUTE_PATH.strip()
+    if not route_path.startswith("/"):
+        route_path = f"/{route_path}"
+    route_path = route_path.rstrip("/")
+    health_path = APP_HEALTH_PATH.strip()
+    if not health_path.startswith("/"):
+        health_path = f"/{health_path}"
+    return f"http://127.0.0.1:8080{route_path}{health_path}"
+
+
+def read_env_keys(path: Path) -> list[str]:
+    keys: list[str] = []
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        return keys
+
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        if stripped.lower().startswith("export "):
+            stripped = stripped[7:]
+        if "=" not in stripped:
+            continue
+        key = stripped.split("=", 1)[0].strip()
+        if key and key not in keys:
+            keys.append(key)
+    return keys
 
 
 def username_for_uid(uid: int) -> str:
@@ -813,6 +860,97 @@ def alert_state(
     return alerts
 
 
+def app_state(docker: dict[str, Any]) -> dict[str, Any]:
+    marker = read_json(APP_APPLY_MARKER_FILE, {})
+    if not isinstance(marker, dict):
+        marker = {}
+
+    configured_keys = set(read_env_keys(APP_ENV_FILE))
+    configured_secret_keys = [item for item in APP_SECRET_ENV_KEYS if item in configured_keys]
+    missing_required_secret_keys = [item for item in APP_REQUIRED_SECRET_KEYS if item not in configured_keys]
+
+    container = {}
+    for item in docker.get("containers", []):
+        if item.get("name") == APP_CONTAINER_NAME:
+            container = item
+            break
+
+    container_state = container.get("state", "absent")
+    container_health = container.get("health", "n/a")
+    container_ports = container.get("ports", "")
+    compose_project = container.get("compose_project", "")
+
+    if APP_ENABLED:
+        if container_state == "running":
+            if container_health in ("healthy", "none"):
+                deployment_state = "running"
+            else:
+                deployment_state = "started"
+        else:
+            deployment_state = "not_running"
+    else:
+        deployment_state = "disabled"
+
+    app_image_repo = APP_IMAGE_REPO or APP_IMAGE
+    app_image_tag = APP_IMAGE_TAG
+    if APP_IMAGE and ":" in APP_IMAGE and not APP_IMAGE_TAG:
+        app_image_repo = APP_IMAGE.rsplit(":", 1)[0]
+        app_image_tag = APP_IMAGE.rsplit(":", 1)[1]
+    if not app_image_tag:
+        app_image_tag = "latest"
+
+    if APP_ROUTE_ENABLED and APP_ENABLED and deployment_state == "running":
+        route_state = "staged"
+    elif APP_ROUTE_ENABLED and APP_ENABLED:
+        route_state = "pending"
+    else:
+        route_state = "disabled"
+
+    if not APP_ROUTE_ENABLED:
+        route_health_status = "disabled"
+    elif container_state != "running":
+        route_health_status = "not_running"
+    elif container_health in ("healthy", "none"):
+        route_health_status = "ready"
+    else:
+        route_health_status = "not_ready"
+
+    return {
+        "enabled": APP_ENABLED,
+        "route_enabled": APP_ROUTE_ENABLED,
+        "route_path": APP_ROUTE_PATH,
+        "health_path": APP_HEALTH_PATH,
+        "image": APP_IMAGE,
+        "image_repo": app_image_repo,
+        "image_tag": app_image_tag,
+        "container_name": APP_CONTAINER_NAME,
+        "container_port": APP_CONTAINER_PORT,
+        "secrets": {
+            "env_file": str(APP_ENV_FILE),
+            "env_file_present": APP_ENV_FILE.exists(),
+            "secret_env_keys": APP_SECRET_ENV_KEYS,
+            "required_secret_keys": APP_REQUIRED_SECRET_KEYS,
+            "configured_secret_keys": configured_secret_keys,
+            "missing_required_secret_keys": missing_required_secret_keys,
+            "required_secrets_configured": len(missing_required_secret_keys) == 0,
+        },
+        "deploy_status": {
+            "status": "enabled" if APP_ENABLED else "disabled",
+            "deployment_state": deployment_state,
+            "container_state": container_state,
+            "container_health": container_health,
+            "container_ports": container_ports,
+            "compose_project": compose_project,
+        },
+        "routing": {
+            "status": route_state,
+            "health_url": app_health_url() if APP_ROUTE_ENABLED else "",
+            "health_status": route_health_status,
+        },
+        "marker": marker,
+    }
+
+
 def gitops_state() -> dict[str, Any]:
     deployed_commit = read_text(DEPLOYED_COMMIT_FILE, "unknown")
     apply_status = read_json(APPLY_STATUS_FILE, {"status": "unknown", "run_url": ""})
@@ -879,6 +1017,7 @@ def collect() -> dict[str, Any]:
     reporting = reporting_state()
     reporting.update(systemd_timer_schedule("nutsnews-ops-health-report.timer"))
     backups = backup_state()
+    app = app_state(docker)
 
     return {
         "schema_version": 1,
@@ -914,6 +1053,17 @@ def collect() -> dict[str, Any]:
             "items": alert_state(resources, docker, services, backups),
         },
         "gitops": gitops_state(),
+        "app": app,
+        "app_links": [
+            {"name": "NutsNews app layer setup", "url": f"{DOCS_BASE_URL}/blob/main/NUTSNEWS_VPS_SERVICE_FOUNDATION.md#nutsnews-app-layer"},
+            {"name": "Ops Portal app state", "url": f"{DOCS_BASE_URL}/blob/main/NUTSNEWS_OPERATIONS_PORTAL_V1.md#app-layer"},
+            {
+                "name": "Protected app rollout",
+                "url": f"{DOCS_BASE_URL}/blob/main/NUTSNEWS_PROTECTED_ANSIBLE_APPLY.md#nutsnews-app-rollout-path",
+            },
+            {"name": "Rollback app rollout", "url": f"{DOCS_BASE_URL}/blob/main/TROUBLESHOOTING.md#nutsnews-app-rollback"},
+            {"name": "Troubleshoot app rollout", "url": f"{DOCS_BASE_URL}/blob/main/TROUBLESHOOTING.md#nutsnews-app-rollout"},
+        ],
         "runbooks": runbook_links(),
     }
 

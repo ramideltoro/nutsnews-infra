@@ -47,7 +47,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
-      actions: read # Required for workflow security scan to inspect workflow/action data.
+      actions: read  # Required for workflow security scan to inspect workflow/action data.
       contents: read
 
     steps:
@@ -112,3 +112,7 @@ jobs:
       - name: Validate backup secrets are not committed
         shell: bash
         run: python3 ansible/tests/validate_no_backup_secrets.py
+
+      - name: Validate app secrets are not committed
+        shell: bash
+        run: python3 ansible/tests/validate_no_app_secrets.py
