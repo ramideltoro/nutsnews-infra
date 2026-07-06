@@ -123,6 +123,16 @@ jobs:
           NUTSNEWS_EMAIL_TO: ${{ secrets.NUTSNEWS_EMAIL_TO }}
           NUTSNEWS_ALERT_COOLDOWN_SECONDS: ${{ secrets.NUTSNEWS_ALERT_COOLDOWN_SECONDS }}
           NUTSNEWS_REPORT_SUBJECT_PREFIX: ${{ secrets.NUTSNEWS_REPORT_SUBJECT_PREFIX }}
+          NUTSNEWS_BACKUP_ENABLED: ${{ secrets.NUTSNEWS_BACKUP_ENABLED }}
+          NUTSNEWS_BACKUP_REPOSITORY: ${{ secrets.NUTSNEWS_BACKUP_REPOSITORY }}
+          NUTSNEWS_BACKUP_RESTIC_PASSWORD: ${{ secrets.NUTSNEWS_BACKUP_RESTIC_PASSWORD }}
+          NUTSNEWS_BACKUP_RCLONE_CONFIG: ${{ secrets.NUTSNEWS_BACKUP_RCLONE_CONFIG }}
+          NUTSNEWS_BACKUP_STALE_AFTER_HOURS: ${{ secrets.NUTSNEWS_BACKUP_STALE_AFTER_HOURS }}
+          NUTSNEWS_BACKUP_CHECK_READ_DATA_SUBSET: ${{ secrets.NUTSNEWS_BACKUP_CHECK_READ_DATA_SUBSET }}
+          NUTSNEWS_BACKUP_KEEP_DAILY: ${{ secrets.NUTSNEWS_BACKUP_KEEP_DAILY }}
+          NUTSNEWS_BACKUP_KEEP_WEEKLY: ${{ secrets.NUTSNEWS_BACKUP_KEEP_WEEKLY }}
+          NUTSNEWS_BACKUP_KEEP_MONTHLY: ${{ secrets.NUTSNEWS_BACKUP_KEEP_MONTHLY }}
+          NUTSNEWS_BACKUP_KEEP_YEARLY: ${{ secrets.NUTSNEWS_BACKUP_KEEP_YEARLY }}
           RUN_MODE: ${{ inputs.run_mode }}
         run: |
           set -euo pipefail
@@ -151,6 +161,27 @@ jobs:
               except ValueError as exc:
                   raise SystemExit(f"{name} must be an integer when set.") from exc
 
+          backup_enabled = truthy("NUTSNEWS_BACKUP_ENABLED")
+          backup_repository = (
+              os.environ.get("NUTSNEWS_BACKUP_REPOSITORY", "").strip()
+              or "rclone:nutsnews-onedrive:nutsnews-backups/vps"
+          )
+          if backup_enabled:
+              missing = [
+                  name
+                  for name in ("NUTSNEWS_BACKUP_RESTIC_PASSWORD", "NUTSNEWS_BACKUP_RCLONE_CONFIG")
+                  if not os.environ.get(name, "").strip()
+              ]
+              if missing:
+                  raise SystemExit(
+                      "Backups are enabled, but missing required production-vps Environment secrets: "
+                      + ", ".join(missing)
+                  )
+              if not backup_repository.startswith("rclone:nutsnews-onedrive:"):
+                  raise SystemExit(
+                      "NUTSNEWS_BACKUP_REPOSITORY must use the dedicated nutsnews-onedrive rclone remote."
+                  )
+
           repository = os.environ["GITHUB_REPOSITORY"]
           run_url = (
               f"{os.environ['GITHUB_SERVER_URL']}/{repository}"
@@ -174,6 +205,29 @@ jobs:
                   "NUTSNEWS_REPORT_SUBJECT_PREFIX",
                   "NutsNews VPS",
               ),
+              "vps_service_foundation_backup_enabled": backup_enabled,
+              "vps_service_foundation_backup_repository": backup_repository,
+              "vps_service_foundation_backup_restic_password": os.environ.get(
+                  "NUTSNEWS_BACKUP_RESTIC_PASSWORD",
+                  "",
+              ),
+              "vps_service_foundation_backup_rclone_config": os.environ.get(
+                  "NUTSNEWS_BACKUP_RCLONE_CONFIG",
+                  "",
+              ),
+              "vps_service_foundation_backup_stale_after_hours": env_int(
+                  "NUTSNEWS_BACKUP_STALE_AFTER_HOURS",
+                  30,
+              ),
+              "vps_service_foundation_backup_check_read_data_subset": os.environ.get(
+                  "NUTSNEWS_BACKUP_CHECK_READ_DATA_SUBSET",
+                  "5%",
+              )
+              or "5%",
+              "vps_service_foundation_backup_keep_daily": env_int("NUTSNEWS_BACKUP_KEEP_DAILY", 14),
+              "vps_service_foundation_backup_keep_weekly": env_int("NUTSNEWS_BACKUP_KEEP_WEEKLY", 8),
+              "vps_service_foundation_backup_keep_monthly": env_int("NUTSNEWS_BACKUP_KEEP_MONTHLY", 12),
+              "vps_service_foundation_backup_keep_yearly": env_int("NUTSNEWS_BACKUP_KEEP_YEARLY", 2),
               "vps_service_foundation_apply_context": {
                   "status": "apply_started",
                   "repository": repository,

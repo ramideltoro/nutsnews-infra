@@ -1,0 +1,119 @@
+name: Run VPS Backup
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-vps-backup
+  cancel-in-progress: false
+
+jobs:
+  run-backup:
+    name: Trigger encrypted VPS backup
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    environment: production-vps
+
+    steps:
+      - name: Validate required environment secrets
+        shell: bash
+        env:
+          NUTSNEWS_VPS_SSH_PRIVATE_KEY: ${{ secrets.NUTSNEWS_VPS_SSH_PRIVATE_KEY }}
+          NUTSNEWS_VPS_KNOWN_HOSTS: ${{ secrets.NUTSNEWS_VPS_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+
+          missing=0
+          for secret_name in \
+            NUTSNEWS_VPS_SSH_PRIVATE_KEY \
+            NUTSNEWS_VPS_KNOWN_HOSTS
+          do
+            if [[ -z "${!secret_name}" ]]; then
+              echo "Missing required production-vps environment secret: $secret_name" >&2
+              missing=1
+            fi
+          done
+
+          exit "$missing"
+
+      - name: Prepare SSH material
+        shell: bash
+        env:
+          NUTSNEWS_VPS_SSH_PRIVATE_KEY: ${{ secrets.NUTSNEWS_VPS_SSH_PRIVATE_KEY }}
+          NUTSNEWS_VPS_KNOWN_HOSTS: ${{ secrets.NUTSNEWS_VPS_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+
+          install -m 0700 -d "$HOME/.ssh"
+          printf '%s\n' "$NUTSNEWS_VPS_SSH_PRIVATE_KEY" > "$HOME/.ssh/nutsnews_vps"
+          chmod 0600 "$HOME/.ssh/nutsnews_vps"
+
+          printf '%s\n' "$NUTSNEWS_VPS_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          chmod 0600 "$HOME/.ssh/known_hosts"
+
+          ssh-keygen -y -f "$HOME/.ssh/nutsnews_vps" > /dev/null
+          ssh-keygen -F 65.75.202.112 -f "$HOME/.ssh/known_hosts" > /dev/null
+
+      - name: Trigger fixed backup service
+        shell: bash
+        env:
+          VPS_HOST: 65.75.202.112
+          VPS_USER: nutsnews_ops
+          BACKUP_SERVICE: nutsnews-restic-backup.service
+          BACKUP_STATUS_FILE: /opt/nutsnews/portal-assets/data/backup-status.json
+        run: |
+          set -euo pipefail
+
+          ssh_args=(
+            -i "$HOME/.ssh/nutsnews_vps"
+            -o UserKnownHostsFile="$HOME/.ssh/known_hosts"
+            -o StrictHostKeyChecking=yes
+            -o IdentitiesOnly=yes
+            -o BatchMode=yes
+            -o LogLevel=ERROR
+          )
+          target="${VPS_USER}@${VPS_HOST}"
+
+          echo "Triggering ${BACKUP_SERVICE} on ${VPS_HOST} as ${VPS_USER}."
+          set +e
+          # shellcheck disable=SC2029
+          ssh "${ssh_args[@]}" "$target" "sudo -n /bin/systemctl start ${BACKUP_SERVICE}"
+          trigger_status="$?"
+          set -e
+
+          echo
+          echo "Backup service result"
+          set +e
+          # shellcheck disable=SC2029
+          ssh "${ssh_args[@]}" "$target" "sudo -n /bin/systemctl show ${BACKUP_SERVICE} --property=ActiveState,SubState,Result,ExecMainCode,ExecMainStatus,InactiveEnterTimestamp --no-pager"
+          service_status="$?"
+          set -e
+
+          echo
+          echo "Backup status snapshot"
+          set +e
+          # shellcheck disable=SC2029
+          ssh "${ssh_args[@]}" "$target" "/usr/bin/python3 -c 'import json,sys; from pathlib import Path; p=Path(\"${BACKUP_STATUS_FILE}\"); p.exists() or sys.exit(\"backup status file is missing\"); data=json.loads(p.read_text()); keys=(\"enabled\",\"configured\",\"status\",\"repository\",\"repository_path\",\"latest_status\",\"latest_snapshot_age_seconds\",\"updated_at\"); [print(\"{}: {}\".format(k, data.get(k, \"unknown\"))) for k in keys]; lb=data.get(\"last_backup\",{}); lp=data.get(\"last_prune\",{}); print(\"last_backup.status: {}\".format(lb.get(\"status\", \"unknown\"))); print(\"last_backup.finished_at: {}\".format(lb.get(\"finished_at\", \"never\"))); print(\"last_prune.status: {}\".format(lp.get(\"status\", \"unknown\"))); print(\"last_prune.finished_at: {}\".format(lp.get(\"finished_at\", \"never\"))); ok=data.get(\"enabled\") is True and data.get(\"configured\") is True and lb.get(\"status\") == \"success\" and lp.get(\"status\") == \"success\"; sys.exit(0 if ok else 2)'"
+          backup_status="$?"
+          set -e
+
+          if [[ "$trigger_status" -ne 0 ]]; then
+            echo "Backup service failed to start or complete. Exit code: $trigger_status" >&2
+            exit "$trigger_status"
+          fi
+
+          if [[ "$service_status" -ne 0 ]]; then
+            echo "Could not read systemd status for ${BACKUP_SERVICE}. Exit code: $service_status" >&2
+            exit "$service_status"
+          fi
+
+          if [[ "$backup_status" -ne 0 ]]; then
+            echo "Backup did not reach a successful backup and prune state. Check the status snapshot above." >&2
+            exit "$backup_status"
+          fi
+
+          echo
+          echo "Encrypted VPS backup completed successfully."

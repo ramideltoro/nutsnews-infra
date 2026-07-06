@@ -1,0 +1,35 @@
+[Unit]
+Description=NutsNews encrypted VPS backup to OneDrive
+Documentation={{ vps_service_foundation_docs_base_url }}/blob/main/NUTSNEWS_VPS_BACKUPS.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+EnvironmentFile={{ vps_service_foundation_backup_env_file }}
+Environment="HOME=/root"
+ExecStart={{ vps_service_foundation_backup_bin }} --mode backup
+TimeoutStartSec=6h
+UMask=0077
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+CPUWeight=50
+IOWeight=50
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=read-only
+ProtectSystem=strict
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+SystemCallArchitectures=native
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+ReadWritePaths={{ vps_service_foundation_private_config_dir }} {{ vps_service_foundation_portal_data_dir }} {{ vps_service_foundation_backup_state_dir }} {{ vps_service_foundation_backup_log_dir }} {{ vps_service_foundation_backup_cache_dir }}
+
+[Install]
+WantedBy=multi-user.target

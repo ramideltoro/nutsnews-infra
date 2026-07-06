@@ -1,6 +1,6 @@
-- name: Install Docker Engine and Compose packages
+- name: Install Docker Engine, Compose, and backup packages
   ansible.builtin.apt:
-    name: "{{ vps_service_foundation_docker_packages }}"
+    name: "{{ vps_service_foundation_docker_packages + vps_service_foundation_backup_packages }}"
     state: present
     update_cache: true
     cache_valid_time: 3600
@@ -9,8 +9,9 @@
   ansible.builtin.debug:
     msg: >-
       Docker package installation is simulated in check mode. Runtime tasks that
-      require the docker service, docker group, service user, or newly created
-      /opt/nutsnews directories are skipped until apply mode creates them.
+      require the docker service, docker group, service user, restic/rclone
+      configuration, or newly created /opt/nutsnews directories are skipped
+      until apply mode creates them.
   when: ansible_check_mode
 
 - name: Manage Docker service and service foundation runtime
@@ -128,6 +129,71 @@
         mode: "0600"
       no_log: true
 
+    - name: Install encrypted VPS backup runner
+      ansible.builtin.copy:
+        src: vps_restic_backup.py
+        dest: "{{ vps_service_foundation_backup_bin }}"
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Install encrypted VPS backup environment
+      ansible.builtin.template:
+        src: vps-backup.env.j2
+        dest: "{{ vps_service_foundation_backup_env_file }}"
+        owner: root
+        group: root
+        mode: "0600"
+      no_log: true
+
+    - name: Install encrypted VPS backup path list
+      ansible.builtin.template:
+        src: vps-backup-paths.txt.j2
+        dest: "{{ vps_service_foundation_backup_paths_file }}"
+        owner: root
+        group: root
+        mode: "0600"
+
+    - name: Install encrypted VPS backup exclude list
+      ansible.builtin.template:
+        src: vps-backup-excludes.txt.j2
+        dest: "{{ vps_service_foundation_backup_excludes_file }}"
+        owner: root
+        group: root
+        mode: "0600"
+
+    - name: Install encrypted VPS backup restic password file
+      ansible.builtin.copy:
+        dest: "{{ vps_service_foundation_backup_restic_password_file }}"
+        owner: root
+        group: root
+        mode: "0600"
+        content: "{{ vps_service_foundation_backup_restic_password }}\n"
+      no_log: true
+
+    - name: Install encrypted VPS backup rclone config
+      ansible.builtin.copy:
+        dest: "{{ vps_service_foundation_backup_rclone_config_file }}"
+        owner: root
+        group: root
+        mode: "0600"
+        content: "{{ (vps_service_foundation_backup_rclone_config | trim) ~ '\n' }}"
+      no_log: true
+
+    - name: Validate encrypted VPS backup configuration when enabled
+      ansible.builtin.assert:
+        that:
+          - not (vps_service_foundation_backup_enabled | bool) or vps_service_foundation_backup_repository is match('^rclone:[^:]+:.+')
+          - not (vps_service_foundation_backup_enabled | bool) or vps_service_foundation_backup_rclone_remote in vps_service_foundation_backup_repository
+          - not (vps_service_foundation_backup_enabled | bool) or (vps_service_foundation_backup_restic_password | length) > 0
+          - not (vps_service_foundation_backup_enabled | bool) or (vps_service_foundation_backup_rclone_config | trim | length) > 0
+        fail_msg: >-
+          VPS backups are enabled, but restic/rclone backup configuration is
+          incomplete. Add the documented production-vps Environment secrets and
+          rerun protected apply.
+        success_msg: Encrypted VPS backup configuration is disabled or complete.
+      no_log: true
+
     - name: Install operations portal collector service
       ansible.builtin.template:
         src: nutsnews-ops-portal-collector.service.j2
@@ -176,6 +242,30 @@
         group: root
         mode: "0644"
 
+    - name: Install encrypted VPS backup service
+      ansible.builtin.template:
+        src: nutsnews-restic-backup.service.j2
+        dest: "/etc/systemd/system/{{ vps_service_foundation_backup_service }}"
+        owner: root
+        group: root
+        mode: "0644"
+
+    - name: Install encrypted VPS backup timer
+      ansible.builtin.template:
+        src: nutsnews-restic-backup.timer.j2
+        dest: "/etc/systemd/system/{{ vps_service_foundation_backup_timer }}"
+        owner: root
+        group: root
+        mode: "0644"
+
+    - name: Install encrypted VPS backup verification service
+      ansible.builtin.template:
+        src: nutsnews-restic-verify.service.j2
+        dest: "/etc/systemd/system/{{ vps_service_foundation_backup_verify_service }}"
+        owner: root
+        group: root
+        mode: "0644"
+
     - name: Apply pending Docker daemon changes
       ansible.builtin.meta: flush_handlers
 
@@ -195,6 +285,13 @@
       loop:
         - "{{ vps_service_foundation_alert_timer }}"
         - "{{ vps_service_foundation_report_timer }}"
+
+    - name: Manage encrypted VPS backup timer
+      ansible.builtin.systemd_service:
+        name: "{{ vps_service_foundation_backup_timer }}"
+        enabled: "{{ vps_service_foundation_backup_enabled | bool }}"
+        state: "{{ (vps_service_foundation_backup_enabled | bool) | ternary('started', 'stopped') }}"
+        daemon_reload: true
 
     - name: Refresh operations portal status snapshot
       ansible.builtin.command:

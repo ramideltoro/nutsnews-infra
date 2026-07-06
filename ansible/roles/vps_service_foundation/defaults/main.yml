@@ -5,6 +5,10 @@ vps_service_foundation_docker_packages:
   - docker.io
   - docker-compose-v2
 
+vps_service_foundation_backup_packages:
+  - restic
+  - rclone
+
 vps_service_foundation_docker_users: []
 
 vps_service_foundation_caddy_uid: 64010
@@ -17,6 +21,9 @@ vps_service_foundation_config_dir: "{{ vps_service_foundation_root }}/config"
 vps_service_foundation_data_dir: "{{ vps_service_foundation_root }}/data"
 vps_service_foundation_logs_dir: "{{ vps_service_foundation_root }}/logs"
 vps_service_foundation_backups_dir: "{{ vps_service_foundation_root }}/backups"
+vps_service_foundation_backup_log_dir: "{{ vps_service_foundation_logs_dir }}/backups"
+vps_service_foundation_backup_state_dir: "{{ vps_service_foundation_ops_dir }}/backups"
+vps_service_foundation_backup_cache_dir: /var/cache/nutsnews-restic
 vps_service_foundation_portal_assets_dir: "{{ vps_service_foundation_root }}/portal-assets"
 vps_service_foundation_portal_static_dir: "{{ vps_service_foundation_portal_assets_dir }}/assets"
 vps_service_foundation_portal_data_dir: "{{ vps_service_foundation_portal_assets_dir }}/data"
@@ -52,6 +59,53 @@ vps_service_foundation_reporter_bin: /usr/local/bin/nutsnews-ops-portal-reporter
 vps_service_foundation_reporter_env_file: "{{ vps_service_foundation_private_config_dir }}/ops-reporter.env"
 vps_service_foundation_reporting_status_file: "{{ vps_service_foundation_portal_data_dir }}/reporting-status.json"
 vps_service_foundation_alert_state_file: "{{ vps_service_foundation_ops_dir }}/email-alert-state.json"
+vps_service_foundation_backup_bin: /usr/local/bin/nutsnews-vps-restic-backup
+vps_service_foundation_backup_env_file: "{{ vps_service_foundation_private_config_dir }}/vps-backup.env"
+vps_service_foundation_backup_rclone_config_file: "{{ vps_service_foundation_private_config_dir }}/rclone-nutsnews-onedrive.conf"
+vps_service_foundation_backup_restic_password_file: "{{ vps_service_foundation_private_config_dir }}/restic-password"
+vps_service_foundation_backup_paths_file: "{{ vps_service_foundation_private_config_dir }}/vps-backup-paths.txt"
+vps_service_foundation_backup_excludes_file: "{{ vps_service_foundation_private_config_dir }}/vps-backup-excludes.txt"
+vps_service_foundation_backup_status_file: "{{ vps_service_foundation_portal_data_dir }}/backup-status.json"
+vps_service_foundation_backup_service: nutsnews-restic-backup.service
+vps_service_foundation_backup_timer: nutsnews-restic-backup.timer
+vps_service_foundation_backup_verify_service: nutsnews-restic-verify.service
+vps_service_foundation_backup_on_calendar: "*-*-* 03:25:00"
+vps_service_foundation_backup_randomized_delay_seconds: 30min
+vps_service_foundation_backup_enabled: false
+vps_service_foundation_backup_repository: rclone:nutsnews-onedrive:nutsnews-backups/vps
+vps_service_foundation_backup_rclone_remote: nutsnews-onedrive
+vps_service_foundation_backup_rclone_config: ""
+vps_service_foundation_backup_restic_password: ""
+vps_service_foundation_backup_stale_after_hours: 30
+vps_service_foundation_backup_check_read_data_subset: 5%
+vps_service_foundation_backup_keep_daily: 14
+vps_service_foundation_backup_keep_weekly: 8
+vps_service_foundation_backup_keep_monthly: 12
+vps_service_foundation_backup_keep_yearly: 2
+vps_service_foundation_backup_paths:
+  - /opt/nutsnews
+  - /etc/nutsnews
+  - /etc/systemd/system/nutsnews-*.service
+  - /etc/systemd/system/nutsnews-*.timer
+  - /etc/docker/daemon.json
+  - /etc/ssh/sshd_config
+  - /etc/ssh/sshd_config.d/20-nutsnews-baseline.conf
+  - /etc/ssh/sshd_config.d/99-nutsnews-portal-forwarding.conf
+  - "/etc/sudoers.d/90-{{ vps_service_foundation_admin_user }}"
+  - /etc/apt/apt.conf.d/20auto-upgrades
+  - /etc/apt/apt.conf.d/50unattended-upgrades
+  - /etc/fail2ban/jail.d/sshd.local
+  - /etc/systemd/journald.conf.d/20-nutsnews-baseline.conf
+  - /etc/logrotate.d/nutsnews
+vps_service_foundation_backup_excludes:
+  - /opt/nutsnews/backups/**
+  - /opt/nutsnews/logs/**
+  - /opt/nutsnews/portal-assets/data/status.json
+  - /opt/nutsnews/portal-assets/data/status.tmp
+  - /opt/nutsnews/portal-assets/data/disk-usage-cache.json
+  - /opt/nutsnews/portal-assets/data/reporting-status.json
+  - /opt/nutsnews/portal-assets/data/backup-status.json
+  - /opt/nutsnews/ops/email-alert-state.json
 vps_service_foundation_disk_scan_cache_file: "{{ vps_service_foundation_portal_data_dir }}/disk-usage-cache.json"
 vps_service_foundation_disk_scan_cache_seconds: 3600
 vps_service_foundation_disk_scan_roots:
@@ -153,6 +207,18 @@ vps_service_foundation_directories:
     owner: root
     group: root
     mode: "0750"
+  - path: "{{ vps_service_foundation_backup_log_dir }}"
+    owner: root
+    group: adm
+    mode: "0750"
+  - path: "{{ vps_service_foundation_backup_state_dir }}"
+    owner: root
+    group: root
+    mode: "0750"
+  - path: "{{ vps_service_foundation_backup_cache_dir }}"
+    owner: root
+    group: root
+    mode: "0700"
   - path: "{{ vps_service_foundation_portal_assets_dir }}"
     owner: root
     group: root
