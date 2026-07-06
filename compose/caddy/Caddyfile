@@ -19,6 +19,10 @@
     respond "ok" 200
   }
 
+  handle /health {
+    reverse_proxy host.docker.internal:18080
+  }
+
   import /etc/nutsnews/caddy/app.routes
 
   handle /data/* {

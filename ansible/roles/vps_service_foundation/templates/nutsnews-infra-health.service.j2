@@ -1,0 +1,39 @@
+[Unit]
+Description=NutsNews public infrastructure health endpoint
+Documentation={{ vps_service_foundation_docs_base_url }}
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+Group=root
+Environment="NUTSNEWS_INFRA_HEALTH_HOST={{ vps_service_foundation_infra_health_host }}"
+Environment="NUTSNEWS_INFRA_HEALTH_PORT={{ vps_service_foundation_infra_health_port }}"
+Environment="NUTSNEWS_INFRA_HEALTH_LOG_FILE={{ vps_service_foundation_infra_health_log_file }}"
+Environment="NUTSNEWS_INFRA_HEALTH_THRESHOLD_PERCENT={{ vps_service_foundation_infra_health_threshold_percent }}"
+Environment="NUTSNEWS_INFRA_HEALTH_RESOURCE_CHECKS={{ vps_service_foundation_infra_health_resource_checks | join(',') }}"
+Environment="NUTSNEWS_INFRA_HEALTH_REQUIRED_DISKS={{ vps_service_foundation_infra_health_required_disks | join(',') }}"
+Environment="NUTSNEWS_INFRA_HEALTH_REQUIRED_SERVICES={{ vps_service_foundation_infra_health_required_services | join(',') }}"
+Environment="NUTSNEWS_INFRA_HEALTH_REQUIRED_CONTAINERS={{ (vps_service_foundation_infra_health_required_containers + ((vps_service_foundation_nutsnews_app_enabled | bool) | ternary([vps_service_foundation_nutsnews_app_container_name], []))) | unique | join(',') }}"
+Environment="HOME=/tmp"
+Environment="DOCKER_CONFIG=/tmp/docker"
+Environment="XDG_CACHE_HOME=/tmp/cache"
+ExecStart={{ vps_service_foundation_infra_health_bin }}
+Restart=always
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=read-only
+ProtectSystem=strict
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+SystemCallArchitectures=native
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+ReadWritePaths={{ vps_service_foundation_infra_health_log_dir }}
+
+[Install]
+WantedBy=multi-user.target
