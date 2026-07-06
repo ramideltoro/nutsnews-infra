@@ -54,7 +54,11 @@ for token in (
 
 require("handle /health" in CADDY, "Caddy must expose /health.")
 require("reverse_proxy host.docker.internal:18080" in CADDY, "Caddy must proxy /health to the host health service.")
+require("vps.nutsnews.com" in CADDY, "Caddy must define the public VPS hostname.")
+require("auto_https off" not in CADDY, "Caddy automatic HTTPS must remain enabled for the public hostname.")
 require("host.docker.internal:host-gateway" in COMPOSE, "Compose must expose host-gateway to Caddy.")
+require('"80:80/tcp"' in COMPOSE, "Compose must publish public HTTP for ACME and redirects.")
+require('"443:443/tcp"' in COMPOSE, "Compose must publish public HTTPS for Better Stack.")
 require("curl -i http://127.0.0.1:8080/health" in RUNBOOK, "Runbook must document local /health curl.")
 require("https://vps.nutsnews.com/health" in RUNBOOK, "Runbook must document Better Stack URL.")
 require("/opt/nutsnews/logs/health/*.jsonl" in LOGROTATE, "Health failure logs must be rotated.")

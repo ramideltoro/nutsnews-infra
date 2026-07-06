@@ -19,7 +19,7 @@ Use this runbook after the service foundation PR is merged and before applying t
 - `/opt/nutsnews/ops`
 - Caddy managed by Compose at `/opt/nutsnews/apps/caddy/compose.yml`
 - Read-only operations portal and `/healthz` endpoint on `127.0.0.1:8080`
-- Better Stack-compatible infrastructure health endpoint at `/health`
+- Better Stack-compatible infrastructure health endpoint at `https://vps.nutsnews.com/health`
 - Local portal status collector managed by `nutsnews-ops-portal-collector.timer`
 
 ## Apply Safely
@@ -44,6 +44,12 @@ curl -fsS http://127.0.0.1:8080/
 curl -fsS http://127.0.0.1:8080/data/status.json
 systemctl status nutsnews-infra-health.service
 systemctl status nutsnews-ops-portal-collector.timer
+```
+
+From a workstation or external monitor after DNS is pointed at the VPS and ports `80` and `443` are reachable:
+
+```bash
+curl -i https://vps.nutsnews.com/health
 ```
 
 Expected `/healthz` output:
@@ -135,7 +141,16 @@ Recommended regions: US East, US West, EU West
 
 ## Public Exposure
 
-Caddy is intentionally bound to `127.0.0.1:8080` in the current service foundation. Do not expose public routing, public TLS, or firewall changes until a later approved PR adds reviewed domain routing.
+Caddy publishes public ports `80` and `443` for `vps.nutsnews.com`. The public virtual host exposes only `/health` and returns `404` for other paths. Caddy proxies `/health` to the local `nutsnews-infra-health.service` through the host gateway.
+
+The operations portal remains bound to `127.0.0.1:8080` on the host and is not exposed publicly. Keep Cloudflare DNS-only unless a later approved change explicitly enables proxying.
+
+Do not make manual firewall, DNS, or reverse proxy changes on the VPS. Apply routing changes through the protected workflow after PR review and verify with:
+
+```bash
+curl -i http://127.0.0.1:8080/health
+curl -i https://vps.nutsnews.com/health
+```
 
 ## Recovery
 
