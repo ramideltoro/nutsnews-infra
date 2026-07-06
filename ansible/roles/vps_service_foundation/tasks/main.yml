@@ -203,6 +203,14 @@
         group: root
         mode: "0755"
 
+    - name: Install NutsNews infrastructure health endpoint
+      ansible.builtin.copy:
+        src: infra_health.py
+        dest: "{{ vps_service_foundation_infra_health_bin }}"
+        owner: root
+        group: root
+        mode: "0755"
+
     - name: Install operations portal reporter
       ansible.builtin.copy:
         src: ops_portal_reporter.py
@@ -326,6 +334,14 @@
         group: root
         mode: "0644"
 
+    - name: Install NutsNews infrastructure health service
+      ansible.builtin.template:
+        src: nutsnews-infra-health.service.j2
+        dest: "/etc/systemd/system/{{ vps_service_foundation_infra_health_service }}"
+        owner: root
+        group: root
+        mode: "0644"
+
     - name: Install operations portal collector timer
       ansible.builtin.template:
         src: nutsnews-ops-portal-collector.timer.j2
@@ -396,6 +412,13 @@
     - name: Enable operations portal collector timer
       ansible.builtin.systemd_service:
         name: "{{ vps_service_foundation_collector_timer }}"
+        enabled: true
+        state: started
+        daemon_reload: true
+
+    - name: Enable NutsNews infrastructure health service
+      ansible.builtin.systemd_service:
+        name: "{{ vps_service_foundation_infra_health_service }}"
         enabled: true
         state: started
         daemon_reload: true
@@ -664,6 +687,19 @@
           until:
             - vps_service_foundation_healthcheck.status == 200
             - vps_service_foundation_healthcheck.content | trim == "ok"
+
+        - name: Wait for local infrastructure health endpoint
+          ansible.builtin.uri:
+            url: "{{ vps_service_foundation_infra_health_url }}"
+            return_content: true
+            status_code: 200
+          register: vps_service_foundation_infra_healthcheck
+          changed_when: false
+          retries: 6
+          delay: 5
+          until:
+            - vps_service_foundation_infra_healthcheck.status == 200
+            - vps_service_foundation_infra_healthcheck.content is search('"ok":true')
 
         - name: Wait for local operations portal status data
           ansible.builtin.uri:

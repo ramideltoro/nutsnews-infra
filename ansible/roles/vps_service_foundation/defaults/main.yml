@@ -31,6 +31,8 @@ vps_service_foundation_portal_status_file: "{{ vps_service_foundation_portal_dat
 vps_service_foundation_health_dir: "{{ vps_service_foundation_root }}/health"
 vps_service_foundation_ops_dir: "{{ vps_service_foundation_root }}/ops"
 vps_service_foundation_private_config_dir: /etc/nutsnews
+vps_service_foundation_infra_health_log_dir: "{{ vps_service_foundation_logs_dir }}/health"
+vps_service_foundation_infra_health_log_file: "{{ vps_service_foundation_infra_health_log_dir }}/health-failures.jsonl"
 
 vps_service_foundation_caddy_app_dir: "{{ vps_service_foundation_apps_dir }}/caddy"
 vps_service_foundation_caddy_config_dir: "{{ vps_service_foundation_config_dir }}/caddy"
@@ -71,6 +73,31 @@ vps_service_foundation_healthcheck_url: http://127.0.0.1:8080/healthz
 vps_service_foundation_portal_status_url: http://127.0.0.1:8080/data/status.json
 
 vps_service_foundation_collector_bin: /usr/local/bin/nutsnews-ops-portal-collector
+vps_service_foundation_infra_health_bin: /usr/local/bin/nutsnews-infra-health
+vps_service_foundation_infra_health_service: nutsnews-infra-health.service
+vps_service_foundation_infra_health_host: 0.0.0.0
+vps_service_foundation_infra_health_port: 18080
+vps_service_foundation_infra_health_url: "http://127.0.0.1:{{ vps_service_foundation_infra_health_port }}/health"
+vps_service_foundation_infra_health_threshold_percent: 60
+vps_service_foundation_infra_health_resource_checks:
+  - cpu
+  - memory
+  - disk
+vps_service_foundation_infra_health_required_disks:
+  - /
+  - "{{ vps_service_foundation_root }}"
+vps_service_foundation_infra_health_required_services:
+  - ssh.service
+  - docker.service
+  - unattended-upgrades.service
+  - ufw.service
+  - fail2ban.service
+  - "{{ vps_service_foundation_infra_health_service }}"
+  - "{{ vps_service_foundation_collector_timer }}"
+  - "{{ vps_service_foundation_alert_timer }}"
+  - "{{ vps_service_foundation_report_timer }}"
+vps_service_foundation_infra_health_required_containers:
+  - nutsnews-caddy
 vps_service_foundation_collector_log_dir: "{{ vps_service_foundation_logs_dir }}/ops-portal"
 vps_service_foundation_collector_service: nutsnews-ops-portal-collector.service
 vps_service_foundation_collector_timer: nutsnews-ops-portal-collector.timer
@@ -235,6 +262,10 @@ vps_service_foundation_directories:
     group: "{{ vps_service_foundation_caddy_group }}"
     mode: "0750"
   - path: "{{ vps_service_foundation_logs_dir }}"
+    owner: root
+    group: adm
+    mode: "0750"
+  - path: "{{ vps_service_foundation_infra_health_log_dir }}"
     owner: root
     group: adm
     mode: "0750"

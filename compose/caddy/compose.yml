@@ -19,6 +19,8 @@ services:
       - NET_BIND_SERVICE
     ports:
       - "127.0.0.1:8080:8080/tcp"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - /opt/nutsnews/config/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
       - /opt/nutsnews/config/caddy/app.routes:/etc/nutsnews/caddy/app.routes:ro

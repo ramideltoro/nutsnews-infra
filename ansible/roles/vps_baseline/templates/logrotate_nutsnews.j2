@@ -7,3 +7,13 @@
     notifempty
     create 0640 root adm
 }
+
+/opt/nutsnews/logs/health/*.jsonl {
+    daily
+    missingok
+    rotate {{ vps_baseline_logrotate_rotate_count }}
+    compress
+    delaycompress
+    notifempty
+    create 0640 root adm
+}
