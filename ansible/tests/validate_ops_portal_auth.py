@@ -60,6 +60,7 @@ def main() -> None:
     require("dev.ops.nutsnews.com/api/auth/callback/google" in defaults, "Dev callback URL is not documented/configured.")
     require("Validate operations portal Google OAuth configuration" in tasks, "Ansible auth validation is missing.")
     require("Install operations portal auth environment" in tasks, "Ansible auth env install task is missing.")
+    require("follow_redirects: no" in tasks, "Portal OAuth verification must not follow redirects to Google.")
     require("no_log: true" in tasks, "Auth secret-bearing Ansible tasks must use no_log.")
     require("NUTSNEWS_OPS_PORTAL_CALLBACK_URL" in workflow, "Protected apply workflow must pass callback URL.")
     require("NUTSNEWS_GOOGLE_CLIENT_ID" in workflow, "Protected apply workflow must pass Google client ID.")
