@@ -133,7 +133,12 @@
       ansible.builtin.assert:
         that:
           - "{{ (vps_service_foundation_nutsnews_app_required_secret_keys | difference(vps_service_foundation_nutsnews_app_secret_env_keys)) | length == 0 }}"
-          - "{{ (vps_service_foundation_nutsnews_app_required_secret_keys | difference(vps_service_foundation_nutsnews_app_envs.keys() | list)) | length == 0 }}"
+          - >-
+            {{
+              (vps_service_foundation_nutsnews_app_required_secret_keys
+              | difference(vps_service_foundation_nutsnews_app_envs.keys() | list))
+              | length == 0
+            }}
         fail_msg: >-
           App secrets are required for app deployment, but required secret keys are
           missing from vps_service_foundation_nutsnews_app_secret_env_keys or app env values.
@@ -539,13 +544,13 @@
               }}
           when: vps_service_foundation_apply_metadata_enabled | bool
 
-        - name: Verify app container health when enabled
+          - name: Verify app container health when enabled
           ansible.builtin.command:
             argv:
               - docker
               - inspect
               - --format
-              - "{{`{{.State.Running}}`}}|{{`{{.State.Health.Status}}`}}"
+              - "{{ '{{.State.Running}}|{{.State.Health.Status}}' }}"
               - "{{ vps_service_foundation_nutsnews_app_container_name }}"
           register: vps_service_foundation_nutsnews_app_healthcheck
           changed_when: false
