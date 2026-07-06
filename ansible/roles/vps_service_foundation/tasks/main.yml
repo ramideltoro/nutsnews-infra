@@ -423,6 +423,15 @@
         state: started
         daemon_reload: true
 
+    - name: Allow Caddy Docker network to reach infrastructure health service
+      community.general.ufw:
+        rule: allow
+        direction: in
+        from_ip: "{{ vps_service_foundation_infra_health_ufw_allow_from }}"
+        port: "{{ vps_service_foundation_infra_health_port | string }}"
+        proto: tcp
+        comment: "{{ vps_service_foundation_infra_health_ufw_comment }}"
+
     - name: Enable operations portal email timers
       ansible.builtin.systemd_service:
         name: "{{ item }}"

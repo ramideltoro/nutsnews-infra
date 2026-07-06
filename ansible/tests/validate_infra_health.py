@@ -41,6 +41,7 @@ for token in (
     "vps_service_foundation_infra_health_required_services:",
     "vps_service_foundation_infra_health_required_containers:",
     "vps_service_foundation_infra_health_log_file:",
+    "vps_service_foundation_infra_health_ufw_allow_from: 172.18.0.0/16",
 ):
     require(token in DEFAULTS, f"Defaults missing {token}.")
 
@@ -48,9 +49,13 @@ for token in (
     "Install NutsNews infrastructure health endpoint",
     "Install NutsNews infrastructure health service",
     "Enable NutsNews infrastructure health service",
+    "Allow Caddy Docker network to reach infrastructure health service",
     "Wait for local infrastructure health endpoint",
 ):
     require(token in TASKS, f"Ansible tasks missing {token}.")
+
+require("community.general.ufw" in TASKS, "Ansible must manage the health service UFW rule.")
+require("vps_service_foundation_infra_health_port | string" in TASKS, "UFW rule must use the configured health port.")
 
 require("handle /health" in CADDY, "Caddy must expose /health.")
 require("reverse_proxy host.docker.internal:18080" in CADDY, "Caddy must proxy /health to the host health service.")

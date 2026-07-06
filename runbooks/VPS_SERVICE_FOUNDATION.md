@@ -143,6 +143,8 @@ Recommended regions: US East, US West, EU West
 
 Caddy publishes public ports `80` and `443` for `vps.nutsnews.com`. The public virtual host exposes only `/health` and returns `404` for other paths. Caddy proxies `/health` to the local `nutsnews-infra-health.service` through the host gateway.
 
+UFW allows the Caddy Docker network to reach the host health service on TCP port `18080`. This internal rule is managed by Ansible so the public Better Stack endpoint works without manual firewall changes.
+
 The operations portal remains bound to `127.0.0.1:8080` on the host and is not exposed publicly. Keep Cloudflare DNS-only unless a later approved change explicitly enables proxying.
 
 Do not make manual firewall, DNS, or reverse proxy changes on the VPS. Apply routing changes through the protected workflow after PR review and verify with:
