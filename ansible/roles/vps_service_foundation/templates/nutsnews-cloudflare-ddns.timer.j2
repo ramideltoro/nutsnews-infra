@@ -1,0 +1,13 @@
+[Unit]
+Description=Run NutsNews Cloudflare dynamic DNS updater
+Documentation={{ vps_service_foundation_docs_base_url }}
+
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec={{ vps_service_foundation_cloudflare_ddns_interval }}
+AccuracySec=15s
+Persistent=true
+Unit={{ vps_service_foundation_cloudflare_ddns_service }}
+
+[Install]
+WantedBy=timers.target
