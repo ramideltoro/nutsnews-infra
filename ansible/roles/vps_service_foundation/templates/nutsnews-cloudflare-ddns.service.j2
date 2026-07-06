@@ -1,0 +1,26 @@
+[Unit]
+Description=NutsNews Cloudflare dynamic DNS updater
+Documentation={{ vps_service_foundation_docs_base_url }}
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+EnvironmentFile={{ vps_service_foundation_cloudflare_ddns_env_file }}
+ExecStart={{ vps_service_foundation_cloudflare_ddns_bin }}
+User=root
+Group=root
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectControlGroups=true
+ProtectKernelModules=true
+ProtectKernelTunables=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+SystemCallArchitectures=native
+CapabilityBoundingSet=

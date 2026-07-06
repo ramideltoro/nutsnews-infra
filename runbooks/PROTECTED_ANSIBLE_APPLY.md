@@ -18,6 +18,7 @@ Add these secrets to the existing `production-vps` GitHub Environment:
 - `NUTSNEWS_VPS_SSH_PRIVATE_KEY`: private key allowed to SSH as `nutsnews_ops`
 - `NUTSNEWS_VPS_KNOWN_HOSTS`: verified `known_hosts` entry for `65.75.202.112`
 - `NUTSNEWS_VPS_ADMIN_AUTHORIZED_KEYS_JSON`: JSON array of approved public keys for `nutsnews_ops`
+- `NUTSNEWS_CLOUDFLARE_DDNS_API_TOKEN`: optional Cloudflare token for `vps.nutsnews.com` DDNS, required only when `enable_cloudflare_ddns` is `true`
 
 Example shape for `NUTSNEWS_VPS_ADMIN_AUTHORIZED_KEYS_JSON`:
 
@@ -57,9 +58,10 @@ The protected workflow rejects enabled backups unless the restic password and rc
 2. Select `Protected Ansible Apply`.
 3. Select `Run workflow`.
 4. Leave `run_mode` as `check`.
-5. Leave `confirm_apply` blank.
-6. Approve the `production-vps` Environment gate if prompted.
-7. Review the Ansible diff and recap.
+5. Set `enable_cloudflare_ddns` to `false` unless you are intentionally testing [Cloudflare DDNS](CLOUDFLARE_DDNS.md).
+6. Leave `confirm_apply` blank.
+7. Approve the `production-vps` Environment gate if prompted.
+8. Review the Ansible diff and recap.
 
 Check mode is the default because surprise infrastructure changes are how simple systems become weekend projects with invoices.
 
@@ -69,8 +71,9 @@ Check mode is the default because surprise infrastructure changes are how simple
 2. Select `Protected Ansible Apply`.
 3. Set `run_mode` to `apply`.
 4. Set `confirm_apply` to `vps.nutsnews.com`.
-5. Approve the `production-vps` Environment gate.
-6. Review the final `PLAY RECAP`.
+5. Set `enable_cloudflare_ddns` to `true` only after the DNS record state has been reviewed and approved.
+6. Approve the `production-vps` Environment gate.
+7. Review the final `PLAY RECAP`.
 
 Apply mode connects as `nutsnews_ops` with sudo. It must never use root SSH.
 

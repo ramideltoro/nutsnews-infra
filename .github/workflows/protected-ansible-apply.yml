@@ -16,6 +16,14 @@ on:
         required: false
         default: ""
         type: string
+      enable_cloudflare_ddns:
+        description: Enable the Cloudflare DDNS timer for vps.nutsnews.com.
+        required: true
+        default: "false"
+        type: choice
+        options:
+          - "false"
+          - "true"
 
 permissions:
   contents: read
@@ -73,6 +81,8 @@ jobs:
           NUTSNEWS_VPS_SSH_PRIVATE_KEY: ${{ secrets.NUTSNEWS_VPS_SSH_PRIVATE_KEY }}
           NUTSNEWS_VPS_KNOWN_HOSTS: ${{ secrets.NUTSNEWS_VPS_KNOWN_HOSTS }}
           NUTSNEWS_VPS_ADMIN_AUTHORIZED_KEYS_JSON: ${{ secrets.NUTSNEWS_VPS_ADMIN_AUTHORIZED_KEYS_JSON }}
+          NUTSNEWS_CLOUDFLARE_DDNS_API_TOKEN: ${{ secrets.NUTSNEWS_CLOUDFLARE_DDNS_API_TOKEN }}
+          ENABLE_CLOUDFLARE_DDNS: ${{ inputs.enable_cloudflare_ddns }}
         run: |
           set -euo pipefail
 
@@ -87,6 +97,11 @@ jobs:
               missing=1
             fi
           done
+
+          if [[ "$ENABLE_CLOUDFLARE_DDNS" == "true" && -z "$NUTSNEWS_CLOUDFLARE_DDNS_API_TOKEN" ]]; then
+            echo "Missing required production-vps environment secret: NUTSNEWS_CLOUDFLARE_DDNS_API_TOKEN" >&2
+            missing=1
+          fi
 
           exit "$missing"
 
@@ -123,6 +138,8 @@ jobs:
           NUTSNEWS_EMAIL_TO: ${{ secrets.NUTSNEWS_EMAIL_TO }}
           NUTSNEWS_ALERT_COOLDOWN_SECONDS: ${{ secrets.NUTSNEWS_ALERT_COOLDOWN_SECONDS }}
           NUTSNEWS_REPORT_SUBJECT_PREFIX: ${{ secrets.NUTSNEWS_REPORT_SUBJECT_PREFIX }}
+          NUTSNEWS_CLOUDFLARE_DDNS_API_TOKEN: ${{ secrets.NUTSNEWS_CLOUDFLARE_DDNS_API_TOKEN }}
+          ENABLE_CLOUDFLARE_DDNS: ${{ inputs.enable_cloudflare_ddns }}
           NUTSNEWS_BACKUP_ENABLED: ${{ secrets.NUTSNEWS_BACKUP_ENABLED }}
           NUTSNEWS_BACKUP_REPOSITORY: ${{ secrets.NUTSNEWS_BACKUP_REPOSITORY }}
           NUTSNEWS_BACKUP_RESTIC_PASSWORD: ${{ secrets.NUTSNEWS_BACKUP_RESTIC_PASSWORD }}
@@ -283,6 +300,11 @@ jobs:
                   "NUTSNEWS_REPORT_SUBJECT_PREFIX",
                   "NutsNews VPS",
               ),
+              "vps_service_foundation_cloudflare_ddns_enabled": truthy("ENABLE_CLOUDFLARE_DDNS"),
+              "vps_service_foundation_cloudflare_ddns_api_token": os.environ.get(
+                  "NUTSNEWS_CLOUDFLARE_DDNS_API_TOKEN",
+                  "",
+              ),
               "vps_service_foundation_backup_enabled": backup_enabled,
               "vps_service_foundation_backup_repository": backup_repository,
               "vps_service_foundation_backup_restic_password": os.environ.get(
@@ -333,6 +355,18 @@ jobs:
           PY
 
           chmod 0600 .runtime-extra-vars.json
+
+      - name: Inspect Cloudflare DDNS record
+        if: inputs.enable_cloudflare_ddns == 'true'
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.NUTSNEWS_CLOUDFLARE_DDNS_API_TOKEN }}
+          CLOUDFLARE_ZONE_NAME: nutsnews.com
+          CLOUDFLARE_RECORD_NAME: vps.nutsnews.com
+          CLOUDFLARE_DDNS_INSPECT_ONLY: "1"
+        run: |
+          set -euo pipefail
+          python3 ansible/roles/vps_service_foundation/files/cloudflare_ddns.py
 
       - name: Run Ansible baseline
         shell: bash

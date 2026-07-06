@@ -211,10 +211,27 @@
         group: root
         mode: "0755"
 
+    - name: Install Cloudflare DDNS updater
+      ansible.builtin.copy:
+        src: cloudflare_ddns.py
+        dest: "{{ vps_service_foundation_cloudflare_ddns_bin }}"
+        owner: root
+        group: root
+        mode: "0755"
+
     - name: Install operations portal reporter environment
       ansible.builtin.template:
         src: ops-reporter.env.j2
         dest: "{{ vps_service_foundation_reporter_env_file }}"
+        owner: root
+        group: root
+        mode: "0600"
+      no_log: true
+
+    - name: Install Cloudflare DDNS environment
+      ansible.builtin.template:
+        src: cloudflare-ddns.env.j2
+        dest: "{{ vps_service_foundation_cloudflare_ddns_env_file }}"
         owner: root
         group: root
         mode: "0600"
@@ -289,6 +306,22 @@
       ansible.builtin.template:
         src: nutsnews-ops-portal-collector.service.j2
         dest: "/etc/systemd/system/{{ vps_service_foundation_collector_service }}"
+        owner: root
+        group: root
+        mode: "0644"
+
+    - name: Install Cloudflare DDNS service
+      ansible.builtin.template:
+        src: nutsnews-cloudflare-ddns.service.j2
+        dest: "/etc/systemd/system/{{ vps_service_foundation_cloudflare_ddns_service }}"
+        owner: root
+        group: root
+        mode: "0644"
+
+    - name: Install Cloudflare DDNS timer
+      ansible.builtin.template:
+        src: nutsnews-cloudflare-ddns.timer.j2
+        dest: "/etc/systemd/system/{{ vps_service_foundation_cloudflare_ddns_timer }}"
         owner: root
         group: root
         mode: "0644"
@@ -383,6 +416,29 @@
         enabled: "{{ vps_service_foundation_backup_enabled | bool }}"
         state: "{{ (vps_service_foundation_backup_enabled | bool) | ternary('started', 'stopped') }}"
         daemon_reload: true
+
+    - name: Manage Cloudflare DDNS timer
+      ansible.builtin.systemd_service:
+        name: "{{ vps_service_foundation_cloudflare_ddns_timer }}"
+        enabled: "{{ vps_service_foundation_cloudflare_ddns_enabled | bool }}"
+        state: "{{ (vps_service_foundation_cloudflare_ddns_enabled | bool) | ternary('started', 'stopped') }}"
+        daemon_reload: true
+
+    - name: Verify Cloudflare DDNS updater configuration
+      ansible.builtin.command:
+        argv:
+          - "{{ vps_service_foundation_cloudflare_ddns_bin }}"
+      environment:
+        CLOUDFLARE_API_TOKEN: "{{ vps_service_foundation_cloudflare_ddns_api_token }}"
+        CLOUDFLARE_ZONE_NAME: "{{ vps_service_foundation_cloudflare_ddns_zone_name }}"
+        CLOUDFLARE_RECORD_NAME: "{{ vps_service_foundation_cloudflare_ddns_record_name }}"
+        CLOUDFLARE_RECORD_TTL: "{{ vps_service_foundation_cloudflare_ddns_record_ttl | string }}"
+        CLOUDFLARE_RECORD_PROXIED: "{{ (vps_service_foundation_cloudflare_ddns_proxied | bool) | ternary('1', '0') }}"
+        CLOUDFLARE_DDNS_DRY_RUN: "1"
+        CLOUDFLARE_DDNS_IP_ENDPOINTS: "{{ vps_service_foundation_cloudflare_ddns_ip_endpoints | join(',') }}"
+      changed_when: false
+      no_log: true
+      when: vps_service_foundation_cloudflare_ddns_enabled | bool
 
     - name: Refresh operations portal status snapshot
       ansible.builtin.command:

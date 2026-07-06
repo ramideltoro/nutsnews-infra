@@ -15,5 +15,6 @@ Add runbooks for deployment, rollback, incident response, security changes, back
 - [VPS Backup Setup](VPS_BACKUP_SETUP.md)
 - [VPS Restore](VPS_RESTORE.md)
 - [VPS Disaster Recovery](VPS_DISASTER_RECOVERY.md)
+- [Cloudflare DDNS](CLOUDFLARE_DDNS.md)
 
 The `Send VPS Health Report` GitHub Actions workflow manually triggers the existing VPS report email without an interactive SSH session.

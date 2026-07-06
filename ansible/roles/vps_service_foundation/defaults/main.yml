@@ -137,6 +137,22 @@ vps_service_foundation_alert_timer: nutsnews-ops-alert-check.timer
 vps_service_foundation_report_service: nutsnews-ops-health-report.service
 vps_service_foundation_report_timer: nutsnews-ops-health-report.timer
 
+vps_service_foundation_cloudflare_ddns_enabled: false
+vps_service_foundation_cloudflare_ddns_api_token: ""
+vps_service_foundation_cloudflare_ddns_zone_name: nutsnews.com
+vps_service_foundation_cloudflare_ddns_record_name: vps.nutsnews.com
+vps_service_foundation_cloudflare_ddns_record_ttl: 60
+vps_service_foundation_cloudflare_ddns_proxied: false
+vps_service_foundation_cloudflare_ddns_dry_run: false
+vps_service_foundation_cloudflare_ddns_interval: 1min
+vps_service_foundation_cloudflare_ddns_ip_endpoints:
+  - https://api.ipify.org
+  - https://ifconfig.me/ip
+vps_service_foundation_cloudflare_ddns_bin: /usr/local/bin/nutsnews-cloudflare-ddns
+vps_service_foundation_cloudflare_ddns_env_file: "{{ vps_service_foundation_private_config_dir }}/cloudflare-ddns.env"
+vps_service_foundation_cloudflare_ddns_service: nutsnews-cloudflare-ddns.service
+vps_service_foundation_cloudflare_ddns_timer: nutsnews-cloudflare-ddns.timer
+
 vps_service_foundation_email_enabled: false
 vps_service_foundation_email_smtp_host: ""
 vps_service_foundation_email_smtp_port: 587
