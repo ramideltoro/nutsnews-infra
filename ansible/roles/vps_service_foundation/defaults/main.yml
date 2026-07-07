@@ -437,7 +437,8 @@ vps_service_foundation_source_portal_index: "{{ vps_service_foundation_repo_root
 vps_service_foundation_source_portal_app: "{{ vps_service_foundation_repo_root }}/portal/assets/app.js"
 vps_service_foundation_source_portal_styles: "{{ vps_service_foundation_repo_root }}/portal/assets/styles.css"
 vps_service_foundation_source_portal_status_example: "{{ vps_service_foundation_repo_root }}/portal/data/status.example.json"
-vps_service_foundation_source_free_tier_collector_module: "{{ vps_service_foundation_repo_root }}/ansible/roles/vps_service_foundation/files/ops_free_tier_usage.py"
+vps_service_foundation_source_free_tier_collector_module: >-
+  {{ vps_service_foundation_repo_root }}/ansible/roles/vps_service_foundation/files/ops_free_tier_usage.py
 
 vps_service_foundation_healthcheck_url: http://127.0.0.1:8080/healthz
 vps_service_foundation_portal_status_url: http://127.0.0.1:8080/data/status.json
