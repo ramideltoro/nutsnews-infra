@@ -491,6 +491,7 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.NUTSNEWS_CLOUDFLARE_DDNS_API_TOKEN }}
           CLOUDFLARE_ZONE_NAME: nutsnews.com
           CLOUDFLARE_RECORD_NAME: vps.nutsnews.com
+          CLOUDFLARE_RECORD_NAMES: vps.nutsnews.com,ops.nutsnews.com
           CLOUDFLARE_DDNS_INSPECT_ONLY: "1"
         run: |
           set -euo pipefail

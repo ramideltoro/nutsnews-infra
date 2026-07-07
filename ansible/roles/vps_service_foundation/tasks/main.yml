@@ -688,6 +688,7 @@
         CLOUDFLARE_API_TOKEN: "{{ vps_service_foundation_cloudflare_ddns_api_token }}"
         CLOUDFLARE_ZONE_NAME: "{{ vps_service_foundation_cloudflare_ddns_zone_name }}"
         CLOUDFLARE_RECORD_NAME: "{{ vps_service_foundation_cloudflare_ddns_record_name }}"
+        CLOUDFLARE_RECORD_NAMES: "{{ vps_service_foundation_cloudflare_ddns_record_names | join(',') }}"
         CLOUDFLARE_RECORD_TTL: "{{ vps_service_foundation_cloudflare_ddns_record_ttl | string }}"
         CLOUDFLARE_RECORD_PROXIED: "{{ (vps_service_foundation_cloudflare_ddns_proxied | bool) | ternary('1', '0') }}"
         CLOUDFLARE_DDNS_DRY_RUN: "1"

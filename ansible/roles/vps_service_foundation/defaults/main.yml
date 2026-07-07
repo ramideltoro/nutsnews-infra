@@ -230,6 +230,9 @@ vps_service_foundation_cloudflare_ddns_enabled: false
 vps_service_foundation_cloudflare_ddns_api_token: ""
 vps_service_foundation_cloudflare_ddns_zone_name: nutsnews.com
 vps_service_foundation_cloudflare_ddns_record_name: vps.nutsnews.com
+vps_service_foundation_cloudflare_ddns_record_names:
+  - vps.nutsnews.com
+  - ops.nutsnews.com
 vps_service_foundation_cloudflare_ddns_record_ttl: 60
 vps_service_foundation_cloudflare_ddns_proxied: false
 vps_service_foundation_cloudflare_ddns_dry_run: false
