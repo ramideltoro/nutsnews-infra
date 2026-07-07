@@ -4,9 +4,11 @@ on:
   workflow_dispatch:
     inputs:
       confirm_apply:
-        description: Type grafana-cloud to apply Grafana Cloud IaC from main.
+        description: Select grafana-cloud to apply Grafana Cloud IaC from main.
         required: true
-        type: string
+        type: choice
+        options:
+          - grafana-cloud
 
 permissions:
   contents: read  # Required to check out the GitOps-managed Grafana Cloud IaC.
