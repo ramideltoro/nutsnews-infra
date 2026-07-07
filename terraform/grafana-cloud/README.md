@@ -46,6 +46,8 @@ synthetic_http_checks = {
 
 Keep real targets in protected variables or untracked local tfvars. The module requires a 15-minute or slower interval and blocks apply when the projected monthly API executions exceed 70% of the configured free-tier assumption.
 
+Set `TF_VAR_synthetic_http_checks` to `{}` to disable Synthetic Monitoring resources while keeping dashboards and quota alerts managed.
+
 ## Free-Tier Assumptions
 
 The committed defaults assume the current Grafana Cloud Free limits documented in the shared runbook. Check Grafana pricing before changing them:
