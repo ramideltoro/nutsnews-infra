@@ -78,6 +78,15 @@
         mode: "0644"
       register: vps_service_foundation_caddy_compose_install
 
+    - name: Install Caddy image build file
+      ansible.builtin.copy:
+        src: "{{ vps_service_foundation_source_caddy_dockerfile }}"
+        dest: "{{ vps_service_foundation_caddy_dockerfile }}"
+        owner: root
+        group: root
+        mode: "0644"
+      register: vps_service_foundation_caddy_dockerfile_install
+
     - name: Install Caddy placeholder config
       ansible.builtin.copy:
         src: "{{ vps_service_foundation_source_caddyfile }}"
@@ -86,6 +95,43 @@
         group: root
         mode: "0644"
       register: vps_service_foundation_caddyfile_install
+
+    - name: Validate Caddy rate limit inputs
+      ansible.builtin.assert:
+        that:
+          - vps_service_foundation_caddy_rate_limit_zones is iterable
+          - vps_service_foundation_caddy_rate_limit_zones | length > 0
+          - vps_service_foundation_caddy_rate_limit_ipv6_prefix | int >= 0
+          - vps_service_foundation_caddy_rate_limit_ipv6_prefix | int <= 128
+          - vps_service_foundation_caddy_rate_limit_jitter_percent | int >= 0
+          - vps_service_foundation_caddy_rate_limit_jitter_percent | int <= 100
+        fail_msg: Caddy rate limit settings are invalid.
+        success_msg: Caddy rate limit global settings are valid.
+      when: vps_service_foundation_caddy_rate_limits_enabled | bool
+
+    - name: Validate Caddy rate limit zones
+      ansible.builtin.assert:
+        that:
+          - item.name is match('^[a-z][a-z0-9_]*$')
+          - item.paths is iterable
+          - item.paths | length > 0
+          - item.events | int > 0
+          - item.window is match('^[0-9]+(ms|s|m|h)$')
+        fail_msg: "Caddy rate limit zone '{{ item.name | default('unknown') }}' is invalid."
+        success_msg: "Caddy rate limit zone '{{ item.name }}' is valid."
+      loop: "{{ vps_service_foundation_caddy_rate_limit_zones }}"
+      loop_control:
+        label: "{{ item.name | default('unknown') }}"
+      when: vps_service_foundation_caddy_rate_limits_enabled | bool
+
+    - name: Install Caddy rate limit config
+      ansible.builtin.template:
+        src: caddy-rate-limits.j2
+        dest: "{{ vps_service_foundation_caddy_rate_limit_file }}"
+        owner: root
+        group: root
+        mode: "0644"
+      register: vps_service_foundation_caddy_rate_limit_install
 
     - name: Install Caddy app route template
       ansible.builtin.template:
@@ -753,11 +799,14 @@
           - -d
           - --remove-orphans
           - --force-recreate
+          - --build
       register: vps_service_foundation_compose_recreate
       changed_when: true
       when: >-
         vps_service_foundation_caddy_compose_install.changed
+        or vps_service_foundation_caddy_dockerfile_install.changed
         or vps_service_foundation_caddyfile_install.changed
+        or vps_service_foundation_caddy_rate_limit_install.changed
         or vps_service_foundation_caddy_route_install.changed
         or vps_service_foundation_ops_auth_gateway_install.changed
         or vps_service_foundation_ops_auth_env_install.changed

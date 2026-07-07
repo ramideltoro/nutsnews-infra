@@ -59,6 +59,7 @@ require("vps_service_foundation_infra_health_port | string" in TASKS, "UFW rule 
 
 require("handle /health" in CADDY, "Caddy must expose /health.")
 require("reverse_proxy host.docker.internal:18080" in CADDY, "Caddy must proxy /health to the host health service.")
+require("import /etc/nutsnews/caddy/rate-limits" in CADDY, "Caddy must import rate-limit protection.")
 require("vps.nutsnews.com" in CADDY, "Caddy must define the public VPS hostname.")
 require("auto_https off" not in CADDY, "Caddy automatic HTTPS must remain enabled for the public hostname.")
 require("host.docker.internal:host-gateway" in COMPOSE, "Compose must expose host-gateway to Caddy.")

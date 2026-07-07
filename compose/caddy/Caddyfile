@@ -4,6 +4,12 @@
 
 vps.nutsnews.com {
   encode zstd gzip
+  import /etc/nutsnews/caddy/rate-limits
+
+  log {
+    output stdout
+    format console
+  }
 
   header {
     X-Content-Type-Options nosniff
@@ -24,6 +30,12 @@ vps.nutsnews.com {
 
 ops.nutsnews.com {
   encode zstd gzip
+  import /etc/nutsnews/caddy/rate-limits
+
+  log {
+    output stdout
+    format console
+  }
 
   header {
     X-Content-Type-Options nosniff
@@ -49,6 +61,12 @@ ops.nutsnews.com {
 :8080 {
   bind 0.0.0.0
   encode zstd gzip
+  import /etc/nutsnews/caddy/rate-limits
+
+  log {
+    output stdout
+    format console
+  }
 
   header {
     X-Content-Type-Options nosniff
