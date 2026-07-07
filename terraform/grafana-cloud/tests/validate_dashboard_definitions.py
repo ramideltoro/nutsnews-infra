@@ -45,7 +45,19 @@ require(
     "Metric/log filters must interpolate the instance variable as a regex matcher.",
 )
 require(
-    'rate(node_cpu_seconds_total{${local.base_metric_filter},mode=\\"idle\\"}[$__rate_interval])' in LOCALS,
+    'node_exporter_metric_filter = "job=~\\"integrations/node_exporter\\", instance=~\\"$instance\\""' in LOCALS,
+    "Node exporter panels must use the Grafana Cloud integration job label instead of service_namespace.",
+)
+require(
+    'label_values(up{job=~\\"integrations/node_exporter\\"}, instance)' in TEMPLATE,
+    "Instance variable must be populated from the node exporter integration job.",
+)
+require(
+    'label_values(up{service_namespace=\\"nutsnews\\"}, instance)' not in TEMPLATE,
+    "Instance variable must not require service_namespace for node exporter metrics.",
+)
+require(
+    'rate(node_cpu_seconds_total{${local.node_exporter_metric_filter},mode=\\"idle\\"}[$__rate_interval])' in LOCALS,
     "CPU busy must use $__rate_interval for the PromQL rate window.",
 )
 
@@ -69,7 +81,17 @@ require(
     "node_load1{${local.base_metric_filter}} or node_load5" not in LOCALS,
     "Load averages must not combine all load metrics with PromQL or in one target.",
 )
+require(
+    "node_load1{${local.node_exporter_metric_filter}}" in load_targets,
+    "Load averages must use the node exporter integration filter.",
+)
 require('legendFormat = target.legend' in LOCALS, "Explicit panel targets must use their configured legends.")
 require('refId        = ["A", "B", "C", "D", "E", "F"][target_index]' in LOCALS, "Explicit panel targets must get stable refIds.")
+
+for stale_query in re.findall(r"node_[a-zA-Z0-9_]+\\{\\$\\{local\\.base_metric_filter\\}", LOCALS):
+    require(
+        False,
+        f"Node exporter query still uses the service_namespace base filter: {stale_query}",
+    )
 
 print("Grafana dashboard definition guardrails passed.")
