@@ -680,6 +680,15 @@
         state: "{{ (vps_service_foundation_cloudflare_ddns_enabled | bool) | ternary('started', 'stopped') }}"
         daemon_reload: true
 
+    - name: Run Cloudflare DDNS updater immediately
+      ansible.builtin.systemd_service:
+        name: "{{ vps_service_foundation_cloudflare_ddns_service }}"
+        state: started
+        daemon_reload: true
+      when:
+        - vps_service_foundation_cloudflare_ddns_enabled | bool
+        - not ansible_check_mode
+
     - name: Verify Cloudflare DDNS updater configuration
       ansible.builtin.command:
         argv:
