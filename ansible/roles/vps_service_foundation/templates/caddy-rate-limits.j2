@@ -1,0 +1,21 @@
+{% if vps_service_foundation_caddy_rate_limits_enabled | bool %}
+rate_limit {
+{% for zone in vps_service_foundation_caddy_rate_limit_zones %}
+  zone {{ zone.name }} {
+    match {
+      path {{ zone.paths | join(' ') }}
+    }
+    key         {{ zone.key | default(vps_service_foundation_caddy_rate_limit_key) }}
+    events      {{ zone.events }}
+    window      {{ zone.window }}
+    ipv6_prefix {{ zone.ipv6_prefix | default(vps_service_foundation_caddy_rate_limit_ipv6_prefix) }}
+  }
+{% endfor %}
+{% if vps_service_foundation_caddy_rate_limit_log_key | bool %}
+  log_key
+{% endif %}
+  jitter {{ vps_service_foundation_caddy_rate_limit_jitter_percent }}
+}
+{% else %}
+# Caddy rate limiting is disabled by vps_service_foundation_caddy_rate_limits_enabled.
+{% endif %}

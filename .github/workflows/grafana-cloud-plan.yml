@@ -38,6 +38,7 @@ jobs:
         run: |
           set -euo pipefail
           tofu fmt -check -recursive terraform/grafana-cloud
+          python3 terraform/grafana-cloud/tests/validate_dashboard_definitions.py
           tofu -chdir=terraform/grafana-cloud init -backend=false -input=false
           tofu -chdir=terraform/grafana-cloud validate -no-color
 

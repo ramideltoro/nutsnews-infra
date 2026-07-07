@@ -362,6 +362,38 @@ vps_service_foundation_caddy_data_dir: "{{ vps_service_foundation_data_dir }}/ca
 vps_service_foundation_caddy_logs_dir: "{{ vps_service_foundation_logs_dir }}/caddy"
 vps_service_foundation_caddy_compose_file: "{{ vps_service_foundation_caddy_app_dir }}/compose.yml"
 vps_service_foundation_caddy_route_file: "{{ vps_service_foundation_caddy_config_dir }}/app.routes"
+vps_service_foundation_caddy_dockerfile: "{{ vps_service_foundation_caddy_app_dir }}/Dockerfile"
+vps_service_foundation_caddy_rate_limit_file: "{{ vps_service_foundation_caddy_config_dir }}/rate-limits"
+vps_service_foundation_caddy_rate_limits_enabled: true
+vps_service_foundation_caddy_rate_limit_key: "{remote_host}"
+vps_service_foundation_caddy_rate_limit_ipv6_prefix: 64
+vps_service_foundation_caddy_rate_limit_jitter_percent: 10
+vps_service_foundation_caddy_rate_limit_log_key: true
+vps_service_foundation_caddy_rate_limit_zones:
+  - name: nutsnews_health
+    paths:
+      - /health
+      - /healthz
+    events: 30
+    window: 1m
+  - name: nutsnews_auth_sensitive
+    paths:
+      - /api/auth/*
+      - /login*
+      - /admin*
+      - /ops*
+    events: 20
+    window: 1m
+  - name: nutsnews_api
+    paths:
+      - /api/*
+    events: 60
+    window: 1m
+  - name: nutsnews_public
+    paths:
+      - /*
+    events: 600
+    window: 1m
 vps_service_foundation_ops_portal_auth_env_file: "{{ vps_service_foundation_private_config_dir }}/ops-portal-auth.env"
 vps_service_foundation_ops_portal_auth_dir: "{{ vps_service_foundation_root }}/portal"
 vps_service_foundation_ops_portal_auth_file: "{{ vps_service_foundation_ops_portal_auth_dir }}/auth_gateway.py"
@@ -397,6 +429,7 @@ vps_service_foundation_nutsnews_app_required_secrets: []
 
 vps_service_foundation_repo_root: "{{ playbook_dir }}/../.."
 vps_service_foundation_source_compose_file: "{{ vps_service_foundation_repo_root }}/compose/caddy/compose.yml"
+vps_service_foundation_source_caddy_dockerfile: "{{ vps_service_foundation_repo_root }}/compose/caddy/Dockerfile"
 vps_service_foundation_source_caddyfile: "{{ vps_service_foundation_repo_root }}/compose/caddy/Caddyfile"
 vps_service_foundation_source_health_index: "{{ vps_service_foundation_repo_root }}/compose/health/index.html"
 vps_service_foundation_source_portal_auth_gateway: "{{ vps_service_foundation_repo_root }}/portal/auth_gateway.py"
@@ -509,6 +542,9 @@ vps_service_foundation_cloudflare_ddns_enabled: false
 vps_service_foundation_cloudflare_ddns_api_token: ""
 vps_service_foundation_cloudflare_ddns_zone_name: nutsnews.com
 vps_service_foundation_cloudflare_ddns_record_name: vps.nutsnews.com
+vps_service_foundation_cloudflare_ddns_record_names:
+  - vps.nutsnews.com
+  - ops.nutsnews.com
 vps_service_foundation_cloudflare_ddns_record_ttl: 60
 vps_service_foundation_cloudflare_ddns_proxied: false
 vps_service_foundation_cloudflare_ddns_dry_run: false

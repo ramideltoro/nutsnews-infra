@@ -109,6 +109,10 @@ jobs:
         shell: bash
         run: python3 ansible/tests/validate_backup_workflows.py
 
+      - name: Validate Grafana Cloud apply workflow guardrails
+        shell: bash
+        run: python3 ansible/tests/validate_grafana_apply_workflow.py
+
       - name: Validate backup secrets are not committed
         shell: bash
         run: python3 ansible/tests/validate_no_backup_secrets.py

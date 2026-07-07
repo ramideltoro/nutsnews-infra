@@ -17,6 +17,7 @@
   "templating": {
     "list": [
       {
+        "allValue": ".*",
         "current": {
           "selected": false,
           "text": "All",
@@ -26,7 +27,7 @@
           "type": "prometheus",
           "uid": "${prometheus_datasource_uid}"
         },
-        "definition": "label_values(up{service_namespace=\"nutsnews\"}, deployment_environment)",
+        "definition": "label_values(up{job=~\"integrations/node_exporter\"}, deployment_environment)",
         "hide": 0,
         "includeAll": true,
         "label": "Environment",
@@ -34,7 +35,7 @@
         "name": "environment",
         "options": [],
         "query": {
-          "query": "label_values(up{service_namespace=\"nutsnews\"}, deployment_environment)",
+          "query": "label_values(up{job=~\"integrations/node_exporter\"}, deployment_environment)",
           "refId": "PrometheusVariableQueryEditor-VariableQuery"
         },
         "refresh": 1,
@@ -44,6 +45,7 @@
         "type": "query"
       },
       {
+        "allValue": ".*",
         "current": {
           "selected": false,
           "text": "All",
@@ -53,7 +55,7 @@
           "type": "prometheus",
           "uid": "${prometheus_datasource_uid}"
         },
-        "definition": "label_values(up{service_namespace=\"nutsnews\"}, instance)",
+        "definition": "label_values(up{job=~\"integrations/node_exporter\"}, instance)",
         "hide": 0,
         "includeAll": true,
         "label": "Instance",
@@ -61,7 +63,7 @@
         "name": "instance",
         "options": [],
         "query": {
-          "query": "label_values(up{service_namespace=\"nutsnews\"}, instance)",
+          "query": "label_values(up{job=~\"integrations/node_exporter\"}, instance)",
           "refId": "PrometheusVariableQueryEditor-VariableQuery"
         },
         "refresh": 1,

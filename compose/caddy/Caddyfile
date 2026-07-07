@@ -4,6 +4,12 @@
 
 vps.nutsnews.com {
   encode zstd gzip
+  import /etc/nutsnews/caddy/rate-limits
+
+  log {
+    output stdout
+    format console
+  }
 
   header {
     X-Content-Type-Options nosniff
@@ -22,9 +28,45 @@ vps.nutsnews.com {
   }
 }
 
+ops.nutsnews.com {
+  encode zstd gzip
+  import /etc/nutsnews/caddy/rate-limits
+
+  log {
+    output stdout
+    format console
+  }
+
+  header {
+    X-Content-Type-Options nosniff
+    Referrer-Policy no-referrer
+    X-Frame-Options DENY
+    Permissions-Policy "camera=(), microphone=(), geolocation=()"
+    Content-Security-Policy "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+  }
+
+  handle /healthz {
+    respond "ok" 200
+  }
+
+  handle /api/auth/* {
+    reverse_proxy ops-auth:8090
+  }
+
+  handle {
+    reverse_proxy ops-auth:8090
+  }
+}
+
 :8080 {
   bind 0.0.0.0
   encode zstd gzip
+  import /etc/nutsnews/caddy/rate-limits
+
+  log {
+    output stdout
+    format console
+  }
 
   header {
     X-Content-Type-Options nosniff

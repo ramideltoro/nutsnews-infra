@@ -28,7 +28,12 @@ services:
       - edge
 
   caddy:
-    image: caddy:2-alpine
+    build:
+      context: .
+      args:
+        CADDY_VERSION: ${NUTSNEWS_CADDY_VERSION:-2.10.0}
+        CADDY_RATELIMIT_VERSION: ${NUTSNEWS_CADDY_RATELIMIT_VERSION:-16aecbb}
+    image: nutsnews-caddy-ratelimit:${NUTSNEWS_CADDY_VERSION:-2.10.0}-${NUTSNEWS_CADDY_RATELIMIT_VERSION:-16aecbb}
     container_name: nutsnews-caddy
     restart: unless-stopped
     user: "64010:64010"
@@ -51,6 +56,7 @@ services:
       - "host.docker.internal:host-gateway"
     volumes:
       - /opt/nutsnews/config/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - /opt/nutsnews/config/caddy/rate-limits:/etc/nutsnews/caddy/rate-limits:ro
       - /opt/nutsnews/config/caddy/app.routes:/etc/nutsnews/caddy/app.routes:ro
       - /opt/nutsnews/config/caddy/runtime:/config
       - /opt/nutsnews/data/caddy:/data
