@@ -287,7 +287,7 @@ locals {
     if check.enabled && length(var.synthetic_monitoring_probe_ids) > 0
   }
 
-  synthetic_monthly_api_executions = sum([
+  synthetic_monthly_api_executions = length(local.enabled_synthetic_http_checks) == 0 ? 0 : sum([
     for check in values(local.enabled_synthetic_http_checks) :
     length(var.synthetic_monitoring_probe_ids) * 1 * (43200 / (check.frequency_ms / 60000))
   ])
