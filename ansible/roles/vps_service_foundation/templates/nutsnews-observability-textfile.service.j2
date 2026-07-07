@@ -1,0 +1,28 @@
+[Unit]
+Description=NutsNews observability textfile metrics exporter
+Documentation={{ vps_service_foundation_docs_base_url }}/blob/main/NUTSNEWS_GRAFANA_CLOUD_OBSERVABILITY.md
+After={{ vps_service_foundation_collector_service }}
+ConditionPathExists={{ vps_service_foundation_portal_status_file }}
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+Environment="NUTSNEWS_PORTAL_STATUS_FILE={{ vps_service_foundation_portal_status_file }}"
+Environment="NUTSNEWS_OBSERVABILITY_TEXTFILE={{ vps_service_foundation_grafana_alloy_textfile_dir }}/nutsnews.prom"
+ExecStart={{ vps_service_foundation_observability_textfile_bin }}
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=read-only
+ProtectSystem=strict
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+SystemCallArchitectures=native
+RestrictAddressFamilies=AF_UNIX
+ReadWritePaths={{ vps_service_foundation_grafana_alloy_textfile_dir }}
+
+[Install]
+WantedBy=multi-user.target

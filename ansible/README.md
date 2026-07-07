@@ -10,7 +10,7 @@ This directory contains the first bootstrap baseline for `vps.nutsnews.com`. It 
 - `inventories/production/group_vars/nutsnews_vps.yml`: non-secret host defaults
 - `playbooks/bootstrap.yml`: baseline bootstrap entry point
 - `roles/vps_baseline/`: lightweight Ubuntu baseline role
-- `roles/vps_service_foundation/`: Docker, Compose, `/opt/nutsnews`, local Caddy, Ops Portal, email reporting, and restic/rclone VPS backups
+- `roles/vps_service_foundation/`: Docker, Compose, `/opt/nutsnews`, local Caddy, Ops Portal, email reporting, restic/rclone VPS backups, and optional Grafana Alloy observability
 - `facts/`: ignored local output directory for generated server fact snapshots
 
 ## Validation
@@ -53,6 +53,8 @@ Then run the real bootstrap only after the check-mode output is reviewed.
 The service foundation role installs Docker Engine and Compose, creates the `/opt/nutsnews` layout, copies the Caddy Compose bundle, and starts the local-only placeholder service during real apply mode. It skips Docker Compose mutation in Ansible check mode.
 
 The same role installs restic and rclone, writes root-only backup config under `/etc/nutsnews`, installs `nutsnews-restic-backup.service`, `nutsnews-restic-backup.timer`, and `nutsnews-restic-verify.service`, and enables the timer only when backup secrets are supplied through the protected `production-vps` Environment.
+
+The role can also install Grafana Alloy and a read-only textfile metrics timer when `enable_grafana_alloy` is explicitly set in the protected workflow. Grafana Cloud telemetry endpoints, usernames, and Access Policy token values come only from the protected `production-vps` Environment.
 
 ## Protected Manual Workflow
 

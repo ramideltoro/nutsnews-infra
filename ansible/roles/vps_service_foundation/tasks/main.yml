@@ -456,6 +456,176 @@
         group: root
         mode: "0644"
 
+    - name: Manage Grafana Alloy observability agent
+      when: vps_service_foundation_grafana_alloy_enabled | bool
+      block:
+        - name: Validate Grafana Alloy telemetry inputs
+          ansible.builtin.assert:
+            that:
+              - vps_service_foundation_grafana_alloy_metrics_url is match('^https://')
+              - vps_service_foundation_grafana_alloy_metrics_username | trim | length > 0
+              - vps_service_foundation_grafana_alloy_logs_url is match('^https://')
+              - vps_service_foundation_grafana_alloy_logs_username | trim | length > 0
+              - vps_service_foundation_grafana_alloy_access_policy_token | trim | length > 0
+              - vps_service_foundation_grafana_alloy_scrape_interval is match('^[0-9]+(ms|s|m|h)$')
+            fail_msg: >-
+              Grafana Alloy is enabled, but Grafana Cloud telemetry endpoints,
+              usernames, Access Policy token, or scrape interval are incomplete.
+              Add the documented production-vps Environment secrets and rerun
+              protected apply.
+            success_msg: Grafana Alloy telemetry inputs are complete.
+          no_log: true
+
+        - name: Ensure Grafana apt key directory exists
+          ansible.builtin.file:
+            path: /etc/apt/keyrings
+            owner: root
+            group: root
+            mode: "0755"
+            state: directory
+          when: vps_service_foundation_grafana_alloy_install_repo | bool
+
+        - name: Install Grafana repository support package
+          ansible.builtin.apt:
+            name: "{{ vps_service_foundation_grafana_alloy_repo_support_packages }}"
+            state: present
+            update_cache: true
+            cache_valid_time: 3600
+          when: vps_service_foundation_grafana_alloy_install_repo | bool
+
+        - name: Install Grafana apt signing key
+          ansible.builtin.get_url:
+            url: "{{ vps_service_foundation_grafana_alloy_apt_key_url }}"
+            dest: "{{ vps_service_foundation_grafana_alloy_apt_key_file }}"
+            owner: root
+            group: root
+            mode: "0644"
+          when: vps_service_foundation_grafana_alloy_install_repo | bool
+
+        - name: Configure Grafana apt repository
+          ansible.builtin.deb822_repository:
+            name: grafana
+            types:
+              - deb
+            uris:
+              - "{{ vps_service_foundation_grafana_alloy_apt_repo_uri }}"
+            suites:
+              - "{{ vps_service_foundation_grafana_alloy_apt_repo_suite }}"
+            components: "{{ vps_service_foundation_grafana_alloy_apt_repo_components }}"
+            signed_by: "{{ vps_service_foundation_grafana_alloy_apt_key_file }}"
+            state: present
+            enabled: true
+          when: vps_service_foundation_grafana_alloy_install_repo | bool
+
+        - name: Install Grafana Alloy package
+          ansible.builtin.apt:
+            name: "{{ vps_service_foundation_grafana_alloy_package }}"
+            state: present
+            update_cache: true
+            cache_valid_time: 3600
+
+        - name: Grant Alloy read-only log and Docker metadata access
+          ansible.builtin.user:
+            name: "{{ vps_service_foundation_grafana_alloy_user }}"
+            groups: "{{ vps_service_foundation_grafana_alloy_groups }}"
+            append: true
+
+        - name: Create Alloy textfile collector directory
+          ansible.builtin.file:
+            path: "{{ vps_service_foundation_grafana_alloy_textfile_dir }}"
+            owner: "{{ vps_service_foundation_grafana_alloy_user }}"
+            group: "{{ vps_service_foundation_grafana_alloy_user }}"
+            mode: "0755"
+            state: directory
+
+        - name: Install NutsNews observability textfile exporter
+          ansible.builtin.copy:
+            src: observability_textfile_exporter.py
+            dest: "{{ vps_service_foundation_observability_textfile_bin }}"
+            owner: root
+            group: root
+            mode: "0755"
+
+        - name: Install Grafana Alloy environment
+          ansible.builtin.template:
+            src: grafana-alloy.env.j2
+            dest: "{{ vps_service_foundation_grafana_alloy_env_file }}"
+            owner: root
+            group: root
+            mode: "0600"
+          notify: Restart alloy
+          no_log: true
+
+        - name: Install Grafana Alloy configuration
+          ansible.builtin.template:
+            src: grafana-alloy.config.alloy.j2
+            dest: "{{ vps_service_foundation_grafana_alloy_config_file }}"
+            owner: root
+            group: root
+            mode: "0644"
+          notify: Restart alloy
+
+        - name: Create Grafana Alloy systemd drop-in directory
+          ansible.builtin.file:
+            path: "{{ vps_service_foundation_grafana_alloy_systemd_dropin_dir }}"
+            owner: root
+            group: root
+            mode: "0755"
+            state: directory
+
+        - name: Install Grafana Alloy systemd environment drop-in
+          ansible.builtin.template:
+            src: grafana-alloy.service-dropin.conf.j2
+            dest: "{{ vps_service_foundation_grafana_alloy_systemd_dropin_file }}"
+            owner: root
+            group: root
+            mode: "0644"
+          notify: Restart alloy
+
+        - name: Install NutsNews observability textfile service
+          ansible.builtin.template:
+            src: nutsnews-observability-textfile.service.j2
+            dest: "/etc/systemd/system/{{ vps_service_foundation_observability_textfile_service }}"
+            owner: root
+            group: root
+            mode: "0644"
+
+        - name: Install NutsNews observability textfile timer
+          ansible.builtin.template:
+            src: nutsnews-observability-textfile.timer.j2
+            dest: "/etc/systemd/system/{{ vps_service_foundation_observability_textfile_timer }}"
+            owner: root
+            group: root
+            mode: "0644"
+
+        - name: Validate Grafana Alloy configuration
+          ansible.builtin.command:
+            argv:
+              - alloy
+              - validate
+              - "{{ vps_service_foundation_grafana_alloy_config_file }}"
+          changed_when: false
+
+        - name: Refresh NutsNews observability textfile metrics
+          ansible.builtin.command:
+            argv:
+              - "{{ vps_service_foundation_observability_textfile_bin }}"
+          changed_when: false
+
+        - name: Enable NutsNews observability textfile timer
+          ansible.builtin.systemd_service:
+            name: "{{ vps_service_foundation_observability_textfile_timer }}"
+            enabled: true
+            state: started
+            daemon_reload: true
+
+        - name: Enable Grafana Alloy service
+          ansible.builtin.systemd_service:
+            name: alloy
+            enabled: true
+            state: started
+            daemon_reload: true
+
     - name: Apply pending Docker daemon changes
       ansible.builtin.meta: flush_handlers
 

@@ -1,0 +1,138 @@
+name: Grafana Cloud Plan
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/grafana-cloud-plan.yml"
+      - "terraform/grafana-cloud/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read  # Required to check out the GitOps-managed Grafana Cloud IaC.
+
+concurrency:
+  group: grafana-cloud-plan-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: OpenTofu fmt and validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Install OpenTofu
+        uses: opentofu/setup-opentofu@a1320f892987e89d278cc92dc5adc984fb93aca4  # v2
+        with:
+          tofu_wrapper: false
+
+      - name: Format and validate without backend
+        shell: bash
+        run: |
+          set -euo pipefail
+          tofu fmt -check -recursive terraform/grafana-cloud
+          tofu -chdir=terraform/grafana-cloud init -backend=false -input=false
+          tofu -chdir=terraform/grafana-cloud validate -no-color
+
+  plan:
+    name: Protected OpenTofu plan
+    if: github.event_name == 'workflow_dispatch'
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: production-vps
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Install OpenTofu
+        uses: opentofu/setup-opentofu@a1320f892987e89d278cc92dc5adc984fb93aca4  # v2
+        with:
+          tofu_wrapper: false
+
+      - name: Prepare plan inputs
+        shell: bash
+        env:
+          NUTSNEWS_GRAFANA_CLOUD_TOFU_BACKEND_CONFIG: ${{ secrets.NUTSNEWS_GRAFANA_CLOUD_TOFU_BACKEND_CONFIG }}
+          NUTSNEWS_GRAFANA_CLOUD_URL: ${{ secrets.NUTSNEWS_GRAFANA_CLOUD_URL }}
+          NUTSNEWS_GRAFANA_CLOUD_SERVICE_ACCOUNT_TOKEN: ${{ secrets.NUTSNEWS_GRAFANA_CLOUD_SERVICE_ACCOUNT_TOKEN }}
+          NUTSNEWS_GRAFANA_CLOUD_PROMETHEUS_DATASOURCE_UID: ${{ secrets.NUTSNEWS_GRAFANA_CLOUD_PROMETHEUS_DATASOURCE_UID }}
+          NUTSNEWS_GRAFANA_CLOUD_LOKI_DATASOURCE_UID: ${{ secrets.NUTSNEWS_GRAFANA_CLOUD_LOKI_DATASOURCE_UID }}
+          NUTSNEWS_GRAFANA_CLOUD_USAGE_DATASOURCE_UID: ${{ secrets.NUTSNEWS_GRAFANA_CLOUD_USAGE_DATASOURCE_UID }}
+          NUTSNEWS_GRAFANA_SYNTHETIC_PROBE_IDS_JSON: ${{ secrets.NUTSNEWS_GRAFANA_SYNTHETIC_PROBE_IDS_JSON }}
+          NUTSNEWS_GRAFANA_SYNTHETIC_HTTP_CHECKS_JSON: ${{ secrets.NUTSNEWS_GRAFANA_SYNTHETIC_HTTP_CHECKS_JSON }}
+        run: |
+          set -euo pipefail
+
+          missing=0
+          for name in \
+            NUTSNEWS_GRAFANA_CLOUD_TOFU_BACKEND_CONFIG \
+            NUTSNEWS_GRAFANA_CLOUD_URL \
+            NUTSNEWS_GRAFANA_CLOUD_SERVICE_ACCOUNT_TOKEN \
+            NUTSNEWS_GRAFANA_CLOUD_PROMETHEUS_DATASOURCE_UID \
+            NUTSNEWS_GRAFANA_CLOUD_LOKI_DATASOURCE_UID \
+            NUTSNEWS_GRAFANA_CLOUD_USAGE_DATASOURCE_UID
+          do
+            if [[ -z "${!name}" ]]; then
+              echo "Missing production-vps environment secret for Grafana Cloud plan: $name" >&2
+              missing=1
+            fi
+          done
+          exit "$missing"
+
+      - name: Validate optional JSON inputs
+        shell: bash
+        env:
+          NUTSNEWS_GRAFANA_CLOUD_URL: ${{ secrets.NUTSNEWS_GRAFANA_CLOUD_URL }}
+          NUTSNEWS_GRAFANA_SYNTHETIC_PROBE_IDS_JSON: ${{ secrets.NUTSNEWS_GRAFANA_SYNTHETIC_PROBE_IDS_JSON }}
+          NUTSNEWS_GRAFANA_SYNTHETIC_HTTP_CHECKS_JSON: ${{ secrets.NUTSNEWS_GRAFANA_SYNTHETIC_HTTP_CHECKS_JSON }}
+        run: |
+          set -euo pipefail
+
+          python3 - <<'PY'
+          import json
+          import os
+
+          for name, fallback in (
+              ("NUTSNEWS_GRAFANA_SYNTHETIC_PROBE_IDS_JSON", "[]"),
+              ("NUTSNEWS_GRAFANA_SYNTHETIC_HTTP_CHECKS_JSON", "{}"),
+          ):
+              raw = os.environ.get(name, "").strip() or fallback
+              try:
+                  json.loads(raw)
+              except json.JSONDecodeError as exc:
+                  raise SystemExit(f"{name} must be valid JSON when set.") from exc
+
+          if not os.environ["NUTSNEWS_GRAFANA_CLOUD_URL"].startswith("https://"):
+              raise SystemExit("NUTSNEWS_GRAFANA_CLOUD_URL must start with https://.")
+          PY
+
+      - name: Run Grafana Cloud plan
+        shell: bash
+        env:
+          NUTSNEWS_GRAFANA_CLOUD_TOFU_BACKEND_CONFIG: ${{ secrets.NUTSNEWS_GRAFANA_CLOUD_TOFU_BACKEND_CONFIG }}
+          TF_VAR_grafana_url: ${{ secrets.NUTSNEWS_GRAFANA_CLOUD_URL }}
+          TF_VAR_grafana_service_account_token: ${{ secrets.NUTSNEWS_GRAFANA_CLOUD_SERVICE_ACCOUNT_TOKEN }}
+          TF_VAR_prometheus_datasource_uid: ${{ secrets.NUTSNEWS_GRAFANA_CLOUD_PROMETHEUS_DATASOURCE_UID }}
+          TF_VAR_loki_datasource_uid: ${{ secrets.NUTSNEWS_GRAFANA_CLOUD_LOKI_DATASOURCE_UID }}
+          TF_VAR_usage_datasource_uid: ${{ secrets.NUTSNEWS_GRAFANA_CLOUD_USAGE_DATASOURCE_UID }}
+          TF_VAR_synthetic_monitoring_probe_ids: ${{ secrets.NUTSNEWS_GRAFANA_SYNTHETIC_PROBE_IDS_JSON || '[]' }}
+          TF_VAR_synthetic_http_checks: ${{ secrets.NUTSNEWS_GRAFANA_SYNTHETIC_HTTP_CHECKS_JSON || '{}' }}
+        run: |
+          set -euo pipefail
+
+          umask 077
+          printf '%s\n' "$NUTSNEWS_GRAFANA_CLOUD_TOFU_BACKEND_CONFIG" > "$RUNNER_TEMP/grafana-backend.hcl"
+
+          tofu -chdir=terraform/grafana-cloud init -input=false -backend-config="$RUNNER_TEMP/grafana-backend.hcl"
+          tofu -chdir=terraform/grafana-cloud plan -input=false -no-color

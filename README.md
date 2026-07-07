@@ -40,6 +40,8 @@ The `Send VPS Health Report` workflow can be triggered manually through the same
 
 The encrypted VPS backup layer uses restic with the rclone backend to write ciphertext to the dedicated OneDrive remote `nutsnews-onedrive` at `rclone:nutsnews-onedrive:nutsnews-backups/vps`. Backup secrets come only from the protected `production-vps` Environment, Ansible writes root-only config on the VPS, and manual backup/verification workflows start only fixed systemd units.
 
+The observability layer adds optional Grafana Alloy telemetry on the VPS and OpenTofu-managed Grafana Cloud folders, dashboards, quota guardrails, and Synthetic Monitoring checks. Grafana Cloud URLs, usernames, tenant-specific IDs, service account tokens, Access Policy tokens, synthetic targets, and Terraform backend coordinates are supplied through the protected environment, never committed.
+
 ## Repo Layout
 
 ```text
@@ -85,6 +87,8 @@ Use [runbooks/OPS_PORTAL.md](runbooks/OPS_PORTAL.md) before applying or verifyin
 Use the manual `Send VPS Health Report` workflow when you need an on-demand email report without opening an interactive SSH session.
 
 Use [runbooks/VPS_BACKUP_SETUP.md](runbooks/VPS_BACKUP_SETUP.md), [runbooks/VPS_RESTORE.md](runbooks/VPS_RESTORE.md), and [runbooks/VPS_DISASTER_RECOVERY.md](runbooks/VPS_DISASTER_RECOVERY.md) before enabling backups, restoring files, or rebuilding on another VPS provider.
+
+Use [runbooks/GRAFANA_CLOUD_OBSERVABILITY.md](runbooks/GRAFANA_CLOUD_OBSERVABILITY.md) before applying Grafana Cloud dashboards, quota guardrails, Synthetic Monitoring checks, or enabling Alloy telemetry writes on the VPS.
 
 ## External Systems
 
