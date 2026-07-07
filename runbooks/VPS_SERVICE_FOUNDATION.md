@@ -21,6 +21,7 @@ Use this runbook after the service foundation PR is merged and before applying t
 - Read-only operations portal and `/healthz` endpoint on `127.0.0.1:8080`
 - Better Stack-compatible infrastructure health endpoint at `https://vps.nutsnews.com/health`
 - Local portal status collector managed by `nutsnews-ops-portal-collector.timer`
+- Caddy rate limiting for public health, API, auth-sensitive, admin-sensitive, ops-sensitive, and general public paths
 
 ## Apply Safely
 
@@ -44,6 +45,7 @@ curl -fsS http://127.0.0.1:8080/
 curl -fsS http://127.0.0.1:8080/data/status.json
 systemctl status nutsnews-infra-health.service
 systemctl status nutsnews-ops-portal-collector.timer
+sudo docker logs nutsnews-caddy --since 10m | grep -E 'status=429|rate'
 ```
 
 From a workstation or external monitor after DNS is pointed at the VPS and ports `80` and `443` are reachable:
@@ -51,6 +53,29 @@ From a workstation or external monitor after DNS is pointed at the VPS and ports
 ```bash
 curl -i https://vps.nutsnews.com/health
 ```
+
+## Rate Limiting
+
+Caddy is the public reverse proxy for the VPS. The protected workflow builds the repo-managed Caddy image with the pinned free `mholt/caddy-ratelimit` module, copies `/opt/nutsnews/config/caddy/rate-limits`, validates the Compose config, and recreates the Caddy service when the Caddyfile, Dockerfile, route file, or rate-limit config changes.
+
+Default Caddy limits are keyed by `{remote_host}` with IPv6 clients grouped by `/64`:
+
+| Route group | Paths | Limit |
+| --- | --- | --- |
+| Health-sensitive endpoints | `/health`, `/healthz` | 30 requests per minute |
+| Auth/admin/ops-sensitive routes | `/api/auth/*`, `/login*`, `/admin*`, `/ops*` | 20 requests per minute |
+| API routes | `/api/*` | 60 requests per minute |
+| Public/default content | `/*` | 600 requests per minute |
+
+Requests over the limit return HTTP 429 with `Retry-After`. Caddy logs are written to Docker stdout, and rate-limit hits can be inspected with:
+
+```bash
+sudo docker logs nutsnews-caddy --since 30m | grep -E 'status=429|rate'
+```
+
+Tune limits in `ansible/roles/vps_service_foundation/defaults/main.yml` by changing `vps_service_foundation_caddy_rate_limit_zones`, then run the protected workflow in `check` mode before `apply`. To disable the limiter temporarily through GitOps, set `vps_service_foundation_caddy_rate_limits_enabled: false`, merge the PR, and apply through the same workflow.
+
+Cloudflare is currently managed here only for DDNS records and defaults to DNS-only records. If Cloudflare proxying is enabled later, add complementary Cloudflare WAF/rate-limit rules there and review Caddy client IP handling before relying on `{remote_host}`.
 
 Expected `/healthz` output:
 
@@ -153,6 +178,13 @@ Do not make manual firewall, DNS, or reverse proxy changes on the VPS. Apply rou
 curl -i http://127.0.0.1:8080/health
 curl -i https://vps.nutsnews.com/health
 curl -i https://ops.nutsnews.com/
+```
+
+Rate-limit verification after deployment:
+
+```bash
+for i in $(seq 1 35); do curl -sk -o /dev/null -w "%{http_code}\n" https://vps.nutsnews.com/health; done
+sudo docker logs nutsnews-caddy --since 10m | grep -E 'status=429|rate'
 ```
 
 ## Recovery
