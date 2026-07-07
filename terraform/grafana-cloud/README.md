@@ -8,6 +8,8 @@ The repo did not previously have a remote Terraform/OpenTofu backend pattern. Th
 
 Do not apply this module until a protected remote state backend is configured through the `production-vps` GitHub Environment secret `NUTSNEWS_GRAFANA_CLOUD_TOFU_BACKEND_CONFIG`.
 
+If there is no existing S3-compatible remote state bucket, use the one-time [`grafana-state-bootstrap/cloudflare-r2`](../grafana-state-bootstrap/cloudflare-r2/README.md) module through the protected `Grafana State Bootstrap` workflow to create a private Cloudflare R2 bucket first. Then create a bucket-scoped R2 S3 API token and store the backend config in `NUTSNEWS_GRAFANA_CLOUD_TOFU_BACKEND_CONFIG`.
+
 ## Required Inputs
 
 Supply these values through protected GitHub environment secrets or local environment variables, not committed files:
