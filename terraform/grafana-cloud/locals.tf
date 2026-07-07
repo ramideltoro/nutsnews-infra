@@ -34,8 +34,20 @@ locals {
       title       = "NutsNews CPU Load Processes"
       description = "CPU saturation, load average, process count, file descriptors, conntrack, and clock health."
       panels = [
-        { title = "CPU busy", type = "timeseries", datasource = "prometheus", unit = "percentunit", width = 12, height = 8, expr = "1 - avg by (instance) (rate(node_cpu_seconds_total{${local.base_metric_filter},mode=\"idle\"}[5m]))" },
-        { title = "Load averages", type = "timeseries", datasource = "prometheus", unit = "short", width = 12, height = 8, expr = "node_load1{${local.base_metric_filter}} or node_load5{${local.base_metric_filter}} or node_load15{${local.base_metric_filter}}" },
+        { title = "CPU busy", type = "timeseries", datasource = "prometheus", unit = "percentunit", width = 12, height = 8, expr = "1 - avg by (instance) (rate(node_cpu_seconds_total{${local.base_metric_filter},mode=\"idle\"}[$__rate_interval]))" },
+        {
+          title      = "Load averages"
+          type       = "timeseries"
+          datasource = "prometheus"
+          unit       = "short"
+          width      = 12
+          height     = 8
+          targets = [
+            { expr = "node_load1{${local.base_metric_filter}}", legend = "1m" },
+            { expr = "node_load5{${local.base_metric_filter}}", legend = "5m" },
+            { expr = "node_load15{${local.base_metric_filter}}", legend = "15m" },
+          ]
+        },
         { title = "Process counts", type = "timeseries", datasource = "prometheus", unit = "short", width = 12, height = 8, expr = "node_processes_state{${local.base_metric_filter}}" },
         { title = "Clock offset", type = "timeseries", datasource = "prometheus", unit = "s", width = 12, height = 8, expr = "node_timex_offset_seconds{${local.base_metric_filter}}" },
       ]
@@ -245,7 +257,23 @@ locals {
             wrapLogMessage     = false
           } : {}
         )
-        targets = panel.datasource == "loki" ? [
+        targets = lookup(panel, "targets", null) != null ? [
+          for target_index, target in panel.targets : {
+            datasource = {
+              type = local.datasource_types[panel.datasource]
+              uid  = local.datasource_uids[panel.datasource]
+            }
+            editorMode   = "code"
+            expr         = target.expr
+            instant      = false
+            interval     = ""
+            legendFormat = target.legend
+            queryType    = panel.datasource == "loki" ? "range" : ""
+            range        = true
+            refId        = ["A", "B", "C", "D", "E", "F"][target_index]
+            useBackend   = false
+          }
+          ] : panel.datasource == "loki" ? [
           {
             datasource = {
               type = local.datasource_types[panel.datasource]
