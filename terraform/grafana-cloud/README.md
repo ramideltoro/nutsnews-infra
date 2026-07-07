@@ -29,6 +29,8 @@ Synthetic checks are disabled unless both of these are supplied:
 - `TF_VAR_synthetic_monitoring_probe_ids`
 - `TF_VAR_synthetic_http_checks`
 
+When synthetic checks are enabled, also supply `GRAFANA_SM_ACCESS_TOKEN` from the protected GitHub Environment secret `NUTSNEWS_GRAFANA_SYNTHETIC_MONITORING_ACCESS_TOKEN`. The Grafana provider uses this separate Synthetic Monitoring token for `grafana_synthetic_monitoring_check` resources.
+
 Example shape for the checks variable:
 
 ```hcl

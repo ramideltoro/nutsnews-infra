@@ -92,6 +92,7 @@ The service account token should be scoped to manage Grafana folders, dashboards
 
 Optional Synthetic Monitoring secrets:
 
+- `NUTSNEWS_GRAFANA_SYNTHETIC_MONITORING_ACCESS_TOKEN`: Synthetic Monitoring API token. Required when synthetic probe IDs and enabled HTTP checks are configured.
 - `NUTSNEWS_GRAFANA_SYNTHETIC_PROBE_IDS_JSON`: JSON array of probe IDs.
 - `NUTSNEWS_GRAFANA_SYNTHETIC_HTTP_CHECKS_JSON`: JSON object of HTTP checks.
 
@@ -116,6 +117,7 @@ Store every value below in `ramideltoro/nutsnews-infra` -> Settings -> Environme
 | `NUTSNEWS_GRAFANA_CLOUD_LOGS_URL` | Grafana Cloud portal -> your stack -> sending logs / Loki endpoint. | Alloy Loki write |
 | `NUTSNEWS_GRAFANA_CLOUD_LOGS_USERNAME` | Grafana Cloud portal -> your stack -> sending logs / Loki username or instance ID. | Alloy Loki write |
 | `NUTSNEWS_GRAFANA_CLOUD_ACCESS_POLICY_TOKEN` | Grafana Cloud portal -> Security -> Access Policies -> create token with `metrics:write` and `logs:write` scoped to this stack. | Alloy telemetry writes |
+| `NUTSNEWS_GRAFANA_SYNTHETIC_MONITORING_ACCESS_TOKEN` | Grafana Cloud Synthetic Monitoring -> Config/API keys -> create a Synthetic Monitoring API token. Required only when synthetic checks are enabled. | Optional synthetic checks |
 | `NUTSNEWS_GRAFANA_SYNTHETIC_PROBE_IDS_JSON` | Grafana Cloud Synthetic Monitoring -> probes; JSON array of selected low-cost public probe IDs. | Optional synthetic checks |
 | `NUTSNEWS_GRAFANA_SYNTHETIC_HTTP_CHECKS_JSON` | Hand-authored protected JSON object of public-safe endpoints and intervals. Keep URLs outside Git. | Optional synthetic checks |
 
