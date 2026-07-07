@@ -1,5 +1,7 @@
 # Terraform
 
-Terraform definitions for VPS infrastructure will live here.
+Terraform/OpenTofu definitions live here.
 
-This scaffold intentionally does not include real Terraform configuration yet. Do not commit state files, `.tfvars`, provider credentials, or generated local artifacts.
+- [`grafana-cloud`](grafana-cloud/README.md): Grafana Cloud folders, dashboards, quota guardrails, and optional Synthetic Monitoring checks for the NutsNews VPS.
+
+Do not commit state files, `.tfvars`, provider credentials, backend coordinates, Grafana URLs, tenant IDs, usernames, tokens, or generated local artifacts.

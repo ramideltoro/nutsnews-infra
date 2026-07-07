@@ -9,6 +9,49 @@ vps_service_foundation_backup_packages:
   - restic
   - rclone
 
+vps_service_foundation_grafana_alloy_enabled: false
+vps_service_foundation_grafana_alloy_install_repo: true
+vps_service_foundation_grafana_alloy_apt_key_url: https://apt.grafana.com/gpg-full.key
+vps_service_foundation_grafana_alloy_apt_key_file: /etc/apt/keyrings/grafana.asc
+vps_service_foundation_grafana_alloy_apt_repo_uri: https://apt.grafana.com
+vps_service_foundation_grafana_alloy_apt_repo_suite: stable
+vps_service_foundation_grafana_alloy_apt_repo_components:
+  - main
+vps_service_foundation_grafana_alloy_repo_support_packages:
+  - gpg
+  - python3-debian
+vps_service_foundation_grafana_alloy_package: alloy
+vps_service_foundation_grafana_alloy_user: alloy
+vps_service_foundation_grafana_alloy_groups:
+  - adm
+  - systemd-journal
+  - docker
+vps_service_foundation_grafana_alloy_env_file: "{{ vps_service_foundation_private_config_dir }}/grafana-alloy.env"
+vps_service_foundation_grafana_alloy_config_file: /etc/alloy/config.alloy
+vps_service_foundation_grafana_alloy_systemd_dropin_dir: /etc/systemd/system/alloy.service.d
+vps_service_foundation_grafana_alloy_systemd_dropin_file: "{{ vps_service_foundation_grafana_alloy_systemd_dropin_dir }}/10-nutsnews-env.conf"
+vps_service_foundation_grafana_alloy_log_level: info
+vps_service_foundation_grafana_alloy_environment: production
+vps_service_foundation_grafana_alloy_hostname: "{{ vps_baseline_hostname | default('vps.nutsnews.com') }}"
+vps_service_foundation_grafana_alloy_scrape_interval: 60s
+vps_service_foundation_grafana_alloy_metrics_url: ""
+vps_service_foundation_grafana_alloy_metrics_username: ""
+vps_service_foundation_grafana_alloy_logs_url: ""
+vps_service_foundation_grafana_alloy_logs_username: ""
+vps_service_foundation_grafana_alloy_access_policy_token: ""
+vps_service_foundation_grafana_alloy_collect_docker: true
+vps_service_foundation_grafana_alloy_docker_log_rate: 3
+vps_service_foundation_grafana_alloy_docker_log_burst: 30
+vps_service_foundation_grafana_alloy_journal_log_rate: 2
+vps_service_foundation_grafana_alloy_journal_log_burst: 20
+vps_service_foundation_grafana_alloy_file_log_rate: 2
+vps_service_foundation_grafana_alloy_file_log_burst: 20
+vps_service_foundation_grafana_alloy_textfile_dir: /var/lib/nutsnews/alloy/textfile
+vps_service_foundation_observability_textfile_bin: /usr/local/bin/nutsnews-observability-textfile
+vps_service_foundation_observability_textfile_service: nutsnews-observability-textfile.service
+vps_service_foundation_observability_textfile_timer: nutsnews-observability-textfile.timer
+vps_service_foundation_observability_textfile_interval: 1min
+
 vps_service_foundation_docker_users: []
 
 vps_service_foundation_caddy_uid: 64010
@@ -160,6 +203,8 @@ vps_service_foundation_backup_paths:
   - /etc/fail2ban/jail.d/sshd.local
   - /etc/systemd/journald.conf.d/20-nutsnews-baseline.conf
   - /etc/logrotate.d/nutsnews
+  - /etc/alloy/config.alloy
+  - /etc/systemd/system/alloy.service.d/10-nutsnews-env.conf
 vps_service_foundation_backup_excludes:
   - /opt/nutsnews/backups/**
   - /opt/nutsnews/logs/**

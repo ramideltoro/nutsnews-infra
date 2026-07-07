@@ -1,0 +1,13 @@
+[Unit]
+Description=Refresh NutsNews observability textfile metrics
+Documentation={{ vps_service_foundation_docs_base_url }}/blob/main/NUTSNEWS_GRAFANA_CLOUD_OBSERVABILITY.md
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec={{ vps_service_foundation_observability_textfile_interval }}
+AccuracySec=15s
+Persistent=true
+Unit={{ vps_service_foundation_observability_textfile_service }}
+
+[Install]
+WantedBy=timers.target

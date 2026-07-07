@@ -16,5 +16,6 @@ Add runbooks for deployment, rollback, incident response, security changes, back
 - [VPS Restore](VPS_RESTORE.md)
 - [VPS Disaster Recovery](VPS_DISASTER_RECOVERY.md)
 - [Cloudflare DDNS](CLOUDFLARE_DDNS.md)
+- [Grafana Cloud Observability](GRAFANA_CLOUD_OBSERVABILITY.md)
 
 The `Send VPS Health Report` GitHub Actions workflow manually triggers the existing VPS report email without an interactive SSH session.

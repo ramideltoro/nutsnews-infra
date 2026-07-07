@@ -19,6 +19,11 @@ Add these secrets to the existing `production-vps` GitHub Environment:
 - `NUTSNEWS_VPS_KNOWN_HOSTS`: verified `known_hosts` entry for `65.75.202.112`
 - `NUTSNEWS_VPS_ADMIN_AUTHORIZED_KEYS_JSON`: JSON array of approved public keys for `nutsnews_ops`
 - `NUTSNEWS_CLOUDFLARE_DDNS_API_TOKEN`: optional Cloudflare token for `vps.nutsnews.com` DDNS, required only when `enable_cloudflare_ddns` is `true`
+- `NUTSNEWS_GRAFANA_CLOUD_METRICS_URL`: optional Grafana Cloud Prometheus remote write endpoint, required only when `enable_grafana_alloy` is `true`
+- `NUTSNEWS_GRAFANA_CLOUD_METRICS_USERNAME`: optional Grafana Cloud Prometheus username, required only when `enable_grafana_alloy` is `true`
+- `NUTSNEWS_GRAFANA_CLOUD_LOGS_URL`: optional Grafana Cloud Loki push endpoint, required only when `enable_grafana_alloy` is `true`
+- `NUTSNEWS_GRAFANA_CLOUD_LOGS_USERNAME`: optional Grafana Cloud Loki username, required only when `enable_grafana_alloy` is `true`
+- `NUTSNEWS_GRAFANA_CLOUD_ACCESS_POLICY_TOKEN`: optional Grafana Cloud Access Policy token for telemetry writes, required only when `enable_grafana_alloy` is `true`
 
 Example shape for `NUTSNEWS_VPS_ADMIN_AUTHORIZED_KEYS_JSON`:
 
@@ -59,9 +64,10 @@ The protected workflow rejects enabled backups unless the restic password and rc
 3. Select `Run workflow`.
 4. Leave `run_mode` as `check`.
 5. Set `enable_cloudflare_ddns` to `false` unless you are intentionally testing [Cloudflare DDNS](CLOUDFLARE_DDNS.md).
-6. Leave `confirm_apply` blank.
-7. Approve the `production-vps` Environment gate if prompted.
-8. Review the Ansible diff and recap.
+6. Set `enable_grafana_alloy` to `true` only after Grafana Cloud write secrets are configured and [Grafana Cloud Observability](GRAFANA_CLOUD_OBSERVABILITY.md) has been reviewed.
+7. Leave `confirm_apply` blank.
+8. Approve the `production-vps` Environment gate if prompted.
+9. Review the Ansible diff and recap.
 
 Check mode is the default because surprise infrastructure changes are how simple systems become weekend projects with invoices.
 
@@ -72,8 +78,9 @@ Check mode is the default because surprise infrastructure changes are how simple
 3. Set `run_mode` to `apply`.
 4. Set `confirm_apply` to `vps.nutsnews.com`.
 5. Set `enable_cloudflare_ddns` to `true` only after the DNS record state has been reviewed and approved.
-6. Approve the `production-vps` Environment gate.
-7. Review the final `PLAY RECAP`.
+6. Set `enable_grafana_alloy` to `true` only after check mode validates the Alloy package, config, and telemetry inputs.
+7. Approve the `production-vps` Environment gate.
+8. Review the final `PLAY RECAP`.
 
 Apply mode connects as `nutsnews_ops` with sudo. It must never use root SSH.
 

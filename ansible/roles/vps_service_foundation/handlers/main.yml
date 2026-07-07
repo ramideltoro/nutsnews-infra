@@ -2,3 +2,8 @@
   ansible.builtin.service:
     name: docker
     state: restarted
+
+- name: Restart alloy
+  ansible.builtin.service:
+    name: alloy
+    state: restarted

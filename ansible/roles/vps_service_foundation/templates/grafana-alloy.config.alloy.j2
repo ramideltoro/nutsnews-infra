@@ -1,0 +1,314 @@
+logging {
+  level  = sys.env("NUTSNEWS_ALLOY_LOG_LEVEL")
+  format = "logfmt"
+}
+
+prometheus.remote_write "grafana_cloud" {
+  external_labels = {
+    service_namespace      = "nutsnews",
+    deployment_environment = sys.env("NUTSNEWS_ALLOY_ENVIRONMENT"),
+    instance               = sys.env("NUTSNEWS_ALLOY_HOSTNAME"),
+  }
+
+  endpoint {
+    url = sys.env("GRAFANA_CLOUD_METRICS_URL")
+
+    basic_auth {
+      username = sys.env("GRAFANA_CLOUD_METRICS_USERNAME")
+      password = sys.env("GRAFANA_CLOUD_ACCESS_POLICY_TOKEN")
+    }
+  }
+}
+
+loki.write "grafana_cloud" {
+  max_streams = 500
+  external_labels = {
+    service_namespace      = "nutsnews",
+    deployment_environment = sys.env("NUTSNEWS_ALLOY_ENVIRONMENT"),
+    instance               = sys.env("NUTSNEWS_ALLOY_HOSTNAME"),
+  }
+
+  endpoint {
+    url = sys.env("GRAFANA_CLOUD_LOGS_URL")
+
+    basic_auth {
+      username = sys.env("GRAFANA_CLOUD_LOGS_USERNAME")
+      password = sys.env("GRAFANA_CLOUD_ACCESS_POLICY_TOKEN")
+    }
+  }
+}
+
+prometheus.exporter.unix "host" {
+  include_exporter_metrics = true
+  enable_collectors        = ["processes", "systemd"]
+
+  filesystem {
+    fs_types_exclude     = "^(autofs|binfmt_misc|bpf|cgroup2?|configfs|debugfs|devpts|devtmpfs|fusectl|hugetlbfs|iso9660|mqueue|nsfs|overlay|proc|pstore|rpc_pipefs|securityfs|selinuxfs|squashfs|sysfs|tracefs)$"
+    mount_points_exclude = "^/(dev|proc|run/credentials/.+|sys|var/lib/docker/.+|var/lib/containers/.+)($|/)"
+  }
+
+  netdev {
+    device_exclude = "^(br-.*|docker.*|lo|veth.*)$"
+  }
+
+  systemd {
+    enable_restarts = true
+    start_time      = true
+    task_metrics    = true
+    unit_include    = "^(alloy|ssh|docker|systemd-timesyncd|unattended-upgrades|ufw|fail2ban|nutsnews-.+)\\.(service|timer)$"
+  }
+
+  textfile {
+    directory = "{{ vps_service_foundation_grafana_alloy_textfile_dir }}"
+  }
+}
+
+prometheus.scrape "host" {
+  targets         = prometheus.exporter.unix.host.targets
+  scrape_interval = "{{ vps_service_foundation_grafana_alloy_scrape_interval }}"
+  scrape_timeout  = "10s"
+  forward_to      = [prometheus.relabel.cost_controls.receiver]
+}
+
+{% if vps_service_foundation_grafana_alloy_collect_docker | bool %}
+prometheus.exporter.cadvisor "containers" {
+  docker_host = "unix:///var/run/docker.sock"
+  docker_only = true
+
+  store_container_labels      = false
+  allowlisted_container_labels = [
+    "com.docker.compose.project",
+    "com.docker.compose.service",
+  ]
+
+  storage_duration = "2m"
+}
+
+prometheus.scrape "containers" {
+  targets         = prometheus.exporter.cadvisor.containers.targets
+  scrape_interval = "{{ vps_service_foundation_grafana_alloy_scrape_interval }}"
+  scrape_timeout  = "10s"
+  forward_to      = [prometheus.relabel.cost_controls.receiver]
+}
+{% endif %}
+
+prometheus.scrape "alloy" {
+  targets = [{
+    __address__ = "127.0.0.1:12345",
+    job         = "integrations/alloy",
+  }]
+  scrape_interval = "{{ vps_service_foundation_grafana_alloy_scrape_interval }}"
+  scrape_timeout  = "10s"
+  forward_to      = [prometheus.relabel.cost_controls.receiver]
+}
+
+prometheus.relabel "cost_controls" {
+  forward_to = [prometheus.remote_write.grafana_cloud.receiver]
+
+  rule {
+    action = "labeldrop"
+    regex  = "^(id|container_id|image_id|name|container_label_com_docker_compose_config_hash|container_label_com_docker_compose_project_config_files|container_label_com_docker_compose_project_working_dir)$"
+  }
+
+  rule {
+    action        = "drop"
+    source_labels = ["__name__"]
+    regex         = "^(go_memstats_.*|process_(cpu|resident|virtual).*|prometheus_target_scrape_pool_.*)$"
+  }
+}
+
+loki.relabel "journal_labels" {
+  forward_to = []
+
+  rule {
+    source_labels = ["__journal__systemd_unit"]
+    target_label  = "unit"
+  }
+
+  rule {
+    source_labels = ["__journal_priority_keyword"]
+    target_label  = "level"
+  }
+
+  rule {
+    source_labels = ["__journal_syslog_identifier"]
+    target_label  = "syslog_identifier"
+  }
+}
+
+{% for priority in [0, 1, 2, 3, 4] %}
+loki.source.journal "priority_{{ priority }}" {
+  matches       = "PRIORITY={{ priority }}"
+  max_age       = "2h"
+  relabel_rules = loki.relabel.journal_labels.rules
+  labels = {
+    job        = "systemd-journal",
+    log_source = "journal",
+  }
+  forward_to = [loki.process.journal.receiver]
+}
+{% endfor %}
+
+loki.process "journal" {
+  forward_to = [loki.write.grafana_cloud.receiver]
+
+  stage.drop {
+    longer_than         = "8KB"
+    drop_counter_reason = "journal_line_too_large"
+  }
+
+  stage.limit {
+    rate  = {{ vps_service_foundation_grafana_alloy_journal_log_rate }}
+    burst = {{ vps_service_foundation_grafana_alloy_journal_log_burst }}
+    drop  = true
+  }
+}
+
+loki.source.file "nutsnews_files" {
+  targets = [
+    {
+      __path__           = "/var/log/auth.log",
+      __path_exclude__   = "/var/log/*.gz",
+      job                = "auth-log",
+      log_source         = "auth",
+    },
+    {
+      __path__           = "{{ vps_service_foundation_logs_dir }}/{backups,caddy,health,ops-portal}/*.{log,jsonl}",
+      __path_exclude__   = "{{ vps_service_foundation_logs_dir }}/**/*.{gz,zip,bak,old}",
+      job                = "nutsnews-service-logs",
+      log_source         = "nutsnews-service",
+    },
+  ]
+  tail_from_end = true
+  forward_to    = [loki.process.files.receiver]
+
+  file_match {
+    enabled           = true
+    sync_period       = "1m"
+    ignore_older_than = "168h"
+  }
+}
+
+loki.process "files" {
+  forward_to = [loki.write.grafana_cloud.receiver]
+
+  stage.replace {
+    expression = "(?i)(?:password|passwd|token|secret|authorization|credential|api[_-]?key)=([^\\s,]+)"
+    replace    = "[redacted]"
+  }
+
+  stage.replace {
+    expression = "(?i)(?:password|passwd|token|secret|authorization|credential|api[_-]?key)\\s*:\\s*([^,\\s]+)"
+    replace    = "[redacted]"
+  }
+
+  stage.replace {
+    expression = "(?i)bearer\\s+([A-Za-z0-9._~+/=-]+)"
+    replace    = "[redacted]"
+  }
+
+  stage.replace {
+    expression = "((?:[0-9]{1,3}\\.){3}[0-9]{1,3})"
+    replace    = "[ip]"
+  }
+
+  stage.drop {
+    expression          = "(?i)\\b(debug|trace)\\b"
+    drop_counter_reason = "debug_or_trace"
+  }
+
+  stage.drop {
+    longer_than         = "8KB"
+    drop_counter_reason = "file_line_too_large"
+  }
+
+  stage.limit {
+    rate  = {{ vps_service_foundation_grafana_alloy_file_log_rate }}
+    burst = {{ vps_service_foundation_grafana_alloy_file_log_burst }}
+    drop  = true
+  }
+}
+
+{% if vps_service_foundation_grafana_alloy_collect_docker | bool %}
+discovery.docker "containers" {
+  host             = "unix:///var/run/docker.sock"
+  refresh_interval = "60s"
+}
+
+discovery.relabel "docker_logs" {
+  targets = discovery.docker.containers.targets
+
+  rule {
+    source_labels = ["__meta_docker_container_name"]
+    regex         = "/(.*)"
+    replacement   = "$1"
+    target_label  = "container"
+  }
+
+  rule {
+    source_labels = ["__meta_docker_container_label_com_docker_compose_project"]
+    target_label  = "compose_project"
+  }
+
+  rule {
+    source_labels = ["__meta_docker_container_label_com_docker_compose_service"]
+    target_label  = "compose_service"
+  }
+
+  rule {
+    target_label = "job"
+    replacement  = "docker"
+  }
+
+  rule {
+    target_label = "log_source"
+    replacement  = "docker"
+  }
+
+  rule {
+    action = "labeldrop"
+    regex  = "^(__meta_docker_container_id|__meta_docker_container_label_com_docker_compose_config_hash|__meta_docker_network_id|__meta_docker_port_.*)$"
+  }
+}
+
+loki.source.docker "containers" {
+  host       = "unix:///var/run/docker.sock"
+  targets    = discovery.relabel.docker_logs.output
+  labels     = {log_source = "docker"}
+  forward_to = [loki.process.docker.receiver]
+}
+
+loki.process "docker" {
+  forward_to = [loki.write.grafana_cloud.receiver]
+
+  stage.replace {
+    expression = "(?i)(?:password|passwd|token|secret|authorization|credential|api[_-]?key)=([^\\s,]+)"
+    replace    = "[redacted]"
+  }
+
+  stage.replace {
+    expression = "(?i)bearer\\s+([A-Za-z0-9._~+/=-]+)"
+    replace    = "[redacted]"
+  }
+
+  stage.drop {
+    expression          = "(?i)\\b(debug|trace)\\b"
+    drop_counter_reason = "docker_debug_or_trace"
+  }
+
+  stage.drop {
+    longer_than         = "8KB"
+    drop_counter_reason = "docker_line_too_large"
+  }
+
+  stage.limit {
+    rate  = {{ vps_service_foundation_grafana_alloy_docker_log_rate }}
+    burst = {{ vps_service_foundation_grafana_alloy_docker_log_burst }}
+    drop  = true
+  }
+
+  stage.label_keep {
+    values = ["container", "compose_project", "compose_service", "job", "log_source", "service_namespace", "deployment_environment", "instance"]
+  }
+}
+{% endif %}
