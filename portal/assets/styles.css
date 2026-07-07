@@ -117,6 +117,10 @@ a:hover {
   border-color: rgba(76, 201, 192, 0.32);
 }
 
+.section--free-tier {
+  border-color: rgba(53, 208, 127, 0.28);
+}
+
 .section__header {
   display: flex;
   align-items: end;
@@ -152,6 +156,7 @@ a:hover {
 .metric-grid,
 .gauge-grid,
 .temperature-grid,
+.quota-grid,
 .stat-row {
   display: grid;
   gap: 0.75rem;
@@ -175,6 +180,11 @@ a:hover {
 
 .temperature-grid {
   grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+}
+
+.quota-grid {
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  margin: 0.75rem 0;
 }
 
 .stat-row {
@@ -296,6 +306,10 @@ a:hover {
   --temperature-color: var(--danger);
 }
 
+.temperature-card--unknown {
+  --temperature-color: var(--muted);
+}
+
 .temperature-card__scale {
   position: relative;
   width: 0.7rem;
@@ -320,6 +334,90 @@ a:hover {
   margin-top: 0.3rem;
   font-size: 1.25rem;
   font-weight: 820;
+}
+
+.quota-card {
+  min-width: 0;
+  padding: 0.85rem;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+}
+
+.quota-card--ok {
+  border-color: rgba(53, 208, 127, 0.34);
+}
+
+.quota-card--warn {
+  border-color: rgba(245, 165, 36, 0.48);
+}
+
+.quota-card--danger {
+  border-color: rgba(255, 107, 95, 0.48);
+}
+
+.quota-card--unknown {
+  border-color: var(--line);
+}
+
+.quota-card__header {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.quota-card__header h3 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.quota-card__usage {
+  display: grid;
+  gap: 0.2rem;
+  margin-top: 0.8rem;
+}
+
+.quota-card__usage strong {
+  overflow-wrap: anywhere;
+  font-size: 1.25rem;
+  line-height: 1.2;
+}
+
+.quota-card__usage span,
+.quota-card p {
+  overflow-wrap: anywhere;
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.82rem;
+  line-height: 1.35;
+}
+
+.quota-card__details {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.55rem;
+  margin: 0.85rem 0;
+}
+
+.quota-card__details div {
+  min-width: 0;
+}
+
+.quota-card__details dt {
+  color: var(--muted);
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.quota-card__details dd {
+  overflow-wrap: anywhere;
+  margin: 0.2rem 0 0;
+  color: var(--text);
+  font-size: 0.9rem;
+  font-weight: 760;
 }
 
 .pill {
@@ -558,6 +656,7 @@ pre {
   .metric-grid,
   .gauge-grid,
   .temperature-grid,
+  .quota-grid,
   .stat-row {
     grid-template-columns: 1fr;
   }

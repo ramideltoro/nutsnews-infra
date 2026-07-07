@@ -12,6 +12,7 @@ Use this runbook after the Ops Portal v1 PR is merged and before applying the se
 - Root-only reporter configuration at `/etc/nutsnews/ops-reporter.env`
 - Alert and daily report timers named `nutsnews-ops-alert-check.timer` and `nutsnews-ops-health-report.timer`
 - Backup status from `/opt/nutsnews/portal-assets/data/backup-status.json`
+- Free-tier usage and remaining quota status for Vercel, Sentry, Cloudflare, Better Stack, Supabase, and Grafana Cloud
 - A Google OAuth gateway in front of every portal route and data endpoint
 - Caddy serving the protected portal publicly at `https://ops.nutsnews.com`
 - Caddy keeping host loopback access at `127.0.0.1:8080` for health checks and SSH tunnel fallback
@@ -37,6 +38,8 @@ Google OAuth authorized redirect URIs must match the app callback URL exactly. T
 The shorthand `https:///api/auth/callback/google` is not a valid runtime URL because it has no host. If a concrete URL is required, use the dashboard domain form above consistently in the app config and the Google OAuth authorized redirect URI list.
 
 Email reporting is opt-in. SMTP host, credentials, sender, recipients, and cooldown values come from the protected `production-vps` GitHub Environment and are rendered into a root-only env file during protected apply. If email is disabled or incomplete, the reporter exits cleanly and the portal shows reporting as disabled or misconfigured.
+
+Free Tier Usage is read-only. The quota catalog lives in `vps_service_foundation_free_tier_quotas`; recheck official provider docs before changing those values. Provider credentials are optional and only support read-only collection. If a token, usage endpoint, or normalized snapshot is missing, malformed, or stale, the portal shows `not configured`, `unavailable`, `cached`, or `unknown` for that provider instead of failing the whole dashboard.
 
 SSH hardening allows `nutsnews_ops` to create only local TCP forwards to `127.0.0.1:8080` or `localhost:8080` for portal access. Remote forwarding, gateway exposure, stream-local forwarding, tunnel devices, and broad forwarding stay disabled.
 
@@ -110,6 +113,35 @@ Add these required secrets to the existing `production-vps` GitHub Environment b
 - `NUTSNEWS_OPS_PORTAL_DOMAIN`: optional host used to derive the callback URL when the explicit callback URL is not set, default `ops.nutsnews.com`
 
 Do not commit Google OAuth values. Ansible renders them into `/etc/nutsnews/ops-portal-auth.env` with mode `0600`, and the task is `no_log`.
+
+## Configure Free Tier Usage
+
+The dashboard always shows the configured free-tier quota catalog. Live usage is best effort and must stay read-only.
+
+Optional protected `production-vps` Environment values:
+
+- `NUTSNEWS_FREE_TIER_USAGE_JSON`: normalized usage snapshot JSON for providers without a live collector
+- `NUTSNEWS_VERCEL_API_TOKEN` and `NUTSNEWS_VERCEL_USAGE_API_URL`
+- `NUTSNEWS_SENTRY_AUTH_TOKEN`, `NUTSNEWS_SENTRY_ORG`, and optionally `NUTSNEWS_SENTRY_BASE_URL`
+- `NUTSNEWS_CLOUDFLARE_USAGE_API_TOKEN` and `NUTSNEWS_CLOUDFLARE_USAGE_API_URL`
+- `NUTSNEWS_BETTER_STACK_API_TOKEN` and `NUTSNEWS_BETTER_STACK_USAGE_API_URL`
+- `NUTSNEWS_SUPABASE_ACCESS_TOKEN` and `NUTSNEWS_SUPABASE_USAGE_API_URL`
+- `NUTSNEWS_GRAFANA_CLOUD_USAGE_API_TOKEN` and `NUTSNEWS_GRAFANA_CLOUD_USAGE_API_URL`
+
+`NUTSNEWS_FREE_TIER_USAGE_JSON` must be a JSON object. The collector accepts provider-keyed snapshots such as:
+
+```json
+{
+  "vercel": {
+    "last_checked_at": "2026-07-05T00:00:00+00:00",
+    "fast_data_transfer_gb": 32
+  }
+}
+```
+
+Generic `*_USAGE_API_URL` endpoints must be HTTPS GET endpoints and return read-only normalized JSON with metric values under `usage`, for example `{"usage":{"logs_gb":1.2}}`. Do not configure paid APIs, mutating endpoints, automatic upgrade flows, or tokens with write/admin scopes.
+
+Ansible renders these values into `/etc/nutsnews/free-tier-usage.env` with mode `0600`, and the collector keeps only sanitized status in `/opt/nutsnews/portal-assets/data/status.json`.
 
 ## Run Email Checks
 

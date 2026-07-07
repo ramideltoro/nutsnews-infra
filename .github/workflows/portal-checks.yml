@@ -50,14 +50,16 @@ jobs:
           python3 -m json.tool portal/data/status.example.json > /dev/null
           node --check portal/assets/app.js
           python3 -m py_compile portal/auth_gateway.py
+          python3 -m py_compile ansible/roles/vps_service_foundation/files/ops_free_tier_usage.py
           python3 ansible/tests/validate_portal_fixture.py
           python3 ansible/tests/validate_ops_portal_auth.py
+          python3 ansible/tests/test_free_tier_usage.py
           python3 - <<'PY'
           import json
           from pathlib import Path
 
           data = json.loads(Path("portal/data/status.example.json").read_text(encoding="utf-8"))
-          for key in ("processes", "disk_usage", "process_network", "email_reporting"):
+          for key in ("processes", "disk_usage", "process_network", "email_reporting", "free_tier_usage"):
               if key not in data:
                   raise SystemExit(f"Missing portal status section: {key}")
           PY

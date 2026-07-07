@@ -12,11 +12,18 @@ STATUS = json.loads((ROOT / "portal/data/status.example.json").read_text(encodin
 APP_JS = (ROOT / "portal/assets/app.js").read_text(encoding="utf-8")
 STYLES = (ROOT / "portal/assets/styles.css").read_text(encoding="utf-8")
 COLLECTOR = (ROOT / "ansible/roles/vps_service_foundation/files/ops_portal_collector.py").read_text(encoding="utf-8")
+FREE_TIER_COLLECTOR = (
+    ROOT / "ansible/roles/vps_service_foundation/files/ops_free_tier_usage.py"
+).read_text(encoding="utf-8")
 REPORTER = (ROOT / "ansible/roles/vps_service_foundation/files/ops_portal_reporter.py").read_text(encoding="utf-8")
 BACKUP_RUNNER = (ROOT / "ansible/roles/vps_service_foundation/files/vps_restic_backup.py").read_text(encoding="utf-8")
+DEFAULTS = (ROOT / "ansible/roles/vps_service_foundation/defaults/main.yml").read_text(encoding="utf-8")
 TASKS = (ROOT / "ansible/roles/vps_service_foundation/tasks/main.yml").read_text(encoding="utf-8")
 COLLECTOR_UNIT = (
     ROOT / "ansible/roles/vps_service_foundation/templates/nutsnews-ops-portal-collector.service.j2"
+).read_text(encoding="utf-8")
+FREE_TIER_ENV = (
+    ROOT / "ansible/roles/vps_service_foundation/templates/free-tier-usage.env.j2"
 ).read_text(encoding="utf-8")
 BACKUP_SERVICE = (
     ROOT / "ansible/roles/vps_service_foundation/templates/nutsnews-restic-backup.service.j2"
@@ -65,9 +72,39 @@ for token in (
     "Health Score",
     "renderEmailReporting",
     "renderAppLayer",
+    "renderFreeTierUsage",
     "app-links",
+    "quota-card",
 ):
     require(token in APP_JS or token in STYLES, f"Portal UI missing {token}.")
+
+free_tier = STATUS["free_tier_usage"]
+providers = free_tier.get("providers", [])
+require(isinstance(providers, list) and len(providers) == 6, "Fixture must include all six free-tier providers.")
+provider_keys = {provider.get("key") for provider in providers}
+for key in ("vercel", "sentry", "cloudflare", "better_stack", "supabase", "grafana_cloud"):
+    require(key in provider_keys, f"Free-tier fixture missing provider {key}.")
+source_statuses = {provider.get("source_status") for provider in providers}
+for status in ("live", "cached", "not configured", "unavailable"):
+    require(status in source_statuses, f"Free-tier fixture missing {status} source state.")
+health_states = {provider.get("health") for provider in providers}
+for health in ("healthy", "warning", "critical", "unknown"):
+    require(health in health_states, f"Free-tier fixture missing {health} health state.")
+require(any(provider.get("stale") is True for provider in providers), "Free-tier fixture must include stale cache coverage.")
+require(any((provider.get("percent_used") or 0) > 100 for provider in providers), "Free-tier fixture must include exceeded quota coverage.")
+require("Free Tier Usage" in (ROOT / "portal/index.html").read_text(encoding="utf-8"), "Portal markup missing Free Tier Usage.")
+require("free_tier_usage_state" in COLLECTOR, "Collector must include free-tier usage state.")
+require("collect_free_tier_usage" in FREE_TIER_COLLECTOR, "Free-tier collector module missing entrypoint.")
+require("NUTSNEWS_FREE_TIER_QUOTAS_JSON" in FREE_TIER_ENV, "Free-tier env must pass quota config.")
+require("vps_service_foundation_free_tier_env_file" in COLLECTOR_UNIT, "Collector unit must load the free-tier env file.")
+require(
+    "vps_service_foundation_source_free_tier_collector_module" in TASKS
+    and "vps_service_foundation_free_tier_collector_module_file" in TASKS,
+    "Free-tier collector module must be installed by Ansible.",
+)
+require("free-tier-usage.env.j2" in TASKS, "Free-tier env template must be installed by Ansible.")
+require("vps_service_foundation_free_tier_quotas" in DEFAULTS, "Free-tier quota defaults must be config-driven.")
+require("No live API credentials" in FREE_TIER_COLLECTOR, "Free-tier collector must degrade when tokens are missing.")
 
 app = STATUS["app"]
 require(isinstance(app, dict), "Fixture app section is missing.")

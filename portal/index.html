@@ -48,6 +48,35 @@
         <ul id="alerts-list" class="alert-list"></ul>
       </section>
 
+      <section class="section section--free-tier" aria-labelledby="free-tier-title">
+        <div class="section__header">
+          <div>
+            <p class="eyebrow">External services</p>
+            <h2 id="free-tier-title">Free Tier Usage</h2>
+          </div>
+          <p id="free-tier-updated">Waiting for provider quota data.</p>
+        </div>
+        <div id="free-tier-gauges" class="temperature-grid"></div>
+        <div id="free-tier-cards" class="quota-grid"></div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Platform</th>
+                <th>Metric</th>
+                <th>Usage</th>
+                <th>Free Limit</th>
+                <th>Remaining</th>
+                <th>Used</th>
+                <th>Free</th>
+                <th>Source</th>
+              </tr>
+            </thead>
+            <tbody id="free-tier-table"></tbody>
+          </table>
+        </div>
+      </section>
+
       <section class="section" aria-labelledby="resources-title">
         <div class="section__header">
           <div>

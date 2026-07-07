@@ -74,6 +74,284 @@ vps_service_foundation_portal_status_file: "{{ vps_service_foundation_portal_dat
 vps_service_foundation_health_dir: "{{ vps_service_foundation_root }}/health"
 vps_service_foundation_ops_dir: "{{ vps_service_foundation_root }}/ops"
 vps_service_foundation_private_config_dir: /etc/nutsnews
+vps_service_foundation_free_tier_env_file: "{{ vps_service_foundation_private_config_dir }}/free-tier-usage.env"
+vps_service_foundation_free_tier_collector_module_file: /usr/local/bin/ops_free_tier_usage.py
+vps_service_foundation_free_tier_cache_file: "{{ vps_service_foundation_portal_data_dir }}/free-tier-usage-cache.json"
+vps_service_foundation_free_tier_usage_snapshot_file: "{{ vps_service_foundation_private_config_dir }}/free-tier-usage.json"
+vps_service_foundation_free_tier_cache_ttl_seconds: 21600
+vps_service_foundation_free_tier_http_timeout_seconds: 8
+vps_service_foundation_free_tier_usage_json: {}
+vps_service_foundation_free_tier_vercel_api_token: ""
+vps_service_foundation_free_tier_vercel_usage_api_url: ""
+vps_service_foundation_free_tier_sentry_auth_token: ""
+vps_service_foundation_free_tier_sentry_org: ""
+vps_service_foundation_free_tier_sentry_base_url: https://sentry.io
+vps_service_foundation_free_tier_cloudflare_api_token: ""
+vps_service_foundation_free_tier_cloudflare_usage_api_url: ""
+vps_service_foundation_free_tier_better_stack_api_token: ""
+vps_service_foundation_free_tier_better_stack_usage_api_url: ""
+vps_service_foundation_free_tier_supabase_access_token: ""
+vps_service_foundation_free_tier_supabase_usage_api_url: ""
+vps_service_foundation_free_tier_grafana_api_token: ""
+vps_service_foundation_free_tier_grafana_usage_api_url: ""
+vps_service_foundation_free_tier_quotas:
+  - key: vercel
+    platform: Vercel
+    quota_source: https://vercel.com/docs/limits
+    quota_last_verified: "2026-07-07"
+    notes: Free Hobby usage summary. Override these values if the account plan or official limits change.
+    live:
+      type: json_api
+      url_env: NUTSNEWS_VERCEL_USAGE_API_URL
+      token_env: NUTSNEWS_VERCEL_API_TOKEN
+      metric_paths:
+        active_cpu_hours: usage.active_cpu_hours
+        provisioned_memory_gb_hours: usage.provisioned_memory_gb_hours
+        function_invocations: usage.function_invocations
+        fast_data_transfer_gb: usage.fast_data_transfer_gb
+    metrics:
+      - key: fast_data_transfer_gb
+        label: Fast Data Transfer
+        unit: GB/month
+        period: monthly
+        limit: 100
+      - key: function_invocations
+        label: Function Invocations
+        unit: invocations/month
+        period: monthly
+        limit: 1000000
+      - key: active_cpu_hours
+        label: Active CPU
+        unit: CPU-hours/month
+        period: monthly
+        limit: 4
+      - key: provisioned_memory_gb_hours
+        label: Provisioned Memory
+        unit: GB-hours/month
+        period: monthly
+        limit: 360
+  - key: sentry
+    platform: Sentry
+    quota_source: https://sentry.io/pricing/
+    quota_last_verified: "2026-07-07"
+    notes: Free Developer plan allowances. Sentry stats use accepted events over the last 30 days when org/read token and org slug are configured.
+    live:
+      type: sentry_stats_v2
+      token_env: NUTSNEWS_SENTRY_AUTH_TOKEN
+      org_env: NUTSNEWS_SENTRY_ORG
+      base_url_env: NUTSNEWS_SENTRY_BASE_URL
+      stats_period: 30d
+    metrics:
+      - key: errors
+        label: Errors
+        unit: errors/month
+        period: monthly
+        limit: 5000
+        live_category: error
+      - key: spans
+        label: Tracing Spans
+        unit: spans/month
+        period: monthly
+        limit: 5000000
+      - key: replays
+        label: Session Replays
+        unit: replays/month
+        period: monthly
+        limit: 50
+        live_category: replay
+      - key: attachments_gb
+        label: Attachments
+        unit: GB/month
+        period: monthly
+        limit: 1
+  - key: cloudflare
+    platform: Cloudflare
+    quota_source: https://developers.cloudflare.com/workers/platform/limits/
+    quota_last_verified: "2026-07-07"
+    notes: Workers, Pages, and R2 free limits used by NutsNews edge and Grafana state workflows.
+    live:
+      type: json_api
+      url_env: NUTSNEWS_CLOUDFLARE_USAGE_API_URL
+      token_env: NUTSNEWS_CLOUDFLARE_API_TOKEN
+      metric_paths:
+        workers_requests: usage.workers_requests
+        pages_builds: usage.pages_builds
+        r2_storage_gb_month: usage.r2_storage_gb_month
+        r2_class_a_requests: usage.r2_class_a_requests
+        r2_class_b_requests: usage.r2_class_b_requests
+    metrics:
+      - key: workers_requests
+        label: Workers Requests
+        unit: requests/day
+        period: daily
+        limit: 100000
+      - key: pages_builds
+        label: Pages Builds
+        unit: builds/month
+        period: monthly
+        limit: 500
+      - key: r2_storage_gb_month
+        label: R2 Standard Storage
+        unit: GB-month/month
+        period: monthly
+        limit: 10
+      - key: r2_class_a_requests
+        label: R2 Class A Operations
+        unit: requests/month
+        period: monthly
+        limit: 1000000
+      - key: r2_class_b_requests
+        label: R2 Class B Operations
+        unit: requests/month
+        period: monthly
+        limit: 10000000
+  - key: better_stack
+    platform: Better Stack
+    quota_source: https://betterstack.com/pricing
+    quota_last_verified: "2026-07-07"
+    notes: Free personal project allowances for monitoring, telemetry, and RUM/error tracking.
+    live:
+      type: json_api
+      url_env: NUTSNEWS_BETTER_STACK_USAGE_API_URL
+      token_env: NUTSNEWS_BETTER_STACK_API_TOKEN
+      metric_paths:
+        monitors_heartbeats: usage.monitors_heartbeats
+        exceptions: usage.exceptions
+        logs_gb: usage.logs_gb
+        traces_gb: usage.traces_gb
+        metrics_gb: usage.metrics_gb
+        session_replays: usage.session_replays
+    metrics:
+      - key: monitors_heartbeats
+        label: Monitors and Heartbeats
+        unit: checks
+        period: current
+        limit: 10
+      - key: exceptions
+        label: Exceptions
+        unit: exceptions/month
+        period: monthly
+        limit: 100000
+      - key: logs_gb
+        label: Logs
+        unit: GB/month
+        period: monthly
+        limit: 3
+      - key: traces_gb
+        label: Traces
+        unit: GB/month
+        period: monthly
+        limit: 3
+      - key: metrics_gb
+        label: Metrics
+        unit: GB/month
+        period: monthly
+        limit: 30
+      - key: session_replays
+        label: Session Replays
+        unit: replays/month
+        period: monthly
+        limit: 5000
+  - key: supabase
+    platform: Supabase
+    quota_source: https://supabase.com/docs/guides/platform/billing-on-supabase
+    quota_last_verified: "2026-07-07"
+    notes: Free organization and project quotas. Database size is per project; other quotas are organization-level unless Supabase changes billing semantics.
+    live:
+      type: json_api
+      url_env: NUTSNEWS_SUPABASE_USAGE_API_URL
+      token_env: NUTSNEWS_SUPABASE_ACCESS_TOKEN
+      metric_paths:
+        egress_gb: usage.egress_gb
+        database_mb: usage.database_mb
+        monthly_active_users: usage.monthly_active_users
+        storage_gb: usage.storage_gb
+        edge_function_invocations: usage.edge_function_invocations
+        realtime_messages: usage.realtime_messages
+    metrics:
+      - key: egress_gb
+        label: Egress
+        unit: GB/month
+        period: monthly
+        limit: 5
+      - key: database_mb
+        label: Database Size
+        unit: MB/project
+        period: current
+        limit: 500
+      - key: monthly_active_users
+        label: Monthly Active Users
+        unit: MAU/month
+        period: monthly
+        limit: 50000
+      - key: storage_gb
+        label: Storage Size
+        unit: GB/month
+        period: monthly
+        limit: 1
+      - key: edge_function_invocations
+        label: Edge Function Invocations
+        unit: invocations/month
+        period: monthly
+        limit: 500000
+      - key: realtime_messages
+        label: Realtime Message Count
+        unit: messages/month
+        period: monthly
+        limit: 2000000
+  - key: grafana_cloud
+    platform: Grafana Cloud
+    quota_source: https://grafana.com/pricing/
+    quota_last_verified: "2026-07-07"
+    notes: Grafana Cloud Free allowances. Existing Terraform dashboards also use grafanacloud-usage metrics where configured.
+    live:
+      type: json_api
+      url_env: NUTSNEWS_GRAFANA_CLOUD_USAGE_API_URL
+      token_env: NUTSNEWS_GRAFANA_CLOUD_API_TOKEN
+      metric_paths:
+        metrics_active_series: usage.metrics_active_series
+        logs_ingested_gb: usage.logs_ingested_gb
+        traces_ingested_gb: usage.traces_ingested_gb
+        profiles_ingested_gb: usage.profiles_ingested_gb
+        synthetic_api_executions: usage.synthetic_api_executions
+        synthetic_browser_executions: usage.synthetic_browser_executions
+        frontend_sessions: usage.frontend_sessions
+    metrics:
+      - key: metrics_active_series
+        label: Metrics Active Series
+        unit: active series/month
+        period: monthly
+        limit: 10000
+      - key: logs_ingested_gb
+        label: Logs Ingested
+        unit: GB/month
+        period: monthly
+        limit: 50
+      - key: traces_ingested_gb
+        label: Traces Ingested
+        unit: GB/month
+        period: monthly
+        limit: 50
+      - key: profiles_ingested_gb
+        label: Profiles Ingested
+        unit: GB/month
+        period: monthly
+        limit: 50
+      - key: synthetic_api_executions
+        label: Synthetics API Tests
+        unit: executions/month
+        period: monthly
+        limit: 100000
+      - key: synthetic_browser_executions
+        label: Synthetics Browser Tests
+        unit: executions/month
+        period: monthly
+        limit: 10000
+      - key: frontend_sessions
+        label: Frontend Observability Sessions
+        unit: sessions/month
+        period: monthly
+        limit: 50000
 vps_service_foundation_infra_health_log_dir: "{{ vps_service_foundation_logs_dir }}/health"
 vps_service_foundation_infra_health_log_file: "{{ vps_service_foundation_infra_health_log_dir }}/health-failures.jsonl"
 
@@ -159,6 +437,8 @@ vps_service_foundation_source_portal_index: "{{ vps_service_foundation_repo_root
 vps_service_foundation_source_portal_app: "{{ vps_service_foundation_repo_root }}/portal/assets/app.js"
 vps_service_foundation_source_portal_styles: "{{ vps_service_foundation_repo_root }}/portal/assets/styles.css"
 vps_service_foundation_source_portal_status_example: "{{ vps_service_foundation_repo_root }}/portal/data/status.example.json"
+vps_service_foundation_source_free_tier_collector_module: >-
+  {{ vps_service_foundation_repo_root }}/ansible/roles/vps_service_foundation/files/ops_free_tier_usage.py
 
 vps_service_foundation_healthcheck_url: http://127.0.0.1:8080/healthz
 vps_service_foundation_portal_status_url: http://127.0.0.1:8080/data/status.json

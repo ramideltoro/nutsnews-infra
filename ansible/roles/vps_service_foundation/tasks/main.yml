@@ -299,6 +299,14 @@
         group: root
         mode: "0755"
 
+    - name: Install operations portal free-tier collector module
+      ansible.builtin.copy:
+        src: "{{ vps_service_foundation_source_free_tier_collector_module }}"
+        dest: "{{ vps_service_foundation_free_tier_collector_module_file }}"
+        owner: root
+        group: root
+        mode: "0644"
+
     - name: Install NutsNews infrastructure health endpoint
       ansible.builtin.copy:
         src: infra_health.py
@@ -327,6 +335,15 @@
       ansible.builtin.template:
         src: ops-reporter.env.j2
         dest: "{{ vps_service_foundation_reporter_env_file }}"
+        owner: root
+        group: root
+        mode: "0600"
+      no_log: true
+
+    - name: Install operations portal free-tier usage environment
+      ansible.builtin.template:
+        src: free-tier-usage.env.j2
+        dest: "{{ vps_service_foundation_free_tier_env_file }}"
         owner: root
         group: root
         mode: "0600"

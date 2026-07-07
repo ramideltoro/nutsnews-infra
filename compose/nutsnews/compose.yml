@@ -15,10 +15,13 @@ services:
     pids_limit: 256
     healthcheck:
       test:
-        [
-          "CMD-SHELL",
-          "if command -v wget >/dev/null 2>&1; then wget -qO- \"http://127.0.0.1:${NUTSNEWS_APP_CONTAINER_PORT:-3000}${NUTSNEWS_APP_HEALTH_PATH:-/healthz}\" >/dev/null; elif command -v curl >/dev/null 2>&1; then curl -fsS \"http://127.0.0.1:${NUTSNEWS_APP_CONTAINER_PORT:-3000}${NUTSNEWS_APP_HEALTH_PATH:-/healthz}\" >/dev/null; else exit 0; fi"
-        ]
+        - CMD-SHELL
+        - >-
+          if command -v wget >/dev/null 2>&1; then
+          wget -qO- "http://127.0.0.1:${NUTSNEWS_APP_CONTAINER_PORT:-3000}${NUTSNEWS_APP_HEALTH_PATH:-/healthz}" >/dev/null;
+          elif command -v curl >/dev/null 2>&1; then
+          curl -fsS "http://127.0.0.1:${NUTSNEWS_APP_CONTAINER_PORT:-3000}${NUTSNEWS_APP_HEALTH_PATH:-/healthz}" >/dev/null;
+          else exit 0; fi
       interval: 30s
       timeout: 10s
       retries: 2

@@ -68,6 +68,22 @@ function percent(value) {
   return `${number.toFixed(1)}%`;
 }
 
+function compactTimestamp(value) {
+  const raw = text(value);
+  if (raw === "unknown") {
+    return raw;
+  }
+  const date = new Date(raw);
+  if (Number.isNaN(date.getTime())) {
+    return raw;
+  }
+  const month = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][date.getUTCMonth()];
+  const day = String(date.getUTCDate()).padStart(2, "0");
+  const hour = String(date.getUTCHours()).padStart(2, "0");
+  const minute = String(date.getUTCMinutes()).padStart(2, "0");
+  return `${month} ${day} ${date.getUTCFullYear()} ${hour}:${minute} UTC`;
+}
+
 function shortCommit(value) {
   const commit = text(value);
   return commit.length > 12 ? commit.slice(0, 12) : commit;
@@ -75,14 +91,17 @@ function shortCommit(value) {
 
 function levelClass(level) {
   const normalized = String(level).toLowerCase();
-  if (["critical", "failed", "inactive", "exited", "unhealthy", "send failed", "stale"].includes(normalized)) {
+  if (["critical", "failed", "inactive", "exited", "unhealthy", "send failed", "stale", "unavailable"].includes(normalized)) {
     return "pill--danger";
   }
-  if (["warning", "degraded", "unknown", "misconfigured", "disabled", "never", "busy"].includes(normalized)) {
+  if (["warning", "degraded", "unknown", "misconfigured", "disabled", "never", "busy", "cached"].includes(normalized)) {
     return "pill--warn";
   }
-  if (["ok", "active", "running", "healthy", "enabled", "configured", "sent", "success", "fresh"].includes(normalized)) {
+  if (["ok", "active", "running", "healthy", "enabled", "configured", "sent", "success", "fresh", "live"].includes(normalized)) {
     return "pill--ok";
+  }
+  if (["not configured"].includes(normalized)) {
+    return "pill--muted";
   }
   return "pill--muted";
 }
@@ -140,8 +159,9 @@ function gauge(label, rawValue, hint = "", options = {}) {
   `;
 }
 
-function temperature(label, rawValue, state, hint = "") {
+function temperature(label, rawValue, state, hint = "", displayValue = null) {
   const value = clamp(rawValue);
+  const display = displayValue || percent(value);
   return `
     <article class="temperature-card temperature-card--${state}" style="--temperature-value: ${value}">
       <div class="temperature-card__scale" aria-hidden="true">
@@ -149,7 +169,7 @@ function temperature(label, rawValue, state, hint = "") {
       </div>
       <div>
         <div class="metric__label">${escapeHtml(label)}</div>
-        <div class="temperature-card__value">${escapeHtml(percent(value))}</div>
+        <div class="temperature-card__value">${escapeHtml(display)}</div>
         ${hint ? `<div class="metric__hint">${escapeHtml(hint)}</div>` : ""}
       </div>
     </article>
@@ -313,6 +333,87 @@ function renderEmailReporting(data) {
   $("alerts-list").innerHTML = alerts
     .map((alert) => `<li class="alert--${escapeHtml(alert.level)}">${pill(alert.level)} <span>${escapeHtml(alert.message)}</span></li>`)
     .join("");
+}
+
+function freeTierState(provider) {
+  const health = String(provider.health || "").toLowerCase();
+  if (health === "critical") {
+    return "danger";
+  }
+  if (health === "warning") {
+    return "warn";
+  }
+  if (health === "healthy") {
+    return "ok";
+  }
+  return "unknown";
+}
+
+function quotaCard(provider) {
+  const state = freeTierState(provider);
+  const stale = provider.stale ? " " + pill("stale") : "";
+  return `
+    <article class="quota-card quota-card--${state}">
+      <div class="quota-card__header">
+        <h3>${escapeHtml(provider.platform)}</h3>
+        <span>${pill(provider.status)}${stale}</span>
+      </div>
+      <div class="quota-card__usage">
+        <strong>${escapeHtml(text(provider.current_usage))}</strong>
+        <span>of ${escapeHtml(text(provider.quota))}</span>
+      </div>
+      <dl class="quota-card__details">
+        <div><dt>Remaining</dt><dd>${escapeHtml(text(provider.remaining))}</dd></div>
+        <div><dt>Used</dt><dd>${escapeHtml(text(provider.percent_used_display))}</dd></div>
+        <div><dt>Free</dt><dd>${escapeHtml(text(provider.percent_remaining_display))}</dd></div>
+        <div><dt>Checked</dt><dd>${escapeHtml(compactTimestamp(provider.last_checked_at))}</dd></div>
+      </dl>
+      <p>${escapeHtml(text(provider.source_detail, "Usage source unknown."))}</p>
+    </article>
+  `;
+}
+
+function renderFreeTierUsage(data) {
+  const freeTier = data.free_tier_usage || {};
+  const providers = freeTier.providers || [];
+  $("free-tier-updated").textContent = providers.length
+    ? `Quota config verified in provider docs; snapshot ${text(freeTier.generated_at)}`
+    : "No free-tier provider quota configuration found.";
+
+  $("free-tier-gauges").innerHTML = providers
+    .map((provider) => {
+      const remaining = Number(provider.percent_remaining);
+      const value = Number.isFinite(remaining) ? remaining : 0;
+      const display = provider.percent_remaining_display || "unknown";
+      return temperature(
+        provider.platform,
+        value,
+        freeTierState(provider),
+        `${text(provider.remaining)} remaining • ${text(provider.status)}`,
+        display,
+      );
+    })
+    .join("");
+
+  $("free-tier-cards").innerHTML = providers.map(quotaCard).join("");
+
+  const rows = providers.flatMap((provider) =>
+    (provider.metrics || []).map(
+      (metric) => `
+        <tr>
+          <td>${escapeHtml(provider.platform)}</td>
+          <td>${escapeHtml(metric.label)}</td>
+          <td>${escapeHtml(text(metric.usage_display))}</td>
+          <td>${escapeHtml(text(metric.limit_display))}</td>
+          <td>${escapeHtml(text(metric.remaining_display))}</td>
+          <td>${escapeHtml(text(metric.percent_used_display))}</td>
+          <td>${escapeHtml(text(metric.percent_remaining_display))}</td>
+          <td>${pill(provider.status)}</td>
+        </tr>
+      `,
+    ),
+  );
+  renderTable("free-tier-table", rows, "No free-tier usage metrics found.", 8);
 }
 
 function renderResources(data) {
@@ -613,6 +714,7 @@ function render(data) {
   $("generated-at").textContent = `Snapshot ${text(data.generated_at)}`;
   renderOverview(data);
   renderEmailReporting(data);
+  renderFreeTierUsage(data);
   renderResources(data);
   renderProcessVisibility(data);
   renderDisk(data);
