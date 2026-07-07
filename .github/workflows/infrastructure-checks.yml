@@ -279,6 +279,7 @@ jobs:
           set -euo pipefail
 
           python3 -m py_compile ansible/roles/vps_service_foundation/files/ops_portal_collector.py
+          python3 -m py_compile ansible/roles/vps_service_foundation/files/ops_free_tier_usage.py
           python3 -m py_compile ansible/roles/vps_service_foundation/files/ops_portal_reporter.py
           python3 -m py_compile ansible/roles/vps_service_foundation/files/vps_restic_backup.py
           grep -Fq 'vps_service_foundation_collector_timer' ansible/roles/vps_service_foundation/tasks/main.yml
@@ -288,6 +289,7 @@ jobs:
           grep -Fq 'nutsnews-restic-backup.timer' ansible/roles/vps_service_foundation/defaults/main.yml
           grep -Fq 'nutsnews-restic-verify.service' ansible/roles/vps_service_foundation/defaults/main.yml
           grep -Fq 'ops-reporter.env.j2' ansible/roles/vps_service_foundation/tasks/main.yml
+          grep -Fq 'free-tier-usage.env.j2' ansible/roles/vps_service_foundation/tasks/main.yml
           grep -Fq 'vps-backup.env.j2' ansible/roles/vps_service_foundation/tasks/main.yml
           grep -Fq 'no_log: true' ansible/roles/vps_service_foundation/tasks/main.yml
           grep -Fq 'Refresh operations portal status snapshot' ansible/roles/vps_service_foundation/tasks/main.yml
@@ -302,6 +304,7 @@ jobs:
             exit 1
           fi
           grep -Fq 'ReadWritePaths=' ansible/roles/vps_service_foundation/templates/nutsnews-ops-portal-collector.service.j2
+          grep -Fq 'EnvironmentFile=-{{ vps_service_foundation_free_tier_env_file }}' ansible/roles/vps_service_foundation/templates/nutsnews-ops-portal-collector.service.j2
           grep -Fq 'NUTSNEWS_EMAIL_ENABLED' ansible/roles/vps_service_foundation/templates/ops-reporter.env.j2
           grep -Fq 'RESTIC_PASSWORD_FILE' ansible/roles/vps_service_foundation/templates/vps-backup.env.j2
           grep -Fq 'RCLONE_CONFIG' ansible/roles/vps_service_foundation/templates/vps-backup.env.j2
@@ -312,6 +315,7 @@ jobs:
           python3 ansible/tests/validate_backup_workflows.py
           python3 ansible/tests/validate_no_backup_secrets.py
           python3 ansible/tests/validate_no_app_secrets.py
+          python3 ansible/tests/test_free_tier_usage.py
           grep -q 'nutsnews-app.env.j2' ansible/roles/vps_service_foundation/tasks/main.yml
           grep -q 'nutsnews-app.routes.j2' ansible/roles/vps_service_foundation/tasks/main.yml
 

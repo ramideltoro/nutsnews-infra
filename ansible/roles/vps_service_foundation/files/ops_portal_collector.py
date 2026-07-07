@@ -16,6 +16,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+try:
+    from ops_free_tier_usage import collect_free_tier_usage
+except ImportError:
+    collect_free_tier_usage = None
+
 
 PRIVATE_KEY_LINE_PATTERN = ".*PRIVATE" + r"\s+" + "KEY.*"
 
@@ -763,6 +768,25 @@ def reporting_state() -> dict[str, Any]:
     return {**default, **data}
 
 
+def free_tier_usage_state() -> dict[str, Any]:
+    if collect_free_tier_usage is None:
+        return {
+            "schema_version": 1,
+            "generated_at": utc_now(),
+            "providers": [],
+            "errors": ["Free-tier usage collector module is not installed."],
+        }
+    try:
+        return collect_free_tier_usage()
+    except Exception:
+        return {
+            "schema_version": 1,
+            "generated_at": utc_now(),
+            "providers": [],
+            "errors": ["Free-tier usage collector failed; check the collector service journal."],
+        }
+
+
 def resource_state() -> dict[str, Any]:
     mem = meminfo()
     memory_total = mem.get("MemTotal", 0)
@@ -1047,6 +1071,7 @@ def collect() -> dict[str, Any]:
         "logs": log_sections(),
         "security": security_state(),
         "backups": backups,
+        "free_tier_usage": free_tier_usage_state(),
         "email_reporting": reporting,
         "alerts": {
             "email_configuration": reporting.get("status", "disabled"),

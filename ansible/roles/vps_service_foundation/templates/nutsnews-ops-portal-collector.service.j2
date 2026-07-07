@@ -9,6 +9,7 @@ ConditionPathIsDirectory={{ vps_service_foundation_portal_data_dir }}
 Type=oneshot
 User=root
 Group=root
+EnvironmentFile=-{{ vps_service_foundation_free_tier_env_file }}
 Environment="NUTSNEWS_ROOT_DIR={{ vps_service_foundation_root }}"
 Environment="NUTSNEWS_PORTAL_OUTPUT={{ vps_service_foundation_portal_status_file }}"
 Environment="NUTSNEWS_BACKUPS_DIR={{ vps_service_foundation_backups_dir }}"
