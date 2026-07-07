@@ -309,6 +309,7 @@ jobs:
           grep -Fq 'ExecStart={{ vps_service_foundation_reporter_bin }} --mode report' ansible/roles/vps_service_foundation/templates/nutsnews-ops-health-report.service.j2
           grep -Fq 'ExecStart={{ vps_service_foundation_backup_bin }} --mode backup' ansible/roles/vps_service_foundation/templates/nutsnews-restic-backup.service.j2
           grep -Fq 'ExecStart={{ vps_service_foundation_backup_bin }} --mode verify-latest' ansible/roles/vps_service_foundation/templates/nutsnews-restic-verify.service.j2
+          python3 ansible/tests/validate_observability_alloy.py
           python3 ansible/tests/validate_backup_workflows.py
           python3 ansible/tests/validate_no_backup_secrets.py
           python3 ansible/tests/validate_no_app_secrets.py
