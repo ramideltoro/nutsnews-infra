@@ -69,6 +69,7 @@ jobs:
           NUTSNEWS_GRAFANA_CLOUD_PROMETHEUS_DATASOURCE_UID: ${{ secrets.NUTSNEWS_GRAFANA_CLOUD_PROMETHEUS_DATASOURCE_UID }}
           NUTSNEWS_GRAFANA_CLOUD_LOKI_DATASOURCE_UID: ${{ secrets.NUTSNEWS_GRAFANA_CLOUD_LOKI_DATASOURCE_UID }}
           NUTSNEWS_GRAFANA_CLOUD_USAGE_DATASOURCE_UID: ${{ secrets.NUTSNEWS_GRAFANA_CLOUD_USAGE_DATASOURCE_UID }}
+          NUTSNEWS_GRAFANA_SYNTHETIC_MONITORING_ACCESS_TOKEN: ${{ secrets.NUTSNEWS_GRAFANA_SYNTHETIC_MONITORING_ACCESS_TOKEN }}
           NUTSNEWS_GRAFANA_SYNTHETIC_PROBE_IDS_JSON: ${{ secrets.NUTSNEWS_GRAFANA_SYNTHETIC_PROBE_IDS_JSON }}
           NUTSNEWS_GRAFANA_SYNTHETIC_HTTP_CHECKS_JSON: ${{ secrets.NUTSNEWS_GRAFANA_SYNTHETIC_HTTP_CHECKS_JSON }}
         run: |
@@ -94,6 +95,7 @@ jobs:
         shell: bash
         env:
           NUTSNEWS_GRAFANA_CLOUD_URL: ${{ secrets.NUTSNEWS_GRAFANA_CLOUD_URL }}
+          NUTSNEWS_GRAFANA_SYNTHETIC_MONITORING_ACCESS_TOKEN: ${{ secrets.NUTSNEWS_GRAFANA_SYNTHETIC_MONITORING_ACCESS_TOKEN }}
           NUTSNEWS_GRAFANA_SYNTHETIC_PROBE_IDS_JSON: ${{ secrets.NUTSNEWS_GRAFANA_SYNTHETIC_PROBE_IDS_JSON }}
           NUTSNEWS_GRAFANA_SYNTHETIC_HTTP_CHECKS_JSON: ${{ secrets.NUTSNEWS_GRAFANA_SYNTHETIC_HTTP_CHECKS_JSON }}
         run: |
@@ -103,15 +105,35 @@ jobs:
           import json
           import os
 
-          for name, fallback in (
-              ("NUTSNEWS_GRAFANA_SYNTHETIC_PROBE_IDS_JSON", "[]"),
-              ("NUTSNEWS_GRAFANA_SYNTHETIC_HTTP_CHECKS_JSON", "{}"),
-          ):
-              raw = os.environ.get(name, "").strip() or fallback
-              try:
-                  json.loads(raw)
-              except json.JSONDecodeError as exc:
-                  raise SystemExit(f"{name} must be valid JSON when set.") from exc
+          probes_raw = os.environ.get("NUTSNEWS_GRAFANA_SYNTHETIC_PROBE_IDS_JSON", "").strip() or "[]"
+          checks_raw = os.environ.get("NUTSNEWS_GRAFANA_SYNTHETIC_HTTP_CHECKS_JSON", "").strip() or "{}"
+
+          try:
+              probes = json.loads(probes_raw)
+          except json.JSONDecodeError as exc:
+              raise SystemExit("NUTSNEWS_GRAFANA_SYNTHETIC_PROBE_IDS_JSON must be valid JSON when set.") from exc
+
+          try:
+              checks = json.loads(checks_raw)
+          except json.JSONDecodeError as exc:
+              raise SystemExit("NUTSNEWS_GRAFANA_SYNTHETIC_HTTP_CHECKS_JSON must be valid JSON when set.") from exc
+
+          if not isinstance(probes, list):
+              raise SystemExit("NUTSNEWS_GRAFANA_SYNTHETIC_PROBE_IDS_JSON must be a JSON array.")
+          if not isinstance(checks, dict):
+              raise SystemExit("NUTSNEWS_GRAFANA_SYNTHETIC_HTTP_CHECKS_JSON must be a JSON object.")
+
+          enabled_checks = [
+              name for name, check in checks.items()
+              if not isinstance(check, dict) or check.get("enabled", True)
+          ]
+          if probes and enabled_checks and not os.environ.get(
+              "NUTSNEWS_GRAFANA_SYNTHETIC_MONITORING_ACCESS_TOKEN", ""
+          ).strip():
+              raise SystemExit(
+                  "NUTSNEWS_GRAFANA_SYNTHETIC_MONITORING_ACCESS_TOKEN is required "
+                  "when synthetic probes and enabled HTTP checks are configured."
+              )
 
           if not os.environ["NUTSNEWS_GRAFANA_CLOUD_URL"].startswith("https://"):
               raise SystemExit("NUTSNEWS_GRAFANA_CLOUD_URL must start with https://.")
@@ -128,6 +150,7 @@ jobs:
           TF_VAR_usage_datasource_uid: ${{ secrets.NUTSNEWS_GRAFANA_CLOUD_USAGE_DATASOURCE_UID }}
           TF_VAR_synthetic_monitoring_probe_ids: ${{ secrets.NUTSNEWS_GRAFANA_SYNTHETIC_PROBE_IDS_JSON || '[]' }}
           TF_VAR_synthetic_http_checks: ${{ secrets.NUTSNEWS_GRAFANA_SYNTHETIC_HTTP_CHECKS_JSON || '{}' }}
+          GRAFANA_SM_ACCESS_TOKEN: ${{ secrets.NUTSNEWS_GRAFANA_SYNTHETIC_MONITORING_ACCESS_TOKEN }}
         run: |
           set -euo pipefail
 
