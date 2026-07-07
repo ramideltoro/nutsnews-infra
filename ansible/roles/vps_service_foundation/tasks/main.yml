@@ -517,12 +517,16 @@
             enabled: true
           when: vps_service_foundation_grafana_alloy_install_repo | bool
 
+        - name: Refresh apt cache after configuring Grafana repository
+          ansible.builtin.apt:
+            update_cache: true
+          changed_when: false
+          when: vps_service_foundation_grafana_alloy_install_repo | bool
+
         - name: Install Grafana Alloy package
           ansible.builtin.apt:
             name: "{{ vps_service_foundation_grafana_alloy_package }}"
             state: present
-            update_cache: true
-            cache_valid_time: 3600
 
         - name: Grant Alloy read-only log and Docker metadata access
           ansible.builtin.user:
