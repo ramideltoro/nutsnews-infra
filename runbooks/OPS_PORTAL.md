@@ -13,13 +13,14 @@ Use this runbook after the Ops Portal v1 PR is merged and before applying the se
 - Alert and daily report timers named `nutsnews-ops-alert-check.timer` and `nutsnews-ops-health-report.timer`
 - Backup status from `/opt/nutsnews/portal-assets/data/backup-status.json`
 - A Google OAuth gateway in front of every portal route and data endpoint
-- Caddy serving the protected portal on host loopback only at `127.0.0.1:8080`
+- Caddy serving the protected portal publicly at `https://ops.nutsnews.com`
+- Caddy keeping host loopback access at `127.0.0.1:8080` for health checks and SSH tunnel fallback
 
 ## Security Model
 
 The portal is read-only for v1. It does not mount the Docker socket into the web app, does not expose a shell, and does not include install, uninstall, restart, or reconfigure buttons.
 
-Caddy remains bound to host loopback only. All dashboard routes, static assets, and `/data/*` status endpoints are served through the Ops Portal auth gateway. The only Google account allowed through the dashboard is `rami.deltoro@gmail.com`; every other Google user receives a clear access-denied response.
+Caddy terminates public HTTPS for `ops.nutsnews.com` and routes all dashboard routes, static assets, and `/data/*` status endpoints through the Ops Portal auth gateway. The only Google account allowed through the dashboard is `rami.deltoro@gmail.com`; every other Google user receives a clear access-denied response. The host loopback listener remains available for health checks and SSH tunnel fallback.
 
 The OAuth route path is fixed at:
 
@@ -40,6 +41,16 @@ Email reporting is opt-in. SMTP host, credentials, sender, recipients, and coold
 SSH hardening allows `nutsnews_ops` to create only local TCP forwards to `127.0.0.1:8080` or `localhost:8080` for portal access. Remote forwarding, gateway exposure, stream-local forwarding, tunnel devices, and broad forwarding stay disabled.
 
 The portal forwarding policy is intentionally modeled with explicit SSH `Match` blocks. Do not put `AllowTcpForwarding no` or `PermitOpen none` back into the global baseline drop-in; those global directives can block the operator exception and bring back the `administratively prohibited` tunnel failure.
+
+## Public Access
+
+Open:
+
+```text
+https://ops.nutsnews.com/
+```
+
+Sign in with the allowlisted Google account, `rami.deltoro@gmail.com`. Caddy manages TLS for this hostname. The protected apply workflow can keep the `ops.nutsnews.com` Cloudflare A record aligned with the VPS IP when Cloudflare DDNS is enabled.
 
 ## Access Through SSH
 

@@ -295,8 +295,11 @@ jobs:
           grep -Fq '/opt/nutsnews/portal-assets:/srv/nutsnews-portal:ro' compose/caddy/compose.yml
           grep -Fq '127.0.0.1:8080:8080/tcp' compose/caddy/compose.yml
           grep -Fq 'ops-auth:' compose/caddy/compose.yml
+          grep -Fq 'ops.nutsnews.com {' compose/caddy/Caddyfile
           grep -Fq 'handle /api/auth/*' compose/caddy/Caddyfile
           grep -Fq 'reverse_proxy ops-auth:8090' compose/caddy/Caddyfile
+          grep -Fq 'vps_service_foundation_cloudflare_ddns_record_names:' ansible/roles/vps_service_foundation/defaults/main.yml
+          grep -Fq 'ops.nutsnews.com' ansible/roles/vps_service_foundation/defaults/main.yml
           if grep -Fq 'handle /data/*' compose/caddy/Caddyfile; then
             echo "Portal data must be routed through the OAuth gateway, not served directly." >&2
             exit 1
@@ -311,6 +314,7 @@ jobs:
           grep -Fq 'ExecStart={{ vps_service_foundation_backup_bin }} --mode verify-latest' ansible/roles/vps_service_foundation/templates/nutsnews-restic-verify.service.j2
           python3 ansible/tests/validate_observability_alloy.py
           python3 ansible/tests/validate_backup_workflows.py
+          python3 ansible/tests/validate_cloudflare_ddns.py
           python3 ansible/tests/validate_no_backup_secrets.py
           python3 ansible/tests/validate_no_app_secrets.py
           grep -q 'nutsnews-app.env.j2' ansible/roles/vps_service_foundation/tasks/main.yml

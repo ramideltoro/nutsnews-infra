@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Update the NutsNews Cloudflare A record when the VPS IPv4 changes."""
+"""Update NutsNews Cloudflare A records when the VPS IPv4 changes."""
 
 from __future__ import annotations
 
@@ -38,6 +38,16 @@ def require_env(name: str) -> str:
     if not value:
         raise DdnsError(f"Missing required environment variable: {name}")
     return value
+
+
+def record_names() -> tuple[str, ...]:
+    raw = env("CLOUDFLARE_RECORD_NAMES") or require_env("CLOUDFLARE_RECORD_NAME")
+    names = tuple(item.strip() for item in raw.split(",") if item.strip())
+    if not names:
+        raise DdnsError("At least one Cloudflare DNS record name is required.")
+    if len(set(names)) != len(names):
+        raise DdnsError("Cloudflare DNS record names must be unique.")
+    return names
 
 
 def api_request(token: str, method: str, path: str, payload: dict | None = None) -> dict:
@@ -161,7 +171,7 @@ def sanitized_record(record: dict) -> dict:
 def main() -> int:
     token = require_env("CLOUDFLARE_API_TOKEN")
     zone_name = require_env("CLOUDFLARE_ZONE_NAME")
-    record_name = require_env("CLOUDFLARE_RECORD_NAME")
+    names = record_names()
     ttl = int(env("CLOUDFLARE_RECORD_TTL", "60"))
     proxied = bool_env("CLOUDFLARE_RECORD_PROXIED", False)
     dry_run = bool_env("CLOUDFLARE_DDNS_DRY_RUN", False)
@@ -174,14 +184,16 @@ def main() -> int:
     )
 
     zone_id = get_zone_id(token, zone_name)
-    records = get_a_records(token, zone_id, record_name)
 
     if inspect_only:
         print(
             json.dumps(
                 {
-                    "record_name": record_name,
-                    "records": [sanitized_record(record) for record in records],
+                    "record_names": names,
+                    "records": {
+                        record_name: [sanitized_record(record) for record in get_a_records(token, zone_id, record_name)]
+                        for record_name in names
+                    },
                 },
                 indent=2,
                 sort_keys=True,
@@ -191,28 +203,32 @@ def main() -> int:
 
     public_ip = get_public_ipv4(endpoints)
 
-    if len(records) > 1:
-        raise DdnsError(f"Refusing to manage {record_name}: found {len(records)} A records.")
+    for record_name in names:
+        records = get_a_records(token, zone_id, record_name)
 
-    if not records:
+        if len(records) > 1:
+            raise DdnsError(f"Refusing to manage {record_name}: found {len(records)} A records.")
+
+        if not records:
+            if dry_run:
+                print(f"would create {record_name} A record -> {public_ip} proxied={proxied} ttl={ttl}")
+                continue
+            create_record(token, zone_id, record_name, public_ip, ttl, proxied)
+            continue
+
+        record = records[0]
+        current_ip = record.get("content", "")
+
+        if current_ip == public_ip:
+            print(f"unchanged {record_name} A record -> {public_ip}")
+            continue
+
         if dry_run:
-            print(f"would create {record_name} A record -> {public_ip} proxied={proxied} ttl={ttl}")
-            return 0
-        create_record(token, zone_id, record_name, public_ip, ttl, proxied)
-        return 0
+            print(f"would update {record_name} A record {current_ip} -> {public_ip} proxied={proxied} ttl={ttl}")
+            continue
 
-    record = records[0]
-    current_ip = record.get("content", "")
+        update_record(token, zone_id, record, record_name, public_ip, ttl, proxied)
 
-    if current_ip == public_ip:
-        print(f"unchanged {record_name} A record -> {public_ip}")
-        return 0
-
-    if dry_run:
-        print(f"would update {record_name} A record {current_ip} -> {public_ip} proxied={proxied} ttl={ttl}")
-        return 0
-
-    update_record(token, zone_id, record, record_name, public_ip, ttl, proxied)
     return 0
 
 
