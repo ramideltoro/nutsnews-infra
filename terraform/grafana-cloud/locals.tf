@@ -13,8 +13,9 @@ locals {
     usage      = "prometheus"
   }
 
-  base_metric_filter = "service_namespace=\"nutsnews\", deployment_environment=~\"$environment\", instance=~\"$instance\""
-  base_log_filter    = "service_namespace=\"nutsnews\", deployment_environment=~\"$environment\", instance=~\"$instance\""
+  base_metric_filter          = "service_namespace=\"nutsnews\", deployment_environment=~\"$environment\", instance=~\"$instance\""
+  base_log_filter             = "service_namespace=\"nutsnews\", deployment_environment=~\"$environment\", instance=~\"$instance\""
+  node_exporter_metric_filter = "job=~\"integrations/node_exporter\", instance=~\"$instance\""
 
   dashboard_specs = {
     vps_overview = {
@@ -22,7 +23,7 @@ locals {
       title       = "NutsNews VPS Overview"
       description = "High-level host, service, backup, app, and log health for the NutsNews VPS."
       panels = [
-        { title = "Host scrape availability", type = "stat", datasource = "prometheus", unit = "percentunit", width = 6, height = 8, expr = "avg(up{${local.base_metric_filter}})" },
+        { title = "Host scrape availability", type = "stat", datasource = "prometheus", unit = "percentunit", width = 6, height = 8, expr = "avg(up{${local.node_exporter_metric_filter}})" },
         { title = "Ops Portal status age", type = "stat", datasource = "prometheus", unit = "s", width = 6, height = 8, expr = "max(nutsnews_ops_portal_status_generated_age_seconds{${local.base_metric_filter}})" },
         { title = "Active alerts by level", type = "timeseries", datasource = "prometheus", unit = "short", width = 12, height = 8, expr = "sum by (level) (nutsnews_alerts_total{${local.base_metric_filter}})" },
         { title = "Recent warning and error logs", type = "logs", datasource = "loki", unit = "short", width = 12, height = 8, expr = "{${local.base_log_filter}} |~ \"(?i)(warn|warning|error|critical|failed)\"" },
@@ -34,7 +35,7 @@ locals {
       title       = "NutsNews CPU Load Processes"
       description = "CPU saturation, load average, process count, file descriptors, conntrack, and clock health."
       panels = [
-        { title = "CPU busy", type = "timeseries", datasource = "prometheus", unit = "percentunit", width = 12, height = 8, expr = "1 - avg by (instance) (rate(node_cpu_seconds_total{${local.base_metric_filter},mode=\"idle\"}[$__rate_interval]))" },
+        { title = "CPU busy", type = "timeseries", datasource = "prometheus", unit = "percentunit", width = 12, height = 8, expr = "1 - avg by (instance) (rate(node_cpu_seconds_total{${local.node_exporter_metric_filter},mode=\"idle\"}[$__rate_interval]))" },
         {
           title      = "Load averages"
           type       = "timeseries"
@@ -43,13 +44,13 @@ locals {
           width      = 12
           height     = 8
           targets = [
-            { expr = "node_load1{${local.base_metric_filter}}", legend = "1m" },
-            { expr = "node_load5{${local.base_metric_filter}}", legend = "5m" },
-            { expr = "node_load15{${local.base_metric_filter}}", legend = "15m" },
+            { expr = "node_load1{${local.node_exporter_metric_filter}}", legend = "1m" },
+            { expr = "node_load5{${local.node_exporter_metric_filter}}", legend = "5m" },
+            { expr = "node_load15{${local.node_exporter_metric_filter}}", legend = "15m" },
           ]
         },
-        { title = "Process counts", type = "timeseries", datasource = "prometheus", unit = "short", width = 12, height = 8, expr = "node_processes_state{${local.base_metric_filter}}" },
-        { title = "Clock offset", type = "timeseries", datasource = "prometheus", unit = "s", width = 12, height = 8, expr = "node_timex_offset_seconds{${local.base_metric_filter}}" },
+        { title = "Process counts", type = "timeseries", datasource = "prometheus", unit = "short", width = 12, height = 8, expr = "node_processes_state{${local.node_exporter_metric_filter}}" },
+        { title = "Clock offset", type = "timeseries", datasource = "prometheus", unit = "s", width = 12, height = 8, expr = "node_timex_offset_seconds{${local.node_exporter_metric_filter}}" },
       ]
     }
 
@@ -58,9 +59,9 @@ locals {
       title       = "NutsNews Memory Swap"
       description = "Host memory and swap pressure from Alloy's Linux exporter."
       panels = [
-        { title = "Memory used", type = "timeseries", datasource = "prometheus", unit = "percentunit", width = 12, height = 8, expr = "1 - (node_memory_MemAvailable_bytes{${local.base_metric_filter}} / node_memory_MemTotal_bytes{${local.base_metric_filter}})" },
-        { title = "Memory available", type = "timeseries", datasource = "prometheus", unit = "bytes", width = 12, height = 8, expr = "node_memory_MemAvailable_bytes{${local.base_metric_filter}}" },
-        { title = "Swap used", type = "timeseries", datasource = "prometheus", unit = "percentunit", width = 12, height = 8, expr = "1 - ((node_memory_SwapFree_bytes{${local.base_metric_filter}} + node_memory_SwapCached_bytes{${local.base_metric_filter}}) / node_memory_SwapTotal_bytes{${local.base_metric_filter}})" },
+        { title = "Memory used", type = "timeseries", datasource = "prometheus", unit = "percentunit", width = 12, height = 8, expr = "1 - (node_memory_MemAvailable_bytes{${local.node_exporter_metric_filter}} / node_memory_MemTotal_bytes{${local.node_exporter_metric_filter}})" },
+        { title = "Memory available", type = "timeseries", datasource = "prometheus", unit = "bytes", width = 12, height = 8, expr = "node_memory_MemAvailable_bytes{${local.node_exporter_metric_filter}}" },
+        { title = "Swap used", type = "timeseries", datasource = "prometheus", unit = "percentunit", width = 12, height = 8, expr = "1 - ((node_memory_SwapFree_bytes{${local.node_exporter_metric_filter}} + node_memory_SwapCached_bytes{${local.node_exporter_metric_filter}}) / node_memory_SwapTotal_bytes{${local.node_exporter_metric_filter}})" },
         { title = "Ops snapshot memory", type = "timeseries", datasource = "prometheus", unit = "percent", width = 12, height = 8, expr = "nutsnews_resource_memory_used_percent{${local.base_metric_filter}}" },
       ]
     }
@@ -70,10 +71,10 @@ locals {
       title       = "NutsNews Disk Filesystem IO"
       description = "Filesystem capacity, inode pressure, and block IO."
       panels = [
-        { title = "Filesystem used", type = "timeseries", datasource = "prometheus", unit = "percentunit", width = 12, height = 8, expr = "1 - (node_filesystem_avail_bytes{${local.base_metric_filter},fstype!=\"\"} / node_filesystem_size_bytes{${local.base_metric_filter},fstype!=\"\"})" },
-        { title = "Inodes used", type = "timeseries", datasource = "prometheus", unit = "percentunit", width = 12, height = 8, expr = "1 - (node_filesystem_files_free{${local.base_metric_filter},fstype!=\"\"} / node_filesystem_files{${local.base_metric_filter},fstype!=\"\"})" },
-        { title = "Disk read/write throughput", type = "timeseries", datasource = "prometheus", unit = "Bps", width = 12, height = 8, expr = "sum by (instance, device) (rate(node_disk_read_bytes_total{${local.base_metric_filter}}[5m]) + rate(node_disk_written_bytes_total{${local.base_metric_filter}}[5m]))" },
-        { title = "Disk IO time", type = "timeseries", datasource = "prometheus", unit = "percentunit", width = 12, height = 8, expr = "rate(node_disk_io_time_seconds_total{${local.base_metric_filter}}[5m])" },
+        { title = "Filesystem used", type = "timeseries", datasource = "prometheus", unit = "percentunit", width = 12, height = 8, expr = "1 - (node_filesystem_avail_bytes{${local.node_exporter_metric_filter},fstype!=\"\"} / node_filesystem_size_bytes{${local.node_exporter_metric_filter},fstype!=\"\"})" },
+        { title = "Inodes used", type = "timeseries", datasource = "prometheus", unit = "percentunit", width = 12, height = 8, expr = "1 - (node_filesystem_files_free{${local.node_exporter_metric_filter},fstype!=\"\"} / node_filesystem_files{${local.node_exporter_metric_filter},fstype!=\"\"})" },
+        { title = "Disk read/write throughput", type = "timeseries", datasource = "prometheus", unit = "Bps", width = 12, height = 8, expr = "sum by (instance, device) (rate(node_disk_read_bytes_total{${local.node_exporter_metric_filter}}[5m]) + rate(node_disk_written_bytes_total{${local.node_exporter_metric_filter}}[5m]))" },
+        { title = "Disk IO time", type = "timeseries", datasource = "prometheus", unit = "percentunit", width = 12, height = 8, expr = "rate(node_disk_io_time_seconds_total{${local.node_exporter_metric_filter}}[5m])" },
       ]
     }
 
@@ -82,9 +83,9 @@ locals {
       title       = "NutsNews Network Caddy Edge"
       description = "Network IO/errors and edge-service logs."
       panels = [
-        { title = "Network receive", type = "timeseries", datasource = "prometheus", unit = "Bps", width = 12, height = 8, expr = "sum by (instance, device) (rate(node_network_receive_bytes_total{${local.base_metric_filter}}[5m]))" },
-        { title = "Network transmit", type = "timeseries", datasource = "prometheus", unit = "Bps", width = 12, height = 8, expr = "sum by (instance, device) (rate(node_network_transmit_bytes_total{${local.base_metric_filter}}[5m]))" },
-        { title = "Network errors", type = "timeseries", datasource = "prometheus", unit = "ops", width = 12, height = 8, expr = "sum by (instance, device) (rate(node_network_receive_errs_total{${local.base_metric_filter}}[5m]) + rate(node_network_transmit_errs_total{${local.base_metric_filter}}[5m]))" },
+        { title = "Network receive", type = "timeseries", datasource = "prometheus", unit = "Bps", width = 12, height = 8, expr = "sum by (instance, device) (rate(node_network_receive_bytes_total{${local.node_exporter_metric_filter}}[5m]))" },
+        { title = "Network transmit", type = "timeseries", datasource = "prometheus", unit = "Bps", width = 12, height = 8, expr = "sum by (instance, device) (rate(node_network_transmit_bytes_total{${local.node_exporter_metric_filter}}[5m]))" },
+        { title = "Network errors", type = "timeseries", datasource = "prometheus", unit = "ops", width = 12, height = 8, expr = "sum by (instance, device) (rate(node_network_receive_errs_total{${local.node_exporter_metric_filter}}[5m]) + rate(node_network_transmit_errs_total{${local.node_exporter_metric_filter}}[5m]))" },
         { title = "Caddy warnings and errors", type = "logs", datasource = "loki", unit = "short", width = 12, height = 8, expr = "{${local.base_log_filter},log_source=\"nutsnews-service\"} |~ \"(?i)(caddy|reverse_proxy|tls|http)\" |~ \"(?i)(warn|error|failed|panic)\"" },
       ]
     }
@@ -106,9 +107,9 @@ locals {
       title       = "NutsNews Systemd Services Timers"
       description = "Systemd service and timer state, restart counters, and service task pressure."
       panels = [
-        { title = "Systemd active state", type = "timeseries", datasource = "prometheus", unit = "short", width = 12, height = 8, expr = "node_systemd_unit_state{${local.base_metric_filter},state=\"active\"}" },
+        { title = "Systemd active state", type = "timeseries", datasource = "prometheus", unit = "short", width = 12, height = 8, expr = "node_systemd_unit_state{${local.node_exporter_metric_filter},state=\"active\"}" },
         { title = "NutsNews service active", type = "timeseries", datasource = "prometheus", unit = "short", width = 12, height = 8, expr = "nutsnews_systemd_service_active{${local.base_metric_filter}}" },
-        { title = "Systemd restarts", type = "timeseries", datasource = "prometheus", unit = "short", width = 12, height = 8, expr = "node_systemd_service_restart_total{${local.base_metric_filter}}" },
+        { title = "Systemd restarts", type = "timeseries", datasource = "prometheus", unit = "short", width = 12, height = 8, expr = "node_systemd_service_restart_total{${local.node_exporter_metric_filter}}" },
         { title = "Systemd warnings and failures", type = "logs", datasource = "loki", unit = "short", width = 12, height = 8, expr = "{${local.base_log_filter},log_source=\"journal\"} |~ \"(?i)(failed|failure|warning|timeout|dependency)\"" },
       ]
     }
