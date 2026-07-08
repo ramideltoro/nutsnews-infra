@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 import json
+import os
+import shlex
 import tempfile
 import unittest
 from datetime import datetime, timezone
@@ -232,6 +234,47 @@ def collect(env: dict[str, str], http_client: FakeHttpClient | None = None) -> d
 
 
 class FreeTierUsageTests(unittest.TestCase):
+    def test_runtime_loads_free_tier_env_file_when_process_env_is_missing(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            env_file = Path(tmpdir) / "free-tier-usage.env"
+            cache_file = Path(tmpdir) / "cache.json"
+            env_file.write_text(
+                "\n".join(
+                    [
+                        f"NUTSNEWS_FREE_TIER_QUOTAS_JSON={shlex.quote(json.dumps(quota_config()))}",
+                        f"NUTSNEWS_FREE_TIER_USAGE_JSON={shlex.quote(json.dumps({'demo': {'requests': 40}}))}",
+                        f"NUTSNEWS_FREE_TIER_CACHE_FILE={shlex.quote(str(cache_file))}",
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            saved = {
+                key: os.environ.get(key)
+                for key in (
+                    "NUTSNEWS_FREE_TIER_ENV_FILE",
+                    "NUTSNEWS_FREE_TIER_QUOTAS_JSON",
+                    "NUTSNEWS_FREE_TIER_USAGE_JSON",
+                    "NUTSNEWS_FREE_TIER_CACHE_FILE",
+                )
+            }
+            try:
+                for key in saved:
+                    os.environ.pop(key, None)
+                os.environ["NUTSNEWS_FREE_TIER_ENV_FILE"] = str(env_file)
+                data = FreeTierCollector(now=NOW).collect()
+            finally:
+                for key, value in saved.items():
+                    if value is None:
+                        os.environ.pop(key, None)
+                    else:
+                        os.environ[key] = value
+
+        provider = data["providers"][0]
+        self.assertEqual(provider["key"], "demo")
+        self.assertEqual(provider["status"], "cached")
+        self.assertEqual(provider["metrics"][0]["usage"], 40)
+
     def test_normal_usage_below_quota(self) -> None:
         data = collect({"NUTSNEWS_FREE_TIER_USAGE_JSON": json.dumps({"demo": {"requests": 25}})})
         provider = data["providers"][0]

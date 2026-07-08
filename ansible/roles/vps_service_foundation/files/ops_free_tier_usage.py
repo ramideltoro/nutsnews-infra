@@ -6,6 +6,7 @@ from __future__ import annotations
 import json
 import math
 import os
+import shlex
 import time
 import urllib.error
 import urllib.parse
@@ -21,6 +22,7 @@ ALLOWED_RISK_STATUSES = {"safe", "warning", "critical", "over_limit", "unknown",
 DEFAULT_WARNING_USED_PERCENT = 70.0
 DEFAULT_CRITICAL_USED_PERCENT = 85.0
 DEFAULT_OVER_LIMIT_USED_PERCENT = 100.0
+DEFAULT_FREE_TIER_ENV_FILE = "/etc/nutsnews/free-tier-usage.env"
 DEFAULT_VERCEL_FOCUS_MATCH_FIELDS = [
     "ServiceName",
     "ServiceCategory",
@@ -33,6 +35,16 @@ DEFAULT_VERCEL_FOCUS_MATCH_FIELDS = [
     "Tags",
 ]
 VERCEL_FOCUS_QUANTITY_FIELDS = ["ConsumedQuantity", "BilledQuantity", "UsageQuantity", "Quantity"]
+FREE_TIER_ENV_PREFIXES = (
+    "NUTSNEWS_FREE_TIER_",
+    "NUTSNEWS_VERCEL_",
+    "NUTSNEWS_SENTRY_",
+    "NUTSNEWS_CLOUDFLARE_",
+    "NUTSNEWS_BETTER_STACK_",
+    "NUTSNEWS_SUPABASE_",
+    "NUTSNEWS_GRAFANA_CLOUD_",
+    "NUTSNEWS_GITHUB_",
+)
 CLOUDFLARE_WORKERS_USAGE_QUERY = """
 query NutsNewsWorkersUsage($accountTag: string, $datetimeStart: string, $datetimeEnd: string) {
   viewer {
@@ -113,6 +125,45 @@ def write_json(path: Path, data: Any) -> None:
     tmp_file.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     tmp_file.replace(path)
     path.chmod(0o644)
+
+
+def read_env_file(path: Path) -> tuple[dict[str, str], list[str]]:
+    loaded: dict[str, str] = {}
+    errors: list[str] = []
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except FileNotFoundError:
+        return loaded, errors
+    except OSError:
+        return loaded, ["Free-tier environment file could not be read."]
+
+    for line_number, raw_line in enumerate(lines, start=1):
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        try:
+            parts = shlex.split(line, comments=False, posix=True)
+        except ValueError:
+            errors.append(f"Free-tier environment file line {line_number} could not be parsed.")
+            continue
+        if not parts or "=" not in parts[0]:
+            continue
+        key, value = parts[0].split("=", 1)
+        key = key.strip()
+        if key.startswith(FREE_TIER_ENV_PREFIXES):
+            loaded[key] = value
+    return loaded, errors
+
+
+def runtime_env_with_free_tier_file() -> tuple[dict[str, str], list[str]]:
+    env = dict(os.environ)
+    if env.get("NUTSNEWS_FREE_TIER_QUOTAS_JSON"):
+        return env, []
+    env_file = Path(env.get("NUTSNEWS_FREE_TIER_ENV_FILE", DEFAULT_FREE_TIER_ENV_FILE)).resolve()
+    loaded, errors = read_env_file(env_file)
+    for key, value in loaded.items():
+        env.setdefault(key, value)
+    return env, errors
 
 
 def nested(data: Any, dotted_path: str) -> Any:
@@ -390,10 +441,14 @@ class FreeTierCollector:
         http_client: JsonHttpClient | None = None,
         now: datetime | None = None,
     ) -> None:
-        self.env = env if env is not None else os.environ
+        load_errors: list[str] = []
+        if env is None:
+            self.env, load_errors = runtime_env_with_free_tier_file()
+        else:
+            self.env = env
         self.http_client = http_client or JsonHttpClient()
         self.now = now or datetime.now(timezone.utc).replace(microsecond=0)
-        self.errors: list[str] = []
+        self.errors: list[str] = load_errors
 
     def collect(self) -> dict[str, Any]:
         config = self.quota_config()

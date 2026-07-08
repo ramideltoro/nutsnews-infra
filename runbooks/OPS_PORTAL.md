@@ -183,7 +183,7 @@ sudo /usr/local/bin/nutsnews-ops-portal-reporter --mode report --dry-run
 sudo systemctl start nutsnews-ops-portal-collector.service
 ```
 
-Use the systemd unit for portal status refreshes so the collector loads the root-only free-tier environment file. Running the collector binary directly bypasses that unit environment and can omit external free-tier providers such as Vercel from the generated snapshot.
+Use the systemd unit for portal status refreshes so the collector follows the deployed timer path. The collector also falls back to `/etc/nutsnews/free-tier-usage.env` when its process environment is missing free-tier settings, so external providers such as Vercel stay visible instead of disappearing from the generated snapshot.
 
 ## Send A Manual Health Report
 
