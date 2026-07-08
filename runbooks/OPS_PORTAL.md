@@ -159,6 +159,8 @@ Current provider-specific notes:
 
 Ansible renders these values into `/etc/nutsnews/free-tier-usage.env` with mode `0600`, and the collector keeps only sanitized status in `/opt/nutsnews/portal-assets/data/status.json`.
 
+To verify the deployed status snapshot without a browser OAuth session or local SSH access, run the manual `Verify Ops Portal Status` workflow. It uses the protected `production-vps` SSH key, reads only `/opt/nutsnews/portal-assets/data/status.json`, and prints sanitized Vercel free-tier status fields and metric states.
+
 ## Run Email Checks
 
 Check mode should remain safe even if no SMTP secrets are configured:

@@ -109,6 +109,10 @@ jobs:
         shell: bash
         run: python3 ansible/tests/validate_backup_workflows.py
 
+      - name: Validate Ops Portal status verifier guardrails
+        shell: bash
+        run: python3 ansible/tests/validate_ops_portal_status_workflow.py
+
       - name: Validate Grafana Cloud apply workflow guardrails
         shell: bash
         run: python3 ansible/tests/validate_grafana_apply_workflow.py
