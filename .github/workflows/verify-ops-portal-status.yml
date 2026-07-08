@@ -309,14 +309,26 @@ jobs:
           echo "Reading sanitized Ops Portal Vercel free-tier status from ${PORTAL_STATUS_FILE}."
           set +e
           # shellcheck disable=SC2029
-          ssh "${ssh_args[@]}" "$target" "/usr/bin/python3 -c 'import json,sys; from pathlib import Path; p=Path(\"${PORTAL_STATUS_FILE}\"); p.exists() or sys.exit(\"portal status file is missing\"); data=json.loads(p.read_text()); ft=data.get(\"free_tier_usage\",{}); vercel=next((item for item in ft.get(\"providers\",[]) if item.get(\"key\")==\"vercel\"), None); vercel or sys.exit(\"vercel provider is missing\"); metric_keys=(\"key\",\"usage_display\",\"limit_display\",\"remaining_display\",\"percent_used_display\",\"reset_at\",\"measurement_status\",\"measurement_detail\"); summary_keys=(\"status\",\"source_status\",\"source_detail\",\"current_usage\",\"quota\",\"remaining\",\"percent_used_display\",\"last_checked_at\"); payload={\"generated_at\": ft.get(\"generated_at\"), \"vercel\": {k: vercel.get(k, \"unknown\") for k in summary_keys}, \"metrics\": [{k: metric.get(k, \"unknown\") for k in metric_keys} for metric in vercel.get(\"metrics\",[])]}; print(json.dumps(payload, indent=2, sort_keys=True)); sys.exit(2 if vercel.get(\"source_status\") == \"cached\" else 0)'"
+          ssh "${ssh_args[@]}" "$target" "/usr/bin/python3 -c 'import json,sys; from pathlib import Path; p=Path(\"${PORTAL_STATUS_FILE}\"); p.exists() or sys.exit(\"portal status file is missing\"); data=json.loads(p.read_text()); ft=data.get(\"free_tier_usage\",{}); providers=ft.get(\"providers\",[]); providers=providers if isinstance(providers,list) else []; vercel=next((item for item in providers if item.get(\"key\")==\"vercel\"), None); metric_keys=(\"key\",\"usage_display\",\"limit_display\",\"remaining_display\",\"percent_used_display\",\"reset_at\",\"measurement_status\",\"measurement_detail\"); summary_keys=(\"status\",\"source_status\",\"source_detail\",\"current_usage\",\"quota\",\"remaining\",\"percent_used_display\",\"last_checked_at\"); payload={\"generated_at\": ft.get(\"generated_at\"), \"provider_keys\": [item.get(\"key\", \"unknown\") for item in providers], \"free_tier_errors\": ft.get(\"errors\", [])}; exit_code=0; missing=vercel is None; exit_code=3 if missing else (2 if vercel.get(\"source_status\") == \"cached\" else 0); payload.update({\"vercel\": \"missing\"} if missing else {\"vercel\": {k: vercel.get(k, \"unknown\") for k in summary_keys}, \"metrics\": [{k: metric.get(k, \"unknown\") for k in metric_keys} for metric in vercel.get(\"metrics\",[])]}); print(json.dumps(payload, indent=2, sort_keys=True)); sys.exit(exit_code)'"
           portal_status="$?"
           set -e
 
-          if [[ "$portal_status" -ne 0 ]]; then
-            echo "Vercel free-tier metrics are still using cached snapshot values in the sanitized portal status snapshot." >&2
-            exit "$portal_status"
-          fi
+          case "$portal_status" in
+            0)
+              ;;
+            2)
+              echo "Vercel free-tier metrics are still using cached snapshot values in the sanitized portal status snapshot." >&2
+              exit "$portal_status"
+              ;;
+            3)
+              echo "Vercel free-tier provider is missing from the sanitized portal status snapshot." >&2
+              exit "$portal_status"
+              ;;
+            *)
+              echo "Could not read sanitized Ops Portal Vercel free-tier status." >&2
+              exit "$portal_status"
+              ;;
+          esac
 
           echo
           echo "Ops Portal Vercel free-tier status is not using cached placeholder usage."

@@ -770,10 +770,12 @@
       when: vps_service_foundation_cloudflare_ddns_enabled | bool
 
     - name: Refresh operations portal status snapshot
-      ansible.builtin.command:
-        argv:
-          - "{{ vps_service_foundation_collector_bin }}"
+      ansible.builtin.systemd_service:
+        name: "{{ vps_service_foundation_collector_service }}"
+        state: restarted
+        daemon_reload: true
       changed_when: false
+      when: not ansible_check_mode
 
     - name: Refresh operations portal reporting status snapshot
       ansible.builtin.command:
@@ -785,10 +787,12 @@
       changed_when: false
 
     - name: Refresh operations portal status after reporting update
-      ansible.builtin.command:
-        argv:
-          - "{{ vps_service_foundation_collector_bin }}"
+      ansible.builtin.systemd_service:
+        name: "{{ vps_service_foundation_collector_service }}"
+        state: restarted
+        daemon_reload: true
       changed_when: false
+      when: not ansible_check_mode
 
     - name: Validate Caddy Compose configuration
       ansible.builtin.command:

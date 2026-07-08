@@ -728,6 +728,57 @@ class FreeTierUsageTests(unittest.TestCase):
         self.assertNotIn("sentinel-redaction-value", json.dumps(data))
         self.assertNotIn("team_123", json.dumps(data))
 
+    def test_vercel_http_error_keeps_provider_unavailable_not_zero(self) -> None:
+        live = {
+            "type": "vercel_billing_charges",
+            "url_env": "VERCEL_URL",
+            "token_env": "VERCEL_TOKEN",
+            "allow_usage_fallback": False,
+            "focus_mappings": {
+                "fast_data_transfer_gb": {
+                    "contains_all": ["fast", "data", "transfer"],
+                    "unit_contains_any": ["gb"],
+                },
+            },
+        }
+        snapshot = {
+            "providers": {
+                "vercel": {
+                    "usage": {
+                        "fast_data_transfer_gb": 0,
+                        "function_invocations": 0,
+                        "active_cpu_hours": 0,
+                        "provisioned_memory_gb_hours": 0,
+                    },
+                }
+            }
+        }
+        error = ApiRequestError(
+            status_code=404,
+            content_type="application/json; charset=utf-8",
+            body=b'{"error":{"code":"costs_not_found","message":"Costs not found"}}',
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            env = {
+                "NUTSNEWS_FREE_TIER_CACHE_FILE": str(Path(tmpdir) / "cache.json"),
+                "NUTSNEWS_FREE_TIER_QUOTAS_JSON": json.dumps(vercel_quota_config(live)),
+                "NUTSNEWS_FREE_TIER_USAGE_JSON": json.dumps(snapshot),
+                "VERCEL_URL": "https://api.vercel.com/v1/billing/charges?teamId=team_123",
+                "VERCEL_TOKEN": "sentinel-redaction-value",
+            }
+            data = FreeTierCollector(env=env, http_client=TextHttpClient(error), now=NOW).collect()
+        provider = data["providers"][0]
+        metrics = {metric["key"]: metric for metric in provider["metrics"]}
+        self.assertEqual(provider["key"], "vercel")
+        self.assertEqual(provider["status"], "unavailable")
+        self.assertIn("HTTP 404", provider["source_detail"])
+        self.assertIn("Costs not found", provider["source_detail"])
+        self.assertIsNone(metrics["fast_data_transfer_gb"]["usage"])
+        self.assertEqual(metrics["fast_data_transfer_gb"]["usage_display"], "unknown")
+        self.assertEqual(metrics["fast_data_transfer_gb"]["measurement_status"], "unavailable")
+        self.assertNotIn("sentinel-redaction-value", json.dumps(data))
+        self.assertNotIn("team_123", json.dumps(data))
+
     def test_metric_reset_placeholders_are_rendered(self) -> None:
         provider = quota_config()[0]
         provider["metrics"][0]["reset_at"] = "__next_month_start_iso__"
