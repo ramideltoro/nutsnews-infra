@@ -57,6 +57,236 @@ jobs:
           ssh-keygen -y -f "$HOME/.ssh/nutsnews_vps" > /dev/null
           ssh-keygen -F 65.75.202.112 -f "$HOME/.ssh/known_hosts" > /dev/null
 
+      - name: Inspect Vercel usage API response shape
+        shell: bash
+        env:
+          NUTSNEWS_VERCEL_API_TOKEN: ${{ secrets.NUTSNEWS_VERCEL_API_TOKEN }}
+          NUTSNEWS_VERCEL_USAGE_API_URL: ${{ secrets.NUTSNEWS_VERCEL_USAGE_API_URL }}
+        run: |
+          set -euo pipefail
+
+          python3 - <<'PY'
+          import json
+          import math
+          import os
+          import urllib.error
+          import urllib.parse
+          import urllib.request
+          from datetime import datetime, timezone
+
+          def safe_float(value):
+              if value is None or value == "":
+                  return None
+              if isinstance(value, bool):
+                  return 1.0 if value else 0.0
+              try:
+                  parsed = float(value)
+              except (TypeError, ValueError):
+                  return None
+              return parsed if math.isfinite(parsed) else None
+
+          def sanitize(value, limit=80):
+              return str(value or "unknown").replace("\n", " ").strip()[:limit]
+
+          def message(data):
+              if not isinstance(data, dict):
+                  return ""
+              for key in ("message", "detail", "error", "errors"):
+                  value = data.get(key)
+                  if not value:
+                      continue
+                  if isinstance(value, dict):
+                      return sanitize(value.get("message") or value.get("detail") or value.get("code") or "object")
+                  if isinstance(value, list):
+                      if not value:
+                          continue
+                      first = value[0]
+                      if isinstance(first, dict):
+                          return sanitize(first.get("message") or first.get("detail") or "object")
+                      return sanitize(first)
+                  return sanitize(value)
+              return ""
+
+          def parse_records(body):
+              stripped = body.strip()
+              if not stripped:
+                  return [], "empty"
+              if stripped[0] in "[{":
+                  try:
+                      parsed = json.loads(stripped)
+                  except json.JSONDecodeError:
+                      parsed = None
+                  if isinstance(parsed, list):
+                      return [item for item in parsed if isinstance(item, dict)], ""
+                  if isinstance(parsed, dict):
+                      if any(key in parsed for key in ("ConsumedQuantity", "ConsumedUnit", "ServiceName", "ChargePeriodStart")):
+                          return [parsed], ""
+                      response_message = message(parsed)
+                      if response_message:
+                          return [], response_message
+                      data = parsed.get("data") or parsed.get("charges") or parsed.get("items") or parsed.get("rows")
+                      if isinstance(data, list):
+                          return [item for item in data if isinstance(item, dict)], ""
+                      return [], "json_without_focus_records"
+              records = []
+              malformed = 0
+              for line in stripped.splitlines():
+                  raw = line.strip()
+                  if not raw:
+                      continue
+                  try:
+                      item = json.loads(raw)
+                  except json.JSONDecodeError:
+                      malformed += 1
+                      continue
+                  if isinstance(item, dict):
+                      records.append(item)
+              return records, f"malformed_lines={malformed}" if malformed else ""
+
+          def norm(value):
+              return " ".join(str(value).lower().replace("_", " ").replace("-", " ").split())
+
+          def field_text(value):
+              if isinstance(value, (dict, list)):
+                  return json.dumps(value, sort_keys=True)
+              return str(value)
+
+          def quantity(record):
+              for field in ("ConsumedQuantity", "BilledQuantity", "UsageQuantity", "Quantity"):
+                  parsed = safe_float(record.get(field))
+                  if parsed is not None:
+                      return parsed
+              return None
+
+          mappings = {
+              "active_cpu_hours": (("active", "cpu"), ("hour",)),
+              "provisioned_memory_gb_hours": (("provisioned", "memory"), ("gb", "hour")),
+              "function_invocations": (("function", "invocation"), ("invocation",)),
+              "fast_data_transfer_gb": (("fast", "data", "transfer"), ("gb",)),
+              "fast_origin_transfer_gb": (("fast", "origin", "transfer"), ("gb",)),
+          }
+
+          url = os.environ.get("NUTSNEWS_VERCEL_USAGE_API_URL", "").strip()
+          token = os.environ.get("NUTSNEWS_VERCEL_API_TOKEN", "").strip()
+          if not url or not token:
+              missing = []
+              if not url:
+                  missing.append("NUTSNEWS_VERCEL_USAGE_API_URL")
+              if not token:
+                  missing.append("NUTSNEWS_VERCEL_API_TOKEN")
+              print(json.dumps({"vercel_api_status": "not_configured", "missing": missing}, indent=2, sort_keys=True))
+              raise SystemExit(0)
+          if not url.startswith("https://"):
+              print(json.dumps({"vercel_api_status": "invalid_url", "reason": "URL must use HTTPS"}, indent=2, sort_keys=True))
+              raise SystemExit(0)
+
+          now = datetime.now(timezone.utc).replace(microsecond=0)
+          month_start = now.replace(day=1, hour=0, minute=0, second=0)
+          params = {
+              "from": month_start.isoformat().replace("+00:00", "Z"),
+              "to": now.isoformat().replace("+00:00", "Z"),
+          }
+          separator = "&" if "?" in url else "?"
+          request_url = f"{url}{separator}{urllib.parse.urlencode(params)}"
+          request = urllib.request.Request(
+              request_url,
+              headers={
+                  "Accept": "application/x-ndjson, application/json;q=0.9",
+                  "Authorization": f"Bearer {token}",
+              },
+              method="GET",
+          )
+          try:
+              with urllib.request.urlopen(request, timeout=10) as response:
+                  body = response.read().decode("utf-8", errors="replace")
+                  status_code = response.status
+                  content_type = response.headers.get("content-type", "")
+          except urllib.error.HTTPError as exc:
+              raw = exc.read(4096).decode("utf-8", errors="replace")
+              try:
+                  parsed = json.loads(raw)
+              except json.JSONDecodeError:
+                  parsed = {}
+              print(
+                  json.dumps(
+                      {
+                          "vercel_api_status": "http_error",
+                          "status_code": exc.code,
+                          "content_type": exc.headers.get("content-type", "") if exc.headers else "",
+                          "message": message(parsed) or sanitize(exc.reason),
+                      },
+                      indent=2,
+                      sort_keys=True,
+                  )
+              )
+              raise SystemExit(0)
+          except urllib.error.URLError as exc:
+              print(json.dumps({"vercel_api_status": "request_error", "reason": sanitize(exc.reason)}, indent=2, sort_keys=True))
+              raise SystemExit(0)
+
+          records, parse_detail = parse_records(body)
+          aggregates = {key: 0.0 for key in mappings}
+          matched = {key: False for key in mappings}
+          samples = []
+          for record in records:
+              if len(samples) < 8:
+                  tags = record.get("Tags")
+                  samples.append(
+                      {
+                          "service": sanitize(record.get("ServiceName") or record.get("ServiceCategory")),
+                          "category": sanitize(record.get("ServiceCategory")),
+                          "charge_category": sanitize(record.get("ChargeCategory")),
+                          "consumed_unit": sanitize(record.get("ConsumedUnit")),
+                          "pricing_unit": sanitize(record.get("PricingUnit")),
+                          "tag_keys": sorted(str(key) for key in tags.keys())[:8] if isinstance(tags, dict) else [],
+                          "has_quantity": quantity(record) is not None,
+                      }
+                  )
+              value = quantity(record)
+              if value is None:
+                  continue
+              haystack = norm(
+                  " ".join(
+                      field_text(record.get(field, ""))
+                      for field in (
+                          "ServiceName",
+                          "ServiceCategory",
+                          "ChargeCategory",
+                          "ChargeDescription",
+                          "Description",
+                          "ResourceName",
+                          "PricingUnit",
+                          "ConsumedUnit",
+                          "Tags",
+                      )
+                  )
+              )
+              unit = norm(" ".join(field_text(record.get(field, "")) for field in ("ConsumedUnit", "PricingUnit")))
+              for key, (required_terms, unit_terms) in mappings.items():
+                  if all(norm(term) in haystack for term in required_terms) and any(norm(term) in unit for term in unit_terms):
+                      aggregates[key] += value
+                      matched[key] = True
+          print(
+              json.dumps(
+                  {
+                      "vercel_api_status": "ok",
+                      "status_code": status_code,
+                      "content_type": content_type.split(";")[0],
+                      "period_from": params["from"],
+                      "period_to": params["to"],
+                      "record_count": len(records),
+                      "records_with_quantity": sum(1 for record in records if quantity(record) is not None),
+                      "parse_detail": parse_detail,
+                      "matched_aggregates": {key: round(value, 4) for key, value in aggregates.items() if matched[key]},
+                      "unmatched_metric_keys": [key for key in mappings if not matched[key]],
+                      "sample_records": samples,
+                  },
+                  indent=2,
+                  sort_keys=True,
+              )
+          )
+          PY
+
       - name: Read sanitized portal status
         shell: bash
         env:
@@ -79,14 +309,14 @@ jobs:
           echo "Reading sanitized Ops Portal Vercel free-tier status from ${PORTAL_STATUS_FILE}."
           set +e
           # shellcheck disable=SC2029
-          ssh "${ssh_args[@]}" "$target" "/usr/bin/python3 -c 'import json,sys; from pathlib import Path; p=Path(\"${PORTAL_STATUS_FILE}\"); p.exists() or sys.exit(\"portal status file is missing\"); data=json.loads(p.read_text()); ft=data.get(\"free_tier_usage\",{}); vercel=next((item for item in ft.get(\"providers\",[]) if item.get(\"key\")==\"vercel\"), None); vercel or sys.exit(\"vercel provider is missing\"); metric_keys=(\"key\",\"usage_display\",\"limit_display\",\"remaining_display\",\"percent_used_display\",\"reset_at\",\"measurement_status\"); summary_keys=(\"status\",\"source_status\",\"source_detail\",\"current_usage\",\"quota\",\"remaining\",\"percent_used_display\",\"last_checked_at\"); payload={\"generated_at\": ft.get(\"generated_at\"), \"vercel\": {k: vercel.get(k, \"unknown\") for k in summary_keys}, \"metrics\": [{k: metric.get(k, \"unknown\") for k in metric_keys} for metric in vercel.get(\"metrics\",[])]}; print(json.dumps(payload, indent=2, sort_keys=True)); expected={\"fast_data_transfer_gb\",\"fast_origin_transfer_gb\",\"function_invocations\",\"active_cpu_hours\",\"provisioned_memory_gb_hours\"}; measured=[metric.get(\"key\") for metric in vercel.get(\"metrics\",[]) if metric.get(\"key\") in expected and metric.get(\"measurement_status\") == \"measured\" and metric.get(\"usage\") is not None]; sys.exit(0 if measured else 2)'"
+          ssh "${ssh_args[@]}" "$target" "/usr/bin/python3 -c 'import json,sys; from pathlib import Path; p=Path(\"${PORTAL_STATUS_FILE}\"); p.exists() or sys.exit(\"portal status file is missing\"); data=json.loads(p.read_text()); ft=data.get(\"free_tier_usage\",{}); vercel=next((item for item in ft.get(\"providers\",[]) if item.get(\"key\")==\"vercel\"), None); vercel or sys.exit(\"vercel provider is missing\"); metric_keys=(\"key\",\"usage_display\",\"limit_display\",\"remaining_display\",\"percent_used_display\",\"reset_at\",\"measurement_status\",\"measurement_detail\"); summary_keys=(\"status\",\"source_status\",\"source_detail\",\"current_usage\",\"quota\",\"remaining\",\"percent_used_display\",\"last_checked_at\"); payload={\"generated_at\": ft.get(\"generated_at\"), \"vercel\": {k: vercel.get(k, \"unknown\") for k in summary_keys}, \"metrics\": [{k: metric.get(k, \"unknown\") for k in metric_keys} for metric in vercel.get(\"metrics\",[])]}; print(json.dumps(payload, indent=2, sort_keys=True)); sys.exit(2 if vercel.get(\"source_status\") == \"cached\" else 0)'"
           portal_status="$?"
           set -e
 
           if [[ "$portal_status" -ne 0 ]]; then
-            echo "Vercel free-tier metrics are not measured in the sanitized portal status snapshot." >&2
+            echo "Vercel free-tier metrics are still using cached snapshot values in the sanitized portal status snapshot." >&2
             exit "$portal_status"
           fi
 
           echo
-          echo "Ops Portal Vercel free-tier status verified."
+          echo "Ops Portal Vercel free-tier status is not using cached placeholder usage."

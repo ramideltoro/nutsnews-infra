@@ -370,6 +370,19 @@ def response_message(data: Any) -> str:
     return ""
 
 
+def config_bool(value: Any, default: bool = True) -> bool:
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return default
+    normalized = str(value).strip().lower()
+    if normalized in {"1", "true", "yes", "on"}:
+        return True
+    if normalized in {"0", "false", "no", "off"}:
+        return False
+    return default
+
+
 class FreeTierCollector:
     def __init__(
         self,
@@ -483,7 +496,8 @@ class FreeTierCollector:
         last_checked_at = self.now.isoformat() if source_status == "live" else "unknown"
         stale = False
 
-        if source_status != "live":
+        allow_usage_fallback = self.allow_usage_fallback(provider_config)
+        if source_status != "live" and allow_usage_fallback:
             snapshot_usage = self.provider_usage_from_snapshot(snapshot, key)
             cache_usage = self.provider_usage_from_snapshot(cache, key)
             if snapshot_usage:
@@ -502,6 +516,15 @@ class FreeTierCollector:
                 source_detail = source_detail or "Provider usage source is unknown."
             else:
                 source_detail = source_detail or "Provider usage could not be read."
+        elif source_status != "live":
+            if source_detail:
+                source_detail = f"{source_detail} Snapshot/cache fallback is disabled for this provider."
+            elif source_status == "not configured":
+                source_detail = "No live API credentials configured; snapshot/cache fallback is disabled for this provider."
+            elif source_status == "unknown":
+                source_detail = "Provider usage source is unknown; snapshot/cache fallback is disabled for this provider."
+            else:
+                source_detail = "Provider usage could not be read; snapshot/cache fallback is disabled for this provider."
 
         if source_status == "cached":
             cached_age = age_seconds(last_checked_at, self.now)
@@ -515,6 +538,7 @@ class FreeTierCollector:
                 usage_source.get(str(metric_config.get("key", ""))),
                 source_status,
                 provider_config,
+                source_detail,
             )
             for metric_config in metrics_config
         ]
@@ -560,6 +584,14 @@ class FreeTierCollector:
             if source_status in {"unavailable", "unknown"}:
                 return "unknown"
         return risk_status if risk_status in ALLOWED_RISK_STATUSES else "unknown"
+
+    def allow_usage_fallback(self, provider_config: dict[str, Any]) -> bool:
+        live = provider_config.get("live")
+        live_fallback = live.get("allow_usage_fallback") if isinstance(live, dict) else None
+        provider_fallback = provider_config.get("allow_usage_fallback")
+        if live_fallback is not None:
+            return config_bool(live_fallback, True)
+        return config_bool(provider_fallback, True)
 
     def collect_live(self, provider_config: dict[str, Any]) -> ApiResult:
         live = provider_config.get("live")
@@ -1263,12 +1295,15 @@ class FreeTierCollector:
         metric_config: dict[str, Any],
         measurement_status: str,
         source_status: str,
+        source_detail: str = "",
     ) -> str:
         configured_detail = str(metric_config.get("measurement_detail") or "").strip()
         if configured_detail:
             return configured_detail
         if measurement_status == "measured":
             return "Usage was measured by the configured read-only source."
+        if measurement_status in {"missing credential", "unavailable", "unknown"} and source_detail:
+            return source_detail
         if measurement_status == "missing credential":
             return "Usage source is not configured for this metric."
         if measurement_status == "unsupported":
@@ -1294,6 +1329,7 @@ class FreeTierCollector:
         raw_usage: Any,
         source_status: str = "unknown",
         provider_config: dict[str, Any] | None = None,
+        source_detail: str = "",
     ) -> dict[str, Any]:
         key = str(metric_config.get("key") or "unknown")
         label = str(metric_config.get("label") or key)
@@ -1331,7 +1367,12 @@ class FreeTierCollector:
             or provider_config.get("quota_last_verified", ""),
             "usage_source": metric_config.get("usage_source", ""),
             "measurement_status": measurement_status,
-            "measurement_detail": self.measurement_detail(metric_config, measurement_status, source_status),
+            "measurement_detail": self.measurement_detail(
+                metric_config,
+                measurement_status,
+                source_status,
+                source_detail,
+            ),
             "usage": None if usage is None else round(usage, 2),
             "limit": limit,
             "remaining": remaining,

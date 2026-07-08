@@ -111,6 +111,7 @@ vps_service_foundation_free_tier_quotas:
       type: vercel_billing_charges
       url_env: NUTSNEWS_VERCEL_USAGE_API_URL
       token_env: NUTSNEWS_VERCEL_API_TOKEN
+      allow_usage_fallback: false
       query_params:
         from: __current_month_start_iso__
         to: __now_iso__
