@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import time
 import urllib.error
@@ -70,9 +71,10 @@ def safe_float(value: Any) -> float | None:
     if isinstance(value, bool):
         return 1.0 if value else 0.0
     try:
-        return float(value)
+        parsed = float(value)
     except (TypeError, ValueError):
         return None
+    return parsed if math.isfinite(parsed) else None
 
 
 def percent(used: float, limit: float) -> float | None:
@@ -484,9 +486,89 @@ class FreeTierCollector:
             return self.collect_github_actions(live)
         if live_type == "cloudflare_graphql":
             return self.collect_cloudflare_graphql(live)
+        if live_type == "grafana_cloud_usage":
+            return self.collect_grafana_cloud_usage(live)
         if live_type == "json_api":
             return self.collect_json_api(live)
         return ApiResult("unknown", detail="Unsupported live usage collector type.")
+
+    def collect_grafana_cloud_usage(self, live: dict[str, Any]) -> ApiResult:
+        url_env = str(live.get("url_env", "NUTSNEWS_GRAFANA_CLOUD_URL")).strip()
+        token_env = str(live.get("token_env", "NUTSNEWS_GRAFANA_CLOUD_SERVICE_ACCOUNT_TOKEN")).strip()
+        datasource_uid_env = str(live.get("usage_datasource_uid_env", "NUTSNEWS_GRAFANA_CLOUD_USAGE_DATASOURCE_UID")).strip()
+        base_url = self.env.get(url_env, "").strip().rstrip("/") if url_env else ""
+        token = self.env.get(token_env, "").strip() if token_env else ""
+        datasource_uid = self.env.get(datasource_uid_env, "").strip() if datasource_uid_env else ""
+        if not base_url or not token or not datasource_uid:
+            missing = []
+            if not base_url:
+                missing.append(url_env or "Grafana Cloud URL")
+            if not token:
+                missing.append(token_env or "Grafana Cloud service account token")
+            if not datasource_uid:
+                missing.append(datasource_uid_env or "Grafana Cloud usage datasource UID")
+            return ApiResult(
+                "not configured",
+                detail=f"Missing {', '.join(missing)}; configure read-only Grafana Cloud usage datasource access.",
+            )
+        if not base_url.startswith("https://"):
+            return ApiResult("unavailable", detail="Grafana Cloud URL must use HTTPS.")
+
+        queries = live.get("queries", {})
+        if not isinstance(queries, dict) or not queries:
+            return ApiResult("unknown", detail="Grafana Cloud usage queries are not configured.")
+
+        endpoint = (
+            f"{base_url}/api/datasources/proxy/uid/"
+            f"{urllib.parse.quote(datasource_uid, safe='')}/api/v1/query"
+        )
+        headers = {"Accept": "application/json", "Authorization": f"Bearer {token}"}
+        metrics: dict[str, float] = {}
+        failures: list[str] = []
+        for metric_key, query in queries.items():
+            metric = str(metric_key)
+            try:
+                data = self.http_client.get_json(
+                    endpoint,
+                    headers=headers,
+                    params={"query": str(query)},
+                    timeout=self.http_timeout(),
+                )
+            except ApiRequestError as exc:
+                return ApiResult("unavailable", detail=self.api_error_detail("Grafana Cloud usage datasource", exc))
+            value = self.prometheus_vector_value(data)
+            if value is None:
+                failures.append(metric)
+                continue
+            metrics[metric] = value
+
+        if not metrics:
+            missing = ", ".join(str(key) for key in queries.keys())
+            detail = f"Grafana Cloud usage datasource did not return configured metric values; missing metrics: {missing}."
+            if failures:
+                detail = f"{detail} Empty or non-numeric query results: {', '.join(failures)}."
+            return ApiResult("unavailable", detail=detail)
+
+        detail = "Usage loaded from Grafana Cloud usage datasource."
+        if failures:
+            detail = f"{detail} Some metrics are unavailable: {', '.join(failures)}."
+        return ApiResult("live", metrics=metrics, detail=detail)
+
+    def prometheus_vector_value(self, data: Any) -> float | None:
+        if not isinstance(data, dict) or data.get("status") not in {None, "success"}:
+            return None
+        result = nested(data, "data.result")
+        if not isinstance(result, list):
+            return None
+        values = []
+        for item in result:
+            value = nested(item, "value.1")
+            number = safe_float(value)
+            if number is not None:
+                values.append(number)
+        if not values:
+            return None
+        return max(values)
 
     def collect_json_api(self, live: dict[str, Any]) -> ApiResult:
         url_env = str(live.get("url_env", "")).strip()

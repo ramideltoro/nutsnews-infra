@@ -95,6 +95,29 @@ class CloudflareHttpClient:
         raise AssertionError("Cloudflare GraphQL collector must use POST.")
 
 
+class GrafanaUsageHttpClient:
+    def __init__(self, payloads: dict[str, object | Exception]) -> None:
+        self.payloads = payloads
+        self.urls: list[str] = []
+        self.headers: list[dict[str, str]] = []
+        self.params: list[dict[str, str]] = []
+
+    def get_json(self, url, headers=None, params=None, timeout=8):  # noqa: ANN001, ANN201
+        self.urls.append(url)
+        self.headers.append(headers or {})
+        self.params.append(params or {})
+        query = (params or {}).get("query", "")
+        payload = self.payloads.get(query)
+        if isinstance(payload, Exception):
+            raise payload
+        if payload is None:
+            return {"status": "success", "data": {"resultType": "vector", "result": []}}
+        return payload
+
+    def post_json(self, url, body, headers=None, timeout=8):  # noqa: ANN001, ANN201
+        raise AssertionError("Grafana Cloud usage collector must use GET.")
+
+
 def quota_config(live: dict | None = None) -> list[dict]:
     provider = {
         "key": "demo",
@@ -140,6 +163,20 @@ def cloudflare_quota_config(live: dict) -> list[dict]:
             "metrics": [
                 {"key": "workers_requests", "label": "Workers Requests", "unit": "requests/day", "limit": 100000},
                 {"key": "pages_builds", "label": "Pages Builds", "unit": "builds/month", "limit": 500},
+            ],
+            "live": live,
+        }
+    ]
+
+
+def grafana_quota_config(live: dict) -> list[dict]:
+    return [
+        {
+            "key": "grafana_cloud",
+            "platform": "Grafana Cloud",
+            "metrics": [
+                {"key": "metrics_active_series", "label": "Metrics Active Series", "unit": "active series/month", "limit": 10000},
+                {"key": "logs_ingested_gb", "label": "Logs Ingested", "unit": "GB/month", "limit": 50},
             ],
             "live": live,
         }
@@ -267,6 +304,65 @@ class FreeTierUsageTests(unittest.TestCase):
         provider = data["providers"][0]
         self.assertEqual(provider["status"], "live")
         self.assertEqual(provider["metrics"][0]["usage"], 3)
+
+    def test_grafana_cloud_usage_datasource_queries_prometheus(self) -> None:
+        live = {
+            "type": "grafana_cloud_usage",
+            "url_env": "GRAFANA_URL",
+            "token_env": "GRAFANA_TOKEN",
+            "usage_datasource_uid_env": "GRAFANA_USAGE_UID",
+            "queries": {
+                "metrics_active_series": "max(grafanacloud_instance_metrics_usage)",
+                "logs_ingested_gb": "max(grafanacloud_logs_instance_usage)",
+            },
+        }
+        http_client = GrafanaUsageHttpClient(
+            {
+                "max(grafanacloud_instance_metrics_usage)": {
+                    "status": "success",
+                    "data": {"resultType": "vector", "result": [{"value": [1783454400, "321"]}]},
+                },
+                "max(grafanacloud_logs_instance_usage)": {
+                    "status": "success",
+                    "data": {"resultType": "vector", "result": [{"value": [1783454400, "1.5"]}]},
+                },
+            }
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            env = {
+                "NUTSNEWS_FREE_TIER_CACHE_FILE": str(Path(tmpdir) / "cache.json"),
+                "NUTSNEWS_FREE_TIER_QUOTAS_JSON": json.dumps(grafana_quota_config(live)),
+                "GRAFANA_URL": "https://example.grafana.net",
+                "GRAFANA_TOKEN": "sentinel-redaction-value",
+                "GRAFANA_USAGE_UID": "grafanacloud-usage",
+            }
+            data = FreeTierCollector(env=env, http_client=http_client, now=NOW).collect()
+        provider = data["providers"][0]
+        self.assertEqual(provider["status"], "live")
+        self.assertEqual(provider["metrics"][0]["usage"], 321)
+        self.assertEqual(provider["metrics"][1]["usage"], 1.5)
+        self.assertEqual(http_client.urls[0], "https://example.grafana.net/api/datasources/proxy/uid/grafanacloud-usage/api/v1/query")
+        self.assertEqual(http_client.params[0]["query"], "max(grafanacloud_instance_metrics_usage)")
+        self.assertTrue(http_client.headers[0]["Authorization"].startswith("Bearer "))
+        self.assertNotIn("sentinel-redaction-value", json.dumps(data))
+
+    def test_grafana_cloud_usage_reports_missing_env(self) -> None:
+        live = {
+            "type": "grafana_cloud_usage",
+            "url_env": "GRAFANA_URL",
+            "token_env": "GRAFANA_TOKEN",
+            "usage_datasource_uid_env": "GRAFANA_USAGE_UID",
+            "queries": {"metrics_active_series": "max(grafanacloud_instance_metrics_usage)"},
+        }
+        with tempfile.TemporaryDirectory() as tmpdir:
+            env = {
+                "NUTSNEWS_FREE_TIER_CACHE_FILE": str(Path(tmpdir) / "cache.json"),
+                "NUTSNEWS_FREE_TIER_QUOTAS_JSON": json.dumps(grafana_quota_config(live)),
+            }
+            data = FreeTierCollector(env=env, http_client=GrafanaUsageHttpClient({}), now=NOW).collect()
+        provider = data["providers"][0]
+        self.assertEqual(provider["status"], "not configured")
+        self.assertIn("GRAFANA_URL", provider["source_detail"])
 
     def test_sentry_base_url_accepts_api_root(self) -> None:
         live = {
