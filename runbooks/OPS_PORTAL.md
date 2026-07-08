@@ -140,7 +140,17 @@ Optional protected `production-vps` Environment values:
 }
 ```
 
-Generic `*_USAGE_API_URL` endpoints must be HTTPS GET endpoints and return read-only normalized JSON with metric values under `usage`, for example `{"usage":{"logs_gb":1.2}}`. Do not configure paid APIs, mutating endpoints, automatic upgrade flows, or tokens with write/admin scopes.
+Generic `*_USAGE_API_URL` endpoints must be HTTPS GET endpoints and return read-only normalized JSON with metric values under `usage`, for example `{"usage":{"logs_gb":1.2}}`. Provider-specific collectors may add safe query parameters or parse documented read-only response shapes, but they must still avoid paid APIs, mutating endpoints, automatic upgrade flows, and tokens with write/admin scopes.
+
+Current provider-specific notes:
+
+- Vercel billing charges requires ISO 8601 `from` and `to` query parameters. A `costs_not_found` response usually means the configured team identifier, account access, or billing endpoint does not expose the desired Hobby quota metrics.
+- Sentry accepts either `https://sentry.io` or `https://sentry.io/api/0` as `NUTSNEWS_SENTRY_BASE_URL`; the collector normalizes the API root before calling Stats v2. `401 Invalid token` means `NUTSNEWS_SENTRY_AUTH_TOKEN` must be replaced with a token that can read organization stats for `NUTSNEWS_SENTRY_ORG`.
+- Cloudflare GraphQL must be queried with POST and account-scoped analytics inputs. If the portal reports `request must be a POST`, the next code change must add a Cloudflare GraphQL collector and pass the required account identifier instead of treating the endpoint as normalized GET JSON.
+- Better Stack monitor usage is read from the monitors API by counting the returned `data` list. Telemetry volume metrics still need a normalized snapshot or a dedicated read-only usage endpoint.
+- Supabase analytics endpoints return `result` rows for a specific metric. If the portal reports missing quota metrics, configure a normalized snapshot or add a collector for the specific Supabase quota metric; do not map unrelated API-request counts to storage, egress, auth, edge function, or realtime quotas.
+- Grafana Cloud billed usage requires numeric `month` and `year` parameters. A `403` response means `NUTSNEWS_GRAFANA_CLOUD_USAGE_API_TOKEN` does not have permission for billed usage on the configured org.
+- GitHub Actions uses `NUTSNEWS_GITHUB_USAGE_API_TOKEN` with `NUTSNEWS_GITHUB_ACTIONS_USAGE_API_URL`. Use a fine-grained read-only token for repository Actions metadata; do not create custom secrets whose names begin with `GITHUB_`.
 
 Ansible renders these values into `/etc/nutsnews/free-tier-usage.env` with mode `0600`, and the collector keeps only sanitized status in `/opt/nutsnews/portal-assets/data/status.json`.
 

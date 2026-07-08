@@ -87,7 +87,12 @@ def write_json(path: Path, data: Any) -> None:
 def nested(data: Any, dotted_path: str) -> Any:
     current = data
     for part in dotted_path.split("."):
-        if isinstance(current, dict):
+        if part in {"__len__", "length"}:
+            try:
+                current = len(current)
+            except TypeError:
+                return None
+        elif isinstance(current, dict):
             current = current.get(part)
         elif isinstance(current, list):
             try:
@@ -156,6 +161,24 @@ class ApiResult:
         self.detail = detail
 
 
+class ApiRequestError(Exception):
+    def __init__(
+        self,
+        *,
+        status_code: int | None = None,
+        reason: str = "",
+        content_type: str = "",
+        body: bytes = b"",
+        error_class: str = "",
+    ) -> None:
+        super().__init__(reason or error_class or "API request failed")
+        self.status_code = status_code
+        self.reason = reason
+        self.content_type = content_type
+        self.body = body[:4096]
+        self.error_class = error_class
+
+
 class JsonHttpClient:
     def get_json(
         self,
@@ -169,8 +192,87 @@ class JsonHttpClient:
             separator = "&" if "?" in url else "?"
             encoded_url = f"{url}{separator}{urllib.parse.urlencode(params, doseq=True)}"
         request = urllib.request.Request(encoded_url, headers=headers or {}, method="GET")
-        with urllib.request.urlopen(request, timeout=timeout) as response:
-            return json.loads(response.read().decode("utf-8"))
+        return self.open_json(request, timeout)
+
+    def open_json(self, request: urllib.request.Request, timeout: int = 8) -> Any:
+        try:
+            with urllib.request.urlopen(request, timeout=timeout) as response:
+                body = response.read()
+                content_type = response.headers.get("content-type", "")
+                try:
+                    return json.loads(body.decode("utf-8"))
+                except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+                    raise ApiRequestError(
+                        status_code=response.status,
+                        content_type=content_type,
+                        body=body,
+                        error_class=exc.__class__.__name__,
+                    ) from exc
+        except urllib.error.HTTPError as exc:
+            body = exc.read()
+            raise ApiRequestError(
+                status_code=exc.code,
+                reason=str(exc.reason),
+                content_type=exc.headers.get("content-type", "") if exc.headers else "",
+                body=body,
+                error_class="HTTPError",
+            ) from exc
+        except urllib.error.URLError as exc:
+            raise ApiRequestError(reason=str(exc.reason), error_class=exc.__class__.__name__) from exc
+        except (OSError, TimeoutError) as exc:
+            raise ApiRequestError(reason=str(exc), error_class=exc.__class__.__name__) from exc
+
+    def post_json(
+        self,
+        url: str,
+        body: dict[str, Any],
+        headers: dict[str, str] | None = None,
+        timeout: int = 8,
+    ) -> Any:
+        request_headers = {"Content-Type": "application/json", **(headers or {})}
+        request = urllib.request.Request(
+            url,
+            data=json.dumps(body).encode("utf-8"),
+            headers=request_headers,
+            method="POST",
+        )
+        return self.open_json(request, timeout)
+
+
+def response_shape(data: Any) -> str:
+    if isinstance(data, dict):
+        keys = ", ".join(sorted(str(key) for key in data.keys())[:10])
+        return f"top-level keys: {keys or 'none'}"
+    if isinstance(data, list):
+        return f"top-level list length: {len(data)}"
+    return f"top-level type: {type(data).__name__}"
+
+
+def sanitize_text(value: Any, limit: int = 220) -> str:
+    text = str(value).replace("\n", " ").strip()
+    return text[:limit]
+
+
+def response_message(data: Any) -> str:
+    if not isinstance(data, dict):
+        return ""
+    for key in ("message", "detail", "error", "errors"):
+        value = data.get(key)
+        if value in (None, ""):
+            continue
+        if isinstance(value, list):
+            if not value:
+                continue
+            first = value[0]
+            if isinstance(first, dict):
+                return sanitize_text(first.get("message") or first.get("detail") or first)
+            return sanitize_text(first)
+        if isinstance(value, dict):
+            message = value.get("message") or value.get("detail") or value.get("code") or value
+            return sanitize_text(message)
+        return sanitize_text(value)
+    return ""
+
 
 class FreeTierCollector:
     def __init__(
@@ -299,7 +401,7 @@ class FreeTierCollector:
                 source_detail = "Usage loaded from local collector cache."
                 last_checked_at = str(cache_usage.get("last_checked_at") or cache.get("updated_at") or "unknown")
             elif source_status == "not configured":
-                source_detail = "No live API credentials or usage snapshot configured."
+                source_detail = source_detail or "No live API credentials or usage snapshot configured."
             elif source_status == "unknown":
                 source_detail = source_detail or "Provider usage source is unknown."
             else:
@@ -362,6 +464,8 @@ class FreeTierCollector:
         live_type = str(live.get("type", "")).strip()
         if live_type == "sentry_stats_v2":
             return self.collect_sentry_stats(provider_config, live)
+        if live_type == "github_actions":
+            return self.collect_github_actions(live)
         if live_type == "json_api":
             return self.collect_json_api(live)
         return ApiResult("unknown", detail="Unsupported live usage collector type.")
@@ -369,10 +473,19 @@ class FreeTierCollector:
     def collect_json_api(self, live: dict[str, Any]) -> ApiResult:
         url_env = str(live.get("url_env", "")).strip()
         token_env = str(live.get("token_env", "")).strip()
-        url = self.env.get(url_env, "").strip() if url_env else str(live.get("url", "")).strip()
+        configured_url = self.env.get(url_env, "").strip() if url_env else ""
+        url = configured_url or str(live.get("url", "")).strip()
         token = self.env.get(token_env, "").strip() if token_env else ""
         if not url or (token_env and not token):
-            return ApiResult("not configured")
+            missing = []
+            if not url:
+                missing.append(url_env or "live usage URL")
+            if token_env and not token:
+                missing.append(token_env)
+            return ApiResult(
+                "not configured",
+                detail=f"Missing {', '.join(missing)}; configure a read-only provider usage source.",
+            )
         if not url.startswith("https://"):
             return ApiResult("unavailable", detail="Provider usage endpoint must use HTTPS.")
         if str(live.get("method", "GET")).upper() != "GET":
@@ -385,9 +498,16 @@ class FreeTierCollector:
             headers[token_header] = f"{token_scheme} {token}".strip()
 
         try:
-            data = self.http_client.get_json(url, headers=headers, timeout=self.http_timeout())
-        except (OSError, TimeoutError, urllib.error.URLError, urllib.error.HTTPError, json.JSONDecodeError):
-            return ApiResult("unavailable", detail="Provider API request failed.")
+            data = self.http_client.get_json(
+                url,
+                headers=headers,
+                params=self.query_params(live),
+                timeout=self.http_timeout(),
+            )
+        except ApiRequestError as exc:
+            return ApiResult("unavailable", detail=self.api_error_detail("Provider API", exc))
+        except (OSError, TimeoutError, urllib.error.URLError, urllib.error.HTTPError, json.JSONDecodeError) as exc:
+            return ApiResult("unavailable", detail=f"Provider API request failed: {exc.__class__.__name__}.")
 
         metric_paths = live.get("metric_paths", {})
         if not isinstance(metric_paths, dict):
@@ -399,7 +519,12 @@ class FreeTierCollector:
             if value is not None:
                 metrics[str(metric_key)] = value
         if not metrics:
-            return ApiResult("unavailable", detail="Provider API response did not include configured metric values.")
+            missing = ", ".join(str(key) for key in metric_paths.keys())
+            detail = f"Provider API response did not include configured metric values ({response_shape(data)}; missing metrics: {missing})."
+            message = response_message(data)
+            if message:
+                detail = f"{detail} Provider message: {message}."
+            return ApiResult("unavailable", detail=detail)
         return ApiResult("live", metrics=metrics, detail="Usage loaded from provider API.")
 
     def collect_sentry_stats(self, provider_config: dict[str, Any], live: dict[str, Any]) -> ApiResult:
@@ -409,8 +534,18 @@ class FreeTierCollector:
         token = self.env.get(token_env, "").strip()
         org = self.env.get(org_env, "").strip()
         base_url = self.env.get(base_url_env, "https://sentry.io").strip().rstrip("/")
+        if base_url.endswith("/api/0"):
+            base_url = base_url[: -len("/api/0")]
         if not token or not org:
-            return ApiResult("not configured")
+            missing = []
+            if not token:
+                missing.append(token_env)
+            if not org:
+                missing.append(org_env)
+            return ApiResult(
+                "not configured",
+                detail=f"Missing {', '.join(missing)}; configure a Sentry token and org slug with read access to Stats v2.",
+            )
         if not base_url.startswith("https://"):
             return ApiResult("unavailable", detail="Sentry base URL must use HTTPS.")
 
@@ -425,6 +560,7 @@ class FreeTierCollector:
         if not categories:
             return ApiResult("unknown", detail="Sentry categories are not configured.")
 
+        failures = []
         for metric_key, category in categories.items():
             params = {
                 "groupBy": "category",
@@ -441,7 +577,11 @@ class FreeTierCollector:
                     params=params,
                     timeout=self.http_timeout(),
                 )
-            except (OSError, TimeoutError, urllib.error.URLError, urllib.error.HTTPError, json.JSONDecodeError):
+            except ApiRequestError as exc:
+                failures.append(self.api_error_detail("Sentry stats API", exc))
+                continue
+            except (OSError, TimeoutError, urllib.error.URLError, urllib.error.HTTPError, json.JSONDecodeError) as exc:
+                failures.append(f"Sentry stats API request failed: {exc.__class__.__name__}.")
                 continue
             total = 0.0
             for group in data.get("groups", []) if isinstance(data, dict) else []:
@@ -452,8 +592,120 @@ class FreeTierCollector:
             metrics[metric_key] = total
 
         if not metrics:
-            return ApiResult("unavailable", detail="Sentry stats could not be read.")
+            detail = failures[0] if failures else "Sentry stats could not be read."
+            return ApiResult("unavailable", detail=detail)
         return ApiResult("live", metrics=metrics, detail="Usage loaded from Sentry stats API.")
+
+    def collect_github_actions(self, live: dict[str, Any]) -> ApiResult:
+        token_env = str(live.get("token_env", "NUTSNEWS_GITHUB_USAGE_API_TOKEN")).strip()
+        url_env = str(live.get("url_env", "NUTSNEWS_GITHUB_ACTIONS_USAGE_API_URL")).strip()
+        token = self.env.get(token_env, "").strip()
+        base_url = (self.env.get(url_env, "").strip() if url_env else "") or str(live.get("url", "")).strip()
+        if not token:
+            return ApiResult(
+                "not configured",
+                detail=f"Missing {token_env}; configure a fine-grained read-only GitHub token for repository Actions metadata.",
+            )
+        if not base_url:
+            return ApiResult("not configured", detail=f"Missing {url_env}; configure the repository REST API URL.")
+        if not base_url.startswith("https://"):
+            return ApiResult("unavailable", detail="GitHub Actions usage API URL must use HTTPS.")
+
+        base_url = base_url.rstrip("/")
+        headers = {
+            "Accept": "application/vnd.github+json",
+            "Authorization": f"Bearer {token}",
+            "X-GitHub-Api-Version": "2022-11-28",
+        }
+        metrics: dict[str, float] = {}
+        failures = []
+
+        try:
+            cache = self.http_client.get_json(f"{base_url}/actions/cache/usage", headers=headers, timeout=self.http_timeout())
+        except ApiRequestError as exc:
+            failures.append(self.api_error_detail("GitHub Actions cache API", exc))
+        else:
+            cache_bytes = safe_float(nested(cache, "active_caches_size_in_bytes"))
+            if cache_bytes is not None:
+                metrics["cache_storage_gb"] = round(cache_bytes / (1024**3), 4)
+
+        try:
+            artifacts = self.http_client.get_json(
+                f"{base_url}/actions/artifacts",
+                headers=headers,
+                params={"per_page": "100"},
+                timeout=self.http_timeout(),
+            )
+        except ApiRequestError as exc:
+            failures.append(self.api_error_detail("GitHub Actions artifacts API", exc))
+        else:
+            artifact_items = artifacts.get("artifacts", []) if isinstance(artifacts, dict) else []
+            if isinstance(artifact_items, list):
+                total_bytes = sum(safe_float(item.get("size_in_bytes")) or 0.0 for item in artifact_items if isinstance(item, dict))
+                metrics["artifact_storage_mb"] = round(total_bytes / (1024**2), 2)
+
+        try:
+            rate = self.http_client.get_json("https://api.github.com/rate_limit", headers=headers, timeout=self.http_timeout())
+        except ApiRequestError as exc:
+            failures.append(self.api_error_detail("GitHub rate-limit API", exc))
+        else:
+            used = safe_float(nested(rate, "resources.core.used"))
+            if used is not None:
+                metrics["rest_api_requests"] = used
+
+        if not metrics:
+            detail = failures[0] if failures else "GitHub Actions usage could not be read."
+            return ApiResult("unavailable", detail=detail)
+
+        detail = "Usage loaded from read-only GitHub REST APIs."
+        if failures:
+            detail = f"{detail} Some metrics are unavailable: {failures[0]}"
+        if "hosted_runner_minutes" not in metrics:
+            detail = f"{detail} Hosted-runner billing minutes require a separate billing-scoped endpoint and remain unknown."
+        return ApiResult("live", metrics=metrics, detail=detail)
+
+    def query_params(self, live: dict[str, Any]) -> dict[str, str]:
+        raw_params = live.get("query_params", {})
+        if not isinstance(raw_params, dict):
+            return {}
+        params: dict[str, str] = {}
+        for key, value in raw_params.items():
+            rendered = self.dynamic_param_value(str(value))
+            if rendered:
+                params[str(key)] = rendered
+        return params
+
+    def dynamic_param_value(self, value: str) -> str:
+        if value == "__current_month_start_iso__":
+            start = self.now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+            return start.isoformat().replace("+00:00", "Z")
+        if value == "__now_iso__":
+            return self.now.isoformat().replace("+00:00", "Z")
+        if value == "__current_month_number__":
+            return str(self.now.month)
+        if value == "__current_year__":
+            return str(self.now.year)
+        return value
+
+    def api_error_detail(self, label: str, exc: ApiRequestError) -> str:
+        parts = [f"{label} request failed"]
+        if exc.status_code is not None:
+            parts.append(f"HTTP {exc.status_code}")
+        elif exc.error_class:
+            parts.append(exc.error_class)
+        if exc.content_type:
+            parts.append(f"content-type {exc.content_type.split(';')[0]}")
+        message = ""
+        if exc.body:
+            try:
+                message = response_message(json.loads(exc.body.decode("utf-8")))
+            except (UnicodeDecodeError, json.JSONDecodeError):
+                message = ""
+        if message:
+            parts.append(f"message: {message}")
+        elif exc.reason:
+            parts.append(f"reason: {sanitize_text(exc.reason)}")
+        return "; ".join(parts) + "."
 
     def http_timeout(self) -> int:
         try:

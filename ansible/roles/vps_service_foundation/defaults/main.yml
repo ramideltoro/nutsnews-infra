@@ -107,6 +107,9 @@ vps_service_foundation_free_tier_quotas:
       type: json_api
       url_env: NUTSNEWS_VERCEL_USAGE_API_URL
       token_env: NUTSNEWS_VERCEL_API_TOKEN
+      query_params:
+        from: __current_month_start_iso__
+        to: __now_iso__
       metric_paths:
         active_cpu_hours: usage.active_cpu_hours
         provisioned_memory_gb_hours: usage.provisioned_memory_gb_hours
@@ -221,7 +224,7 @@ vps_service_foundation_free_tier_quotas:
       url_env: NUTSNEWS_BETTER_STACK_USAGE_API_URL
       token_env: NUTSNEWS_BETTER_STACK_API_TOKEN
       metric_paths:
-        monitors_heartbeats: usage.monitors_heartbeats
+        monitors_heartbeats: data.__len__
         exceptions: usage.exceptions
         logs_gb: usage.logs_gb
         traces_gb: usage.traces_gb
@@ -316,6 +319,9 @@ vps_service_foundation_free_tier_quotas:
       type: json_api
       url_env: NUTSNEWS_GRAFANA_CLOUD_USAGE_API_URL
       token_env: NUTSNEWS_GRAFANA_CLOUD_API_TOKEN
+      query_params:
+        month: __current_month_number__
+        year: __current_year__
       metric_paths:
         metrics_active_series: usage.metrics_active_series
         logs_ingested_gb: usage.logs_ingested_gb
@@ -375,9 +381,10 @@ vps_service_foundation_free_tier_quotas:
       limits are included because the collector and protected workflows may use
       GitHub API tokens.
     live:
-      type: json_api
+      type: github_actions
       url_env: NUTSNEWS_GITHUB_ACTIONS_USAGE_API_URL
       token_env: NUTSNEWS_GITHUB_USAGE_API_TOKEN
+      url: https://api.github.com/repos/ramideltoro/nutsnews-infra
       metric_paths:
         hosted_runner_minutes: usage.hosted_runner_minutes
         artifact_storage_mb: usage.artifact_storage_mb

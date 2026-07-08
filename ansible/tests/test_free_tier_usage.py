@@ -14,7 +14,7 @@ import sys
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "ansible/roles/vps_service_foundation/files"))
 
-from ops_free_tier_usage import FreeTierCollector  # noqa: E402
+from ops_free_tier_usage import ApiRequestError, FreeTierCollector  # noqa: E402
 
 
 NOW = datetime(2026, 7, 7, 12, 0, 0, tzinfo=timezone.utc)
@@ -24,18 +24,38 @@ class FakeHttpClient:
     def __init__(self, payload: object | Exception) -> None:
         self.payload = payload
         self.headers: list[dict[str, str]] = []
+        self.params: list[dict[str, str]] = []
+        self.urls: list[str] = []
 
     def get_json(self, url, headers=None, params=None, timeout=8):  # noqa: ANN001, ANN201
+        self.urls.append(url)
         self.headers.append(headers or {})
+        self.params.append(params or {})
         if isinstance(self.payload, Exception):
             raise self.payload
         return self.payload
 
     def post_json(self, url, body, headers=None, timeout=8):  # noqa: ANN001, ANN201
+        self.urls.append(url)
         self.headers.append(headers or {})
         if isinstance(self.payload, Exception):
             raise self.payload
         return self.payload
+
+
+class GitHubHttpClient:
+    def __init__(self) -> None:
+        self.urls: list[str] = []
+
+    def get_json(self, url, headers=None, params=None, timeout=8):  # noqa: ANN001, ANN201
+        self.urls.append(url)
+        if url.endswith("/actions/cache/usage"):
+            return {"active_caches_size_in_bytes": 1073741824}
+        if url.endswith("/actions/artifacts"):
+            return {"artifacts": [{"size_in_bytes": 1048576}, {"size_in_bytes": 2097152}]}
+        if url == "https://api.github.com/rate_limit":
+            return {"resources": {"core": {"used": 42}}}
+        raise ApiRequestError(status_code=404, body=b'{"message":"not found"}', content_type="application/json")
 
 
 def quota_config(live: dict | None = None) -> list[dict]:
@@ -57,6 +77,22 @@ def quota_config(live: dict | None = None) -> list[dict]:
     if live:
         provider["live"] = live
     return [provider]
+
+
+def github_quota_config(live: dict) -> list[dict]:
+    return [
+        {
+            "key": "github_actions",
+            "platform": "GitHub Actions",
+            "metrics": [
+                {"key": "hosted_runner_minutes", "label": "Hosted Runner Minutes", "unit": "minutes/month", "limit": 2000},
+                {"key": "artifact_storage_mb", "label": "Artifacts", "unit": "MB/month", "limit": 500},
+                {"key": "cache_storage_gb", "label": "Actions Cache", "unit": "GB/repository", "limit": 10},
+                {"key": "rest_api_requests", "label": "REST API Requests", "unit": "requests/hour", "limit": 5000},
+            ],
+            "live": live,
+        }
+    ]
 
 
 def collect(env: dict[str, str], http_client: FakeHttpClient | None = None) -> dict:
@@ -116,6 +152,7 @@ class FreeTierUsageTests(unittest.TestCase):
         self.assertEqual(data["providers"][0]["status"], "not configured")
         self.assertEqual(data["providers"][0]["risk_status"], "not_configured")
         self.assertEqual(data["providers"][0]["current_usage"], "unknown")
+        self.assertIn("DEMO_TOKEN", data["providers"][0]["source_detail"])
 
     def test_malformed_provider_response(self) -> None:
         live = {
@@ -133,6 +170,113 @@ class FreeTierUsageTests(unittest.TestCase):
             }
             data = FreeTierCollector(env=env, http_client=FakeHttpClient({"unexpected": {}}), now=NOW).collect()
         self.assertEqual(data["providers"][0]["status"], "unavailable")
+        self.assertNotIn("sentinel-redaction-value", json.dumps(data))
+
+    def test_http_error_detail_is_sanitized(self) -> None:
+        live = {
+            "type": "json_api",
+            "url_env": "DEMO_USAGE_URL",
+            "token_env": "DEMO_TOKEN",
+            "metric_paths": {"requests": "usage.requests"},
+        }
+        error = ApiRequestError(
+            status_code=400,
+            content_type="application/json",
+            body=b'{"error":{"code":"bad_request","message":"missing date window"}}',
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            env = {
+                "NUTSNEWS_FREE_TIER_CACHE_FILE": str(Path(tmpdir) / "cache.json"),
+                "NUTSNEWS_FREE_TIER_QUOTAS_JSON": json.dumps(quota_config(live=live)),
+                "DEMO_USAGE_URL": "https://example.invalid/usage",
+                "DEMO_TOKEN": "sentinel-redaction-value",
+            }
+            data = FreeTierCollector(env=env, http_client=FakeHttpClient(error), now=NOW).collect()
+        detail = data["providers"][0]["source_detail"]
+        self.assertIn("HTTP 400", detail)
+        self.assertIn("missing date window", detail)
+        self.assertNotIn("sentinel-redaction-value", json.dumps(data))
+
+    def test_len_metric_path_counts_provider_list(self) -> None:
+        live = {
+            "type": "json_api",
+            "url_env": "DEMO_USAGE_URL",
+            "token_env": "DEMO_TOKEN",
+            "metric_paths": {"requests": "data.__len__"},
+        }
+        payload = {"data": [{}, {}, {}]}
+        with tempfile.TemporaryDirectory() as tmpdir:
+            env = {
+                "NUTSNEWS_FREE_TIER_CACHE_FILE": str(Path(tmpdir) / "cache.json"),
+                "NUTSNEWS_FREE_TIER_QUOTAS_JSON": json.dumps(quota_config(live=live)),
+                "DEMO_USAGE_URL": "https://example.invalid/usage",
+                "DEMO_TOKEN": "sentinel-redaction-value",
+            }
+            data = FreeTierCollector(env=env, http_client=FakeHttpClient(payload), now=NOW).collect()
+        provider = data["providers"][0]
+        self.assertEqual(provider["status"], "live")
+        self.assertEqual(provider["metrics"][0]["usage"], 3)
+
+    def test_sentry_base_url_accepts_api_root(self) -> None:
+        live = {
+            "type": "sentry_stats_v2",
+            "token_env": "DEMO_TOKEN",
+            "org_env": "DEMO_ORG",
+            "base_url_env": "DEMO_BASE_URL",
+        }
+        provider = quota_config(live=live)[0]
+        provider["metrics"][0]["live_category"] = "error"
+        client = FakeHttpClient({"groups": [{"totals": {"sum(quantity)": 2}}]})
+        with tempfile.TemporaryDirectory() as tmpdir:
+            env = {
+                "NUTSNEWS_FREE_TIER_CACHE_FILE": str(Path(tmpdir) / "cache.json"),
+                "NUTSNEWS_FREE_TIER_QUOTAS_JSON": json.dumps([provider]),
+                "DEMO_TOKEN": "sentinel-redaction-value",
+                "DEMO_ORG": "demo-org",
+                "DEMO_BASE_URL": "https://sentry.io/api/0",
+            }
+            data = FreeTierCollector(env=env, http_client=client, now=NOW).collect()
+        self.assertEqual(data["providers"][0]["status"], "live")
+        self.assertIn("/api/0/organizations/demo-org/stats_v2/", client.urls[0])
+        self.assertNotIn("/api/0/api/0/", client.urls[0])
+
+    def test_github_actions_missing_token_is_actionable(self) -> None:
+        live = {
+            "type": "github_actions",
+            "url_env": "DEMO_GITHUB_URL",
+            "token_env": "DEMO_GITHUB_TOKEN",
+            "url": "https://api.github.com/repos/example/repo",
+        }
+        with tempfile.TemporaryDirectory() as tmpdir:
+            env = {
+                "NUTSNEWS_FREE_TIER_CACHE_FILE": str(Path(tmpdir) / "cache.json"),
+                "NUTSNEWS_FREE_TIER_QUOTAS_JSON": json.dumps(github_quota_config(live)),
+            }
+            data = FreeTierCollector(env=env, now=NOW).collect()
+        provider = data["providers"][0]
+        self.assertEqual(provider["status"], "not configured")
+        self.assertIn("DEMO_GITHUB_TOKEN", provider["source_detail"])
+
+    def test_github_actions_live_usage(self) -> None:
+        live = {
+            "type": "github_actions",
+            "url_env": "DEMO_GITHUB_URL",
+            "token_env": "DEMO_GITHUB_TOKEN",
+            "url": "https://api.github.com/repos/example/repo",
+        }
+        with tempfile.TemporaryDirectory() as tmpdir:
+            env = {
+                "NUTSNEWS_FREE_TIER_CACHE_FILE": str(Path(tmpdir) / "cache.json"),
+                "NUTSNEWS_FREE_TIER_QUOTAS_JSON": json.dumps(github_quota_config(live)),
+                "DEMO_GITHUB_TOKEN": "sentinel-redaction-value",
+            }
+            data = FreeTierCollector(env=env, http_client=GitHubHttpClient(), now=NOW).collect()
+        provider = data["providers"][0]
+        self.assertEqual(provider["status"], "live")
+        usage_by_key = {metric["key"]: metric["usage"] for metric in provider["metrics"]}
+        self.assertEqual(usage_by_key["artifact_storage_mb"], 3)
+        self.assertEqual(usage_by_key["cache_storage_gb"], 1)
+        self.assertEqual(usage_by_key["rest_api_requests"], 42)
         self.assertNotIn("sentinel-redaction-value", json.dumps(data))
 
     def test_stale_cached_data(self) -> None:
