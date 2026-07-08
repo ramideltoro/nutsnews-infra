@@ -95,6 +95,9 @@ vps_service_foundation_free_tier_supabase_access_token: ""
 vps_service_foundation_free_tier_supabase_usage_api_url: ""
 vps_service_foundation_free_tier_grafana_api_token: ""
 vps_service_foundation_free_tier_grafana_usage_api_url: ""
+vps_service_foundation_free_tier_grafana_cloud_url: ""
+vps_service_foundation_free_tier_grafana_service_account_token: ""
+vps_service_foundation_free_tier_grafana_usage_datasource_uid: ""
 vps_service_foundation_free_tier_github_api_token: ""
 vps_service_foundation_free_tier_github_usage_api_url: ""
 vps_service_foundation_free_tier_quotas:
@@ -312,20 +315,13 @@ vps_service_foundation_free_tier_quotas:
     quota_last_verified: "2026-07-08"
     notes: Grafana Cloud Free allowances. Existing Terraform dashboards also use grafanacloud-usage metrics where configured.
     live:
-      type: json_api
-      url_env: NUTSNEWS_GRAFANA_CLOUD_USAGE_API_URL
-      token_env: NUTSNEWS_GRAFANA_CLOUD_API_TOKEN
-      query_params:
-        month: __current_month_number__
-        year: __current_year__
-      metric_paths:
-        metrics_active_series: usage.metrics_active_series
-        logs_ingested_gb: usage.logs_ingested_gb
-        traces_ingested_gb: usage.traces_ingested_gb
-        profiles_ingested_gb: usage.profiles_ingested_gb
-        synthetic_api_executions: usage.synthetic_api_executions
-        synthetic_browser_executions: usage.synthetic_browser_executions
-        frontend_sessions: usage.frontend_sessions
+      type: grafana_cloud_usage
+      url_env: NUTSNEWS_GRAFANA_CLOUD_URL
+      token_env: NUTSNEWS_GRAFANA_CLOUD_SERVICE_ACCOUNT_TOKEN
+      usage_datasource_uid_env: NUTSNEWS_GRAFANA_CLOUD_USAGE_DATASOURCE_UID
+      queries:
+        metrics_active_series: max(grafanacloud_instance_metrics_usage)
+        logs_ingested_gb: max(grafanacloud_logs_instance_usage)
     metrics:
       - key: metrics_active_series
         label: Metrics Active Series

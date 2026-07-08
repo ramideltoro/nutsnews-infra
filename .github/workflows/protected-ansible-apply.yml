@@ -200,6 +200,9 @@ jobs:
           NUTSNEWS_GRAFANA_CLOUD_LOGS_URL: ${{ secrets.NUTSNEWS_GRAFANA_CLOUD_LOGS_URL }}
           NUTSNEWS_GRAFANA_CLOUD_LOGS_USERNAME: ${{ secrets.NUTSNEWS_GRAFANA_CLOUD_LOGS_USERNAME }}
           NUTSNEWS_GRAFANA_CLOUD_ACCESS_POLICY_TOKEN: ${{ secrets.NUTSNEWS_GRAFANA_CLOUD_ACCESS_POLICY_TOKEN }}
+          NUTSNEWS_GRAFANA_CLOUD_URL: ${{ secrets.NUTSNEWS_GRAFANA_CLOUD_URL }}
+          NUTSNEWS_GRAFANA_CLOUD_SERVICE_ACCOUNT_TOKEN: ${{ secrets.NUTSNEWS_GRAFANA_CLOUD_SERVICE_ACCOUNT_TOKEN }}
+          NUTSNEWS_GRAFANA_CLOUD_USAGE_DATASOURCE_UID: ${{ secrets.NUTSNEWS_GRAFANA_CLOUD_USAGE_DATASOURCE_UID }}
           NUTSNEWS_FREE_TIER_USAGE_JSON: ${{ secrets.NUTSNEWS_FREE_TIER_USAGE_JSON }}
           NUTSNEWS_VERCEL_API_TOKEN: ${{ secrets.NUTSNEWS_VERCEL_API_TOKEN }}
           NUTSNEWS_VERCEL_USAGE_API_URL: ${{ secrets.NUTSNEWS_VERCEL_USAGE_API_URL }}
@@ -497,6 +500,15 @@ jobs:
               "vps_service_foundation_free_tier_supabase_usage_api_url": optional_https_url("NUTSNEWS_SUPABASE_USAGE_API_URL"),
               "vps_service_foundation_free_tier_grafana_api_token": os.environ.get("NUTSNEWS_GRAFANA_CLOUD_USAGE_API_TOKEN", ""),
               "vps_service_foundation_free_tier_grafana_usage_api_url": optional_https_url("NUTSNEWS_GRAFANA_CLOUD_USAGE_API_URL"),
+              "vps_service_foundation_free_tier_grafana_cloud_url": optional_https_url("NUTSNEWS_GRAFANA_CLOUD_URL"),
+              "vps_service_foundation_free_tier_grafana_service_account_token": os.environ.get(
+                  "NUTSNEWS_GRAFANA_CLOUD_SERVICE_ACCOUNT_TOKEN",
+                  "",
+              ),
+              "vps_service_foundation_free_tier_grafana_usage_datasource_uid": os.environ.get(
+                  "NUTSNEWS_GRAFANA_CLOUD_USAGE_DATASOURCE_UID",
+                  "",
+              ),
               "vps_service_foundation_free_tier_github_api_token": os.environ.get(
                   "NUTSNEWS_GITHUB_USAGE_API_TOKEN",
                   "",
