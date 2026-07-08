@@ -75,17 +75,27 @@ class FreeTierUsageTests(unittest.TestCase):
         provider = data["providers"][0]
         self.assertEqual(provider["status"], "cached")
         self.assertEqual(provider["health"], "healthy")
+        self.assertEqual(provider["risk_status"], "safe")
         self.assertEqual(provider["percent_used"], 25.0)
         self.assertEqual(provider["remaining"], "75 requests/month")
 
     def test_warning_threshold(self) -> None:
         data = collect({"NUTSNEWS_FREE_TIER_USAGE_JSON": json.dumps({"demo": {"requests": 75}})})
         self.assertEqual(data["providers"][0]["health"], "warning")
+        self.assertEqual(data["providers"][0]["risk_status"], "warning")
 
-    def test_critical_exceeded_quota(self) -> None:
-        data = collect({"NUTSNEWS_FREE_TIER_USAGE_JSON": json.dumps({"demo": {"requests": 120}})})
+    def test_critical_threshold(self) -> None:
+        data = collect({"NUTSNEWS_FREE_TIER_USAGE_JSON": json.dumps({"demo": {"requests": 90}})})
         provider = data["providers"][0]
         self.assertEqual(provider["health"], "critical")
+        self.assertEqual(provider["risk_status"], "critical")
+        self.assertEqual(provider["remaining"], "10 requests/month")
+
+    def test_over_limit_exceeded_quota(self) -> None:
+        data = collect({"NUTSNEWS_FREE_TIER_USAGE_JSON": json.dumps({"demo": {"requests": 120}})})
+        provider = data["providers"][0]
+        self.assertEqual(provider["health"], "over_limit")
+        self.assertEqual(provider["risk_status"], "over_limit")
         self.assertEqual(provider["remaining"], "-20 requests/month")
         self.assertEqual(provider["percent_remaining"], 0.0)
 
@@ -104,6 +114,7 @@ class FreeTierUsageTests(unittest.TestCase):
             }
             data = FreeTierCollector(env=env, now=NOW).collect()
         self.assertEqual(data["providers"][0]["status"], "not configured")
+        self.assertEqual(data["providers"][0]["risk_status"], "not_configured")
         self.assertEqual(data["providers"][0]["current_usage"], "unknown")
 
     def test_malformed_provider_response(self) -> None:

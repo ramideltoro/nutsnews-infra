@@ -94,9 +94,12 @@ vps_service_foundation_free_tier_supabase_access_token: ""
 vps_service_foundation_free_tier_supabase_usage_api_url: ""
 vps_service_foundation_free_tier_grafana_api_token: ""
 vps_service_foundation_free_tier_grafana_usage_api_url: ""
+vps_service_foundation_free_tier_github_api_token: ""
+vps_service_foundation_free_tier_github_usage_api_url: ""
 vps_service_foundation_free_tier_quotas:
   - key: vercel
     platform: Vercel
+    plan: Hobby Free
     quota_source: https://vercel.com/docs/limits
     quota_last_verified: "2026-07-07"
     notes: Free Hobby usage summary. Override these values if the account plan or official limits change.
@@ -132,6 +135,7 @@ vps_service_foundation_free_tier_quotas:
         limit: 360
   - key: sentry
     platform: Sentry
+    plan: Developer Free
     quota_source: https://sentry.io/pricing/
     quota_last_verified: "2026-07-07"
     notes: Free Developer plan allowances. Sentry stats use accepted events over the last 30 days when org/read token and org slug are configured.
@@ -166,6 +170,7 @@ vps_service_foundation_free_tier_quotas:
         limit: 1
   - key: cloudflare
     platform: Cloudflare
+    plan: Free
     quota_source: https://developers.cloudflare.com/workers/platform/limits/
     quota_last_verified: "2026-07-07"
     notes: Workers, Pages, and R2 free limits used by NutsNews edge and Grafana state workflows.
@@ -207,6 +212,7 @@ vps_service_foundation_free_tier_quotas:
         limit: 10000000
   - key: better_stack
     platform: Better Stack
+    plan: Free
     quota_source: https://betterstack.com/pricing
     quota_last_verified: "2026-07-07"
     notes: Free personal project allowances for monitoring, telemetry, and RUM/error tracking.
@@ -254,6 +260,7 @@ vps_service_foundation_free_tier_quotas:
         limit: 5000
   - key: supabase
     platform: Supabase
+    plan: Free
     quota_source: https://supabase.com/docs/guides/platform/billing-on-supabase
     quota_last_verified: "2026-07-07"
     notes: Free organization and project quotas. Database size is per project; other quotas are organization-level unless Supabase changes billing semantics.
@@ -301,6 +308,7 @@ vps_service_foundation_free_tier_quotas:
         limit: 2000000
   - key: grafana_cloud
     platform: Grafana Cloud
+    plan: Free
     quota_source: https://grafana.com/pricing/
     quota_last_verified: "2026-07-07"
     notes: Grafana Cloud Free allowances. Existing Terraform dashboards also use grafanacloud-usage metrics where configured.
@@ -352,6 +360,50 @@ vps_service_foundation_free_tier_quotas:
         unit: sessions/month
         period: monthly
         limit: 50000
+  - key: github_actions
+    platform: GitHub Actions
+    plan: GitHub Free
+    quota_source: >-
+      https://docs.github.com/en/billing/concepts/product-billing/github-actions
+      and
+      https://docs.github.com/en/rest/using-the-rest-api/rate-limits-for-the-rest-api
+    quota_last_verified: "2026-07-08"
+    notes: >-
+      GitHub Free and Free for organizations include hosted-runner minutes,
+      artifact storage, and per-repository cache storage; public repositories,
+      GitHub Pages, and Dependabot standard-runner usage are free. REST API
+      limits are included because the collector and protected workflows may use
+      GitHub API tokens.
+    live:
+      type: json_api
+      url_env: NUTSNEWS_GITHUB_ACTIONS_USAGE_API_URL
+      token_env: NUTSNEWS_GITHUB_USAGE_API_TOKEN
+      metric_paths:
+        hosted_runner_minutes: usage.hosted_runner_minutes
+        artifact_storage_mb: usage.artifact_storage_mb
+        cache_storage_gb: usage.cache_storage_gb
+        rest_api_requests: usage.rest_api_requests
+    metrics:
+      - key: hosted_runner_minutes
+        label: Hosted Runner Minutes
+        unit: minutes/month
+        period: monthly
+        limit: 2000
+      - key: artifact_storage_mb
+        label: Artifact and Packages Storage
+        unit: MB/month
+        period: monthly
+        limit: 500
+      - key: cache_storage_gb
+        label: Actions Cache Storage
+        unit: GB/repository
+        period: current
+        limit: 10
+      - key: rest_api_requests
+        label: REST API Primary Rate Limit
+        unit: requests/hour
+        period: hourly
+        limit: 5000
 vps_service_foundation_infra_health_log_dir: "{{ vps_service_foundation_logs_dir }}/health"
 vps_service_foundation_infra_health_log_file: "{{ vps_service_foundation_infra_health_log_dir }}/health-failures.jsonl"
 

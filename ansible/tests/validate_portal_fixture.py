@@ -80,22 +80,43 @@ for token in (
 
 free_tier = STATUS["free_tier_usage"]
 providers = free_tier.get("providers", [])
-require(isinstance(providers, list) and len(providers) == 6, "Fixture must include all six free-tier providers.")
+require(isinstance(providers, list) and len(providers) == 10, "Fixture must include all tracked free-tier providers.")
 provider_keys = {provider.get("key") for provider in providers}
-for key in ("vercel", "sentry", "cloudflare", "better_stack", "supabase", "grafana_cloud"):
+for key in (
+    "vps_host",
+    "docker_storage",
+    "backup_storage",
+    "vercel",
+    "sentry",
+    "cloudflare",
+    "better_stack",
+    "supabase",
+    "grafana_cloud",
+    "github_actions",
+):
     require(key in provider_keys, f"Free-tier fixture missing provider {key}.")
 source_statuses = {provider.get("source_status") for provider in providers}
 for status in ("live", "cached", "not configured", "unavailable"):
     require(status in source_statuses, f"Free-tier fixture missing {status} source state.")
 health_states = {provider.get("health") for provider in providers}
-for health in ("healthy", "warning", "critical", "unknown"):
+for health in ("healthy", "warning", "critical", "over_limit", "unknown", "not_configured"):
     require(health in health_states, f"Free-tier fixture missing {health} health state.")
+risk_states = {provider.get("risk_status") for provider in providers}
+for risk_status in ("safe", "warning", "critical", "over_limit", "unknown", "not_configured"):
+    require(risk_status in risk_states, f"Free-tier fixture missing {risk_status} risk state.")
+summary = free_tier.get("summary", {})
+for key in ("safe", "warning", "critical", "over_limit", "unknown_or_not_configured"):
+    require(key in summary, f"Free-tier summary missing {key}.")
 require(any(provider.get("stale") is True for provider in providers), "Free-tier fixture must include stale cache coverage.")
 require(any((provider.get("percent_used") or 0) > 100 for provider in providers), "Free-tier fixture must include exceeded quota coverage.")
 require("Free Tier Usage" in (ROOT / "portal/index.html").read_text(encoding="utf-8"), "Portal markup missing Free Tier Usage.")
+require("free-tier-summary" in (ROOT / "portal/index.html").read_text(encoding="utf-8"), "Portal markup missing free-tier summary.")
 require("free_tier_usage_state" in COLLECTOR, "Collector must include free-tier usage state.")
 require("collect_free_tier_usage" in FREE_TIER_COLLECTOR, "Free-tier collector module missing entrypoint.")
+require("local_usage_providers" in COLLECTOR, "Collector must include local usage-limited services.")
+require("free_tier_alerts" in COLLECTOR, "Collector must emit free-tier alert pressure.")
 require("NUTSNEWS_FREE_TIER_QUOTAS_JSON" in FREE_TIER_ENV, "Free-tier env must pass quota config.")
+require("NUTSNEWS_GITHUB_ACTIONS_USAGE_API_URL" in FREE_TIER_ENV, "Free-tier env must pass GitHub usage URL.")
 require("vps_service_foundation_free_tier_env_file" in COLLECTOR_UNIT, "Collector unit must load the free-tier env file.")
 require(
     "vps_service_foundation_source_free_tier_collector_module" in TASKS
@@ -105,6 +126,7 @@ require(
 require("free-tier-usage.env.j2" in TASKS, "Free-tier env template must be installed by Ansible.")
 require("vps_service_foundation_free_tier_quotas" in DEFAULTS, "Free-tier quota defaults must be config-driven.")
 require("No live API credentials" in FREE_TIER_COLLECTOR, "Free-tier collector must degrade when tokens are missing.")
+require("Free-tier usage summary" in REPORTER, "Reporter must include free-tier usage in health reports.")
 
 app = STATUS["app"]
 require(isinstance(app, dict), "Fixture app section is missing.")

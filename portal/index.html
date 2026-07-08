@@ -51,11 +51,12 @@
       <section class="section section--free-tier" aria-labelledby="free-tier-title">
         <div class="section__header">
           <div>
-            <p class="eyebrow">External services</p>
+            <p class="eyebrow">Usage-limited services</p>
             <h2 id="free-tier-title">Free Tier Usage</h2>
           </div>
           <p id="free-tier-updated">Waiting for provider quota data.</p>
         </div>
+        <div id="free-tier-summary" class="stat-row"></div>
         <div id="free-tier-gauges" class="temperature-grid"></div>
         <div id="free-tier-cards" class="quota-grid"></div>
         <div class="table-wrap">
@@ -69,6 +70,8 @@
                 <th>Remaining</th>
                 <th>Used</th>
                 <th>Free</th>
+                <th>Period</th>
+                <th>Reset</th>
                 <th>Source</th>
               </tr>
             </thead>
