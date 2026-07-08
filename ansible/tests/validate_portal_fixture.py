@@ -114,6 +114,8 @@ require(any(provider.get("stale") is True for provider in providers), "Free-tier
 require(any((provider.get("percent_used") or 0) > 100 for provider in providers), "Free-tier fixture must include exceeded quota coverage.")
 require("Free Tier Usage" in (ROOT / "portal/index.html").read_text(encoding="utf-8"), "Portal markup missing Free Tier Usage.")
 require("free-tier-summary" in (ROOT / "portal/index.html").read_text(encoding="utf-8"), "Portal markup missing free-tier summary.")
+require("text(metric.usage_display)" in APP_JS, "Portal metric rows must render backend usage_display.")
+require("Number(metric.usage" not in APP_JS, "Portal must not coerce unknown metric usage to numeric zero.")
 require("free_tier_usage_state" in COLLECTOR, "Collector must include free-tier usage state.")
 require("collect_free_tier_usage" in FREE_TIER_COLLECTOR, "Free-tier collector module missing entrypoint.")
 require("local_usage_providers" in COLLECTOR, "Collector must include local usage-limited services.")

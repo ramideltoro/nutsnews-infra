@@ -521,6 +521,75 @@ class FreeTierUsageTests(unittest.TestCase):
         self.assertNotIn("sentinel-redaction-value", json.dumps(data))
         self.assertNotIn("team_123", json.dumps(data))
 
+    def test_vercel_billing_charges_real_zero_is_measured(self) -> None:
+        live = {
+            "type": "vercel_billing_charges",
+            "url_env": "VERCEL_URL",
+            "token_env": "VERCEL_TOKEN",
+            "focus_mappings": {
+                "function_invocations": {
+                    "contains_all": ["function", "invocation"],
+                    "unit_contains_any": ["invocation"],
+                },
+            },
+        }
+        payload = json.dumps(
+            {
+                "ServiceName": "Function Invocations",
+                "ConsumedQuantity": "0",
+                "ConsumedUnit": "invocations",
+            }
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            env = {
+                "NUTSNEWS_FREE_TIER_CACHE_FILE": str(Path(tmpdir) / "cache.json"),
+                "NUTSNEWS_FREE_TIER_QUOTAS_JSON": json.dumps(vercel_quota_config(live)),
+                "VERCEL_URL": "https://api.vercel.com/v1/billing/charges?teamId=team_123",
+                "VERCEL_TOKEN": "sentinel-redaction-value",
+            }
+            data = FreeTierCollector(env=env, http_client=TextHttpClient(payload), now=NOW).collect()
+        provider = data["providers"][0]
+        metrics = {metric["key"]: metric for metric in provider["metrics"]}
+        self.assertEqual(provider["status"], "live")
+        self.assertEqual(metrics["function_invocations"]["usage"], 0)
+        self.assertEqual(metrics["function_invocations"]["measurement_status"], "measured")
+        self.assertEqual(metrics["function_invocations"]["usage_display"], "0 invocations/month")
+
+    def test_vercel_billing_charges_null_quantity_is_unavailable_not_zero(self) -> None:
+        live = {
+            "type": "vercel_billing_charges",
+            "url_env": "VERCEL_URL",
+            "token_env": "VERCEL_TOKEN",
+            "focus_mappings": {
+                "function_invocations": {
+                    "contains_all": ["function", "invocation"],
+                    "unit_contains_any": ["invocation"],
+                },
+            },
+        }
+        payload = json.dumps(
+            {
+                "ServiceName": "Function Invocations",
+                "ConsumedQuantity": None,
+                "ConsumedUnit": "invocations",
+            }
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            env = {
+                "NUTSNEWS_FREE_TIER_CACHE_FILE": str(Path(tmpdir) / "cache.json"),
+                "NUTSNEWS_FREE_TIER_QUOTAS_JSON": json.dumps(vercel_quota_config(live)),
+                "VERCEL_URL": "https://api.vercel.com/v1/billing/charges?teamId=team_123",
+                "VERCEL_TOKEN": "sentinel-redaction-value",
+            }
+            data = FreeTierCollector(env=env, http_client=TextHttpClient(payload), now=NOW).collect()
+        provider = data["providers"][0]
+        metrics = {metric["key"]: metric for metric in provider["metrics"]}
+        self.assertEqual(provider["status"], "unavailable")
+        self.assertIsNone(metrics["function_invocations"]["usage"])
+        self.assertEqual(metrics["function_invocations"]["usage_display"], "unknown")
+        self.assertEqual(metrics["function_invocations"]["measurement_status"], "unavailable")
+        self.assertIn("did not include configured quota metric records", metrics["function_invocations"]["measurement_detail"])
+
     def test_vercel_billing_charges_matches_focus_alias_fields(self) -> None:
         live = {
             "type": "vercel_billing_charges",
@@ -613,6 +682,49 @@ class FreeTierUsageTests(unittest.TestCase):
         self.assertEqual(usage_by_key["function_invocations"], 1200)
         self.assertEqual(usage_by_key["active_cpu_hours"], 0.25)
         self.assertEqual(usage_by_key["provisioned_memory_gb_hours"], 12)
+        self.assertNotIn("sentinel-redaction-value", json.dumps(data))
+        self.assertNotIn("team_123", json.dumps(data))
+
+    def test_vercel_live_only_ignores_placeholder_snapshot_zeroes_after_api_error(self) -> None:
+        live = {
+            "type": "vercel_billing_charges",
+            "url_env": "VERCEL_URL",
+            "token_env": "VERCEL_TOKEN",
+            "allow_usage_fallback": False,
+            "focus_mappings": {"fast_data_transfer_gb": {"contains_all": ["fast", "data", "transfer"]}},
+        }
+        payload = json.dumps({"error": {"code": "costs_not_found", "message": "costs_not_found"}})
+        snapshot = {
+            "providers": {
+                "vercel": {
+                    "last_checked_at": "2026-07-07T11:30:00+00:00",
+                    "usage": {
+                        "fast_data_transfer_gb": 0,
+                        "function_invocations": 0,
+                        "active_cpu_hours": 0,
+                        "provisioned_memory_gb_hours": 0,
+                    },
+                }
+            }
+        }
+        with tempfile.TemporaryDirectory() as tmpdir:
+            env = {
+                "NUTSNEWS_FREE_TIER_CACHE_FILE": str(Path(tmpdir) / "cache.json"),
+                "NUTSNEWS_FREE_TIER_QUOTAS_JSON": json.dumps(vercel_quota_config(live)),
+                "NUTSNEWS_FREE_TIER_USAGE_JSON": json.dumps(snapshot),
+                "VERCEL_URL": "https://api.vercel.com/v1/billing/charges?teamId=team_123",
+                "VERCEL_TOKEN": "sentinel-redaction-value",
+            }
+            data = FreeTierCollector(env=env, http_client=TextHttpClient(payload), now=NOW).collect()
+        provider = data["providers"][0]
+        metrics = {metric["key"]: metric for metric in provider["metrics"]}
+        self.assertEqual(provider["status"], "unavailable")
+        self.assertIn("costs_not_found", provider["source_detail"])
+        self.assertIn("fallback is disabled", provider["source_detail"])
+        self.assertIsNone(metrics["fast_data_transfer_gb"]["usage"])
+        self.assertEqual(metrics["fast_data_transfer_gb"]["usage_display"], "unknown")
+        self.assertEqual(metrics["fast_data_transfer_gb"]["measurement_status"], "unavailable")
+        self.assertIn("costs_not_found", metrics["fast_data_transfer_gb"]["measurement_detail"])
         self.assertNotIn("sentinel-redaction-value", json.dumps(data))
         self.assertNotIn("team_123", json.dumps(data))
 
