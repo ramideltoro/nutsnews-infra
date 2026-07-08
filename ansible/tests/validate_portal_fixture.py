@@ -123,6 +123,8 @@ require("free_tier_alerts" in COLLECTOR, "Collector must emit free-tier alert pr
 require("NUTSNEWS_FREE_TIER_QUOTAS_JSON" in FREE_TIER_ENV, "Free-tier env must pass quota config.")
 require("NUTSNEWS_GITHUB_ACTIONS_USAGE_API_URL" in FREE_TIER_ENV, "Free-tier env must pass GitHub usage URL.")
 require("NUTSNEWS_CLOUDFLARE_ACCOUNT_ID" in FREE_TIER_ENV, "Free-tier env must pass Cloudflare account ID.")
+require("DEFAULT_FREE_TIER_ENV_FILE" in FREE_TIER_COLLECTOR, "Free-tier collector must know the root-only env file.")
+require("runtime_env_with_free_tier_file" in FREE_TIER_COLLECTOR, "Free-tier collector must load the env file when env is missing.")
 require("vps_service_foundation_free_tier_env_file" in COLLECTOR_UNIT, "Collector unit must load the free-tier env file.")
 require(
     "vps_service_foundation_source_free_tier_collector_module" in TASKS
