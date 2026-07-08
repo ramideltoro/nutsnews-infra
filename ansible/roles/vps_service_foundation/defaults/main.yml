@@ -101,7 +101,7 @@ vps_service_foundation_free_tier_quotas:
     platform: Vercel
     plan: Hobby Free
     quota_source: https://vercel.com/docs/limits
-    quota_last_verified: "2026-07-07"
+    quota_last_verified: "2026-07-08"
     notes: Free Hobby usage summary. Override these values if the account plan or official limits change.
     live:
       type: json_api
@@ -137,7 +137,7 @@ vps_service_foundation_free_tier_quotas:
     platform: Sentry
     plan: Developer Free
     quota_source: https://sentry.io/pricing/
-    quota_last_verified: "2026-07-07"
+    quota_last_verified: "2026-07-08"
     notes: Free Developer plan allowances. Sentry stats use accepted events over the last 30 days when org/read token and org slug are configured.
     live:
       type: sentry_stats_v2
@@ -172,7 +172,7 @@ vps_service_foundation_free_tier_quotas:
     platform: Cloudflare
     plan: Free
     quota_source: https://developers.cloudflare.com/workers/platform/limits/
-    quota_last_verified: "2026-07-07"
+    quota_last_verified: "2026-07-08"
     notes: Workers, Pages, and R2 free limits used by NutsNews edge and Grafana state workflows.
     live:
       type: json_api
@@ -214,7 +214,7 @@ vps_service_foundation_free_tier_quotas:
     platform: Better Stack
     plan: Free
     quota_source: https://betterstack.com/pricing
-    quota_last_verified: "2026-07-07"
+    quota_last_verified: "2026-07-08"
     notes: Free personal project allowances for monitoring, telemetry, and RUM/error tracking.
     live:
       type: json_api
@@ -262,7 +262,7 @@ vps_service_foundation_free_tier_quotas:
     platform: Supabase
     plan: Free
     quota_source: https://supabase.com/docs/guides/platform/billing-on-supabase
-    quota_last_verified: "2026-07-07"
+    quota_last_verified: "2026-07-08"
     notes: Free organization and project quotas. Database size is per project; other quotas are organization-level unless Supabase changes billing semantics.
     live:
       type: json_api
@@ -310,7 +310,7 @@ vps_service_foundation_free_tier_quotas:
     platform: Grafana Cloud
     plan: Free
     quota_source: https://grafana.com/pricing/
-    quota_last_verified: "2026-07-07"
+    quota_last_verified: "2026-07-08"
     notes: Grafana Cloud Free allowances. Existing Terraform dashboards also use grafanacloud-usage metrics where configured.
     live:
       type: json_api

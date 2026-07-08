@@ -43,7 +43,7 @@ def quota_config(live: dict | None = None) -> list[dict]:
         "key": "demo",
         "platform": "Demo",
         "quota_source": "https://example.invalid/docs",
-        "quota_last_verified": "2026-07-07",
+        "quota_last_verified": "2026-07-08",
         "metrics": [
             {
                 "key": "requests",
