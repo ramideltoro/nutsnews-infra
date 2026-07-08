@@ -198,6 +198,12 @@ class ApiRequestError(Exception):
 
 
 class JsonHttpClient:
+    def encoded_url(self, url: str, params: dict[str, str] | None = None) -> str:
+        if not params:
+            return url
+        separator = "&" if "?" in url else "?"
+        return f"{url}{separator}{urllib.parse.urlencode(params, doseq=True)}"
+
     def get_json(
         self,
         url: str,
@@ -205,12 +211,18 @@ class JsonHttpClient:
         params: dict[str, str] | None = None,
         timeout: int = 8,
     ) -> Any:
-        encoded_url = url
-        if params:
-            separator = "&" if "?" in url else "?"
-            encoded_url = f"{url}{separator}{urllib.parse.urlencode(params, doseq=True)}"
-        request = urllib.request.Request(encoded_url, headers=headers or {}, method="GET")
+        request = urllib.request.Request(self.encoded_url(url, params), headers=headers or {}, method="GET")
         return self.open_json(request, timeout)
+
+    def get_text(
+        self,
+        url: str,
+        headers: dict[str, str] | None = None,
+        params: dict[str, str] | None = None,
+        timeout: int = 8,
+    ) -> str:
+        request = urllib.request.Request(self.encoded_url(url, params), headers=headers or {}, method="GET")
+        return self.open_text(request, timeout)
 
     def open_json(self, request: urllib.request.Request, timeout: int = 8) -> Any:
         try:
@@ -223,6 +235,33 @@ class JsonHttpClient:
                     raise ApiRequestError(
                         status_code=response.status,
                         content_type=content_type,
+                        body=body,
+                        error_class=exc.__class__.__name__,
+                    ) from exc
+        except urllib.error.HTTPError as exc:
+            body = exc.read()
+            raise ApiRequestError(
+                status_code=exc.code,
+                reason=str(exc.reason),
+                content_type=exc.headers.get("content-type", "") if exc.headers else "",
+                body=body,
+                error_class="HTTPError",
+            ) from exc
+        except urllib.error.URLError as exc:
+            raise ApiRequestError(reason=str(exc.reason), error_class=exc.__class__.__name__) from exc
+        except (OSError, TimeoutError) as exc:
+            raise ApiRequestError(reason=str(exc), error_class=exc.__class__.__name__) from exc
+
+    def open_text(self, request: urllib.request.Request, timeout: int = 8) -> str:
+        try:
+            with urllib.request.urlopen(request, timeout=timeout) as response:
+                body = response.read()
+                try:
+                    return body.decode("utf-8")
+                except UnicodeDecodeError as exc:
+                    raise ApiRequestError(
+                        status_code=response.status,
+                        content_type=response.headers.get("content-type", ""),
                         body=body,
                         error_class=exc.__class__.__name__,
                     ) from exc
@@ -488,6 +527,8 @@ class FreeTierCollector:
             return self.collect_cloudflare_graphql(live)
         if live_type == "grafana_cloud_usage":
             return self.collect_grafana_cloud_usage(live)
+        if live_type == "vercel_billing_charges":
+            return self.collect_vercel_billing_charges(live)
         if live_type == "json_api":
             return self.collect_json_api(live)
         return ApiResult("unknown", detail="Unsupported live usage collector type.")
@@ -626,6 +667,162 @@ class FreeTierCollector:
                 detail = f"{detail} Provider message: {message}."
             return ApiResult("unavailable", detail=detail)
         return ApiResult("live", metrics=metrics, detail="Usage loaded from provider API.")
+
+    def collect_vercel_billing_charges(self, live: dict[str, Any]) -> ApiResult:
+        url_env = str(live.get("url_env", "NUTSNEWS_VERCEL_USAGE_API_URL")).strip()
+        token_env = str(live.get("token_env", "NUTSNEWS_VERCEL_API_TOKEN")).strip()
+        url = self.env.get(url_env, "").strip() if url_env else ""
+        token = self.env.get(token_env, "").strip() if token_env else ""
+        if not url or not token:
+            missing = []
+            if not url:
+                missing.append(url_env or "Vercel billing charges URL")
+            if not token:
+                missing.append(token_env or "Vercel API token")
+            return ApiResult(
+                "not configured",
+                detail=f"Missing {', '.join(missing)}; configure read-only Vercel billing usage access.",
+            )
+        if not url.startswith("https://"):
+            return ApiResult("unavailable", detail="Vercel billing charges endpoint must use HTTPS.")
+        if str(live.get("method", "GET")).upper() != "GET":
+            return ApiResult("unavailable", detail="Only read-only GET Vercel usage requests are supported.")
+
+        headers = {
+            "Accept": "application/x-ndjson, application/json;q=0.9",
+            "Authorization": f"Bearer {token}",
+        }
+        try:
+            body = self.http_client.get_text(
+                url,
+                headers=headers,
+                params=self.query_params(live),
+                timeout=self.http_timeout(),
+            )
+        except ApiRequestError as exc:
+            return ApiResult("unavailable", detail=self.api_error_detail("Vercel billing charges API", exc))
+        except (OSError, TimeoutError, urllib.error.URLError, urllib.error.HTTPError, json.JSONDecodeError) as exc:
+            return ApiResult("unavailable", detail=f"Vercel billing charges API request failed: {exc.__class__.__name__}.")
+
+        records, parse_detail = self.vercel_focus_records(body)
+        if not records:
+            detail = parse_detail or "Vercel billing charges response did not include FOCUS charge records."
+            return ApiResult("unavailable", detail=detail)
+
+        metrics = self.vercel_focus_metrics(records, live.get("focus_mappings", {}))
+        if not metrics:
+            sample_services = sorted(
+                {
+                    sanitize_text(row.get("ServiceName") or row.get("ServiceCategory") or "unknown", limit=80)
+                    for row in records
+                    if isinstance(row, dict)
+                }
+            )[:5]
+            detail = "Vercel billing charges did not include configured quota metric records."
+            if sample_services:
+                detail = f"{detail} Returned services: {', '.join(sample_services)}."
+            return ApiResult("unavailable", detail=detail)
+
+        configured_keys = set((live.get("focus_mappings") or {}).keys())
+        missing = sorted(configured_keys - set(metrics.keys()))
+        detail = "Usage loaded from Vercel FOCUS billing charges API."
+        if missing:
+            detail = f"{detail} Missing configured metrics: {', '.join(missing)}."
+        return ApiResult("live", metrics=metrics, detail=detail)
+
+    def vercel_focus_records(self, body: str) -> tuple[list[dict[str, Any]], str]:
+        stripped = body.strip()
+        if not stripped:
+            return [], "Vercel billing charges response was empty."
+
+        if stripped[0] in "[{":
+            try:
+                parsed = json.loads(stripped)
+            except json.JSONDecodeError:
+                parsed = None
+            if isinstance(parsed, list):
+                return [item for item in parsed if isinstance(item, dict)], ""
+            if isinstance(parsed, dict):
+                if self.looks_like_vercel_focus_record(parsed):
+                    return [parsed], ""
+                message = response_message(parsed)
+                if message:
+                    return [], f"Vercel billing charges API returned a message: {message}."
+                data = parsed.get("data") or parsed.get("charges")
+                if isinstance(data, list):
+                    return [item for item in data if isinstance(item, dict)], ""
+                return [], f"Vercel billing charges response was JSON but not FOCUS charges ({response_shape(parsed)})."
+
+        records = []
+        malformed = 0
+        for line in stripped.splitlines():
+            raw = line.strip()
+            if not raw:
+                continue
+            try:
+                item = json.loads(raw)
+            except json.JSONDecodeError:
+                malformed += 1
+                continue
+            if isinstance(item, dict):
+                records.append(item)
+        if not records and malformed:
+            return [], "Vercel billing charges JSONL response could not be parsed."
+        detail = f" Ignored {malformed} malformed JSONL line(s)." if malformed else ""
+        return records, detail.strip()
+
+    def looks_like_vercel_focus_record(self, data: dict[str, Any]) -> bool:
+        return any(key in data for key in ("ConsumedQuantity", "ConsumedUnit", "ServiceName", "ChargePeriodStart"))
+
+    def vercel_focus_metrics(self, records: list[dict[str, Any]], mappings: Any) -> dict[str, float]:
+        if not isinstance(mappings, dict):
+            return {}
+        metrics = {str(key): 0.0 for key in mappings.keys()}
+        matched = {str(key): False for key in mappings.keys()}
+        for record in records:
+            quantity = safe_float(record.get("ConsumedQuantity"))
+            if quantity is None:
+                continue
+            for metric_key, raw_mapping in mappings.items():
+                key = str(metric_key)
+                if not isinstance(raw_mapping, dict):
+                    continue
+                if not self.vercel_focus_record_matches(record, raw_mapping):
+                    continue
+                multiplier = safe_float(raw_mapping.get("usage_multiplier"))
+                metrics[key] += quantity * (1.0 if multiplier is None else multiplier)
+                matched[key] = True
+        return {key: round(value, 4) for key, value in metrics.items() if matched.get(key)}
+
+    def vercel_focus_record_matches(self, record: dict[str, Any], mapping: dict[str, Any]) -> bool:
+        fields = mapping.get("fields", ["ServiceName", "ConsumedUnit", "PricingUnit"])
+        haystack_parts = []
+        if isinstance(fields, list):
+            haystack_parts = [str(record.get(str(field), "")) for field in fields]
+        haystack = self.normalized_text(" ".join(haystack_parts))
+
+        required_any = mapping.get("contains_any", [])
+        if isinstance(required_any, str):
+            required_any = [required_any]
+        if required_any and not any(self.normalized_text(term) in haystack for term in required_any):
+            return False
+
+        required_all = mapping.get("contains_all", [])
+        if isinstance(required_all, str):
+            required_all = [required_all]
+        if required_all and not all(self.normalized_text(term) in haystack for term in required_all):
+            return False
+
+        unit_any = mapping.get("unit_contains_any", [])
+        if isinstance(unit_any, str):
+            unit_any = [unit_any]
+        unit = self.normalized_text(str(record.get("ConsumedUnit", "")))
+        if unit_any and not any(self.normalized_text(term) in unit for term in unit_any):
+            return False
+        return True
+
+    def normalized_text(self, value: Any) -> str:
+        return " ".join(str(value).lower().replace("_", " ").replace("-", " ").split())
 
     def collect_sentry_stats(self, provider_config: dict[str, Any], live: dict[str, Any]) -> ApiResult:
         token_env = str(live.get("token_env", "NUTSNEWS_SENTRY_AUTH_TOKEN")).strip()

@@ -43,6 +43,28 @@ class FakeHttpClient:
         return self.payload
 
 
+class TextHttpClient:
+    def __init__(self, payload: str | Exception) -> None:
+        self.payload = payload
+        self.headers: list[dict[str, str]] = []
+        self.params: list[dict[str, str]] = []
+        self.urls: list[str] = []
+
+    def get_text(self, url, headers=None, params=None, timeout=8):  # noqa: ANN001, ANN201
+        self.urls.append(url)
+        self.headers.append(headers or {})
+        self.params.append(params or {})
+        if isinstance(self.payload, Exception):
+            raise self.payload
+        return self.payload
+
+    def get_json(self, url, headers=None, params=None, timeout=8):  # noqa: ANN001, ANN201
+        raise AssertionError("Vercel billing charges collector must read text JSONL.")
+
+    def post_json(self, url, body, headers=None, timeout=8):  # noqa: ANN001, ANN201
+        raise AssertionError("Vercel billing charges collector must use GET.")
+
+
 class GitHubHttpClient:
     def __init__(self) -> None:
         self.urls: list[str] = []
@@ -177,6 +199,22 @@ def grafana_quota_config(live: dict) -> list[dict]:
             "metrics": [
                 {"key": "metrics_active_series", "label": "Metrics Active Series", "unit": "active series/month", "limit": 10000},
                 {"key": "logs_ingested_gb", "label": "Logs Ingested", "unit": "GB/month", "limit": 50},
+            ],
+            "live": live,
+        }
+    ]
+
+
+def vercel_quota_config(live: dict) -> list[dict]:
+    return [
+        {
+            "key": "vercel",
+            "platform": "Vercel",
+            "metrics": [
+                {"key": "fast_data_transfer_gb", "label": "Fast Data Transfer", "unit": "GB/month", "limit": 100},
+                {"key": "function_invocations", "label": "Function Invocations", "unit": "invocations/month", "limit": 1000000},
+                {"key": "active_cpu_hours", "label": "Active CPU", "unit": "CPU-hours/month", "limit": 4},
+                {"key": "provisioned_memory_gb_hours", "label": "Provisioned Memory", "unit": "GB-hours/month", "limit": 360},
             ],
             "live": live,
         }
@@ -363,6 +401,105 @@ class FreeTierUsageTests(unittest.TestCase):
         provider = data["providers"][0]
         self.assertEqual(provider["status"], "not configured")
         self.assertIn("GRAFANA_URL", provider["source_detail"])
+
+    def test_vercel_billing_charges_jsonl_usage(self) -> None:
+        live = {
+            "type": "vercel_billing_charges",
+            "url_env": "VERCEL_URL",
+            "token_env": "VERCEL_TOKEN",
+            "query_params": {
+                "from": "__current_month_start_iso__",
+                "to": "__now_iso__",
+            },
+            "focus_mappings": {
+                "fast_data_transfer_gb": {
+                    "contains_all": ["fast", "data", "transfer"],
+                    "unit_contains_any": ["gb"],
+                },
+                "function_invocations": {
+                    "contains_all": ["function", "invocation"],
+                    "unit_contains_any": ["invocation"],
+                },
+                "active_cpu_hours": {
+                    "contains_all": ["active", "cpu"],
+                    "unit_contains_any": ["hour"],
+                },
+                "provisioned_memory_gb_hours": {
+                    "contains_all": ["provisioned", "memory"],
+                    "unit_contains_any": ["gb"],
+                },
+            },
+        }
+        payload = "\n".join(
+            [
+                json.dumps({"ServiceName": "Fast Data Transfer", "ConsumedQuantity": "12.5", "ConsumedUnit": "GB"}),
+                json.dumps({"ServiceName": "Function Invocations", "ConsumedQuantity": "2000", "ConsumedUnit": "invocations"}),
+                json.dumps({"ServiceName": "Active CPU", "ConsumedQuantity": "1.25", "ConsumedUnit": "hours"}),
+                json.dumps({"ServiceName": "Provisioned Memory", "ConsumedQuantity": "18", "ConsumedUnit": "GB-Hours"}),
+                json.dumps({"ServiceName": "Fast Data Transfer", "ConsumedQuantity": "2.5", "ConsumedUnit": "GB"}),
+            ]
+        )
+        client = TextHttpClient(payload)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            env = {
+                "NUTSNEWS_FREE_TIER_CACHE_FILE": str(Path(tmpdir) / "cache.json"),
+                "NUTSNEWS_FREE_TIER_QUOTAS_JSON": json.dumps(vercel_quota_config(live)),
+                "VERCEL_URL": "https://api.vercel.com/v1/billing/charges?teamId=team_123",
+                "VERCEL_TOKEN": "sentinel-redaction-value",
+            }
+            data = FreeTierCollector(env=env, http_client=client, now=NOW).collect()
+        provider = data["providers"][0]
+        usage_by_key = {metric["key"]: metric["usage"] for metric in provider["metrics"]}
+        self.assertEqual(provider["status"], "live")
+        self.assertEqual(usage_by_key["fast_data_transfer_gb"], 15)
+        self.assertEqual(usage_by_key["function_invocations"], 2000)
+        self.assertEqual(usage_by_key["active_cpu_hours"], 1.25)
+        self.assertEqual(usage_by_key["provisioned_memory_gb_hours"], 18)
+        self.assertEqual(client.urls, ["https://api.vercel.com/v1/billing/charges?teamId=team_123"])
+        self.assertEqual(client.params[0]["from"], "2026-07-01T00:00:00Z")
+        self.assertEqual(client.params[0]["to"], "2026-07-07T12:00:00Z")
+        self.assertIn("Authorization", client.headers[0])
+        self.assertNotIn("sentinel-redaction-value", json.dumps(data))
+        self.assertNotIn("team_123", json.dumps(data))
+
+    def test_vercel_billing_charges_missing_env_is_actionable(self) -> None:
+        live = {
+            "type": "vercel_billing_charges",
+            "url_env": "VERCEL_URL",
+            "token_env": "VERCEL_TOKEN",
+        }
+        with tempfile.TemporaryDirectory() as tmpdir:
+            env = {
+                "NUTSNEWS_FREE_TIER_CACHE_FILE": str(Path(tmpdir) / "cache.json"),
+                "NUTSNEWS_FREE_TIER_QUOTAS_JSON": json.dumps(vercel_quota_config(live)),
+                "VERCEL_URL": "https://api.vercel.com/v1/billing/charges",
+            }
+            data = FreeTierCollector(env=env, http_client=TextHttpClient(""), now=NOW).collect()
+        provider = data["providers"][0]
+        self.assertEqual(provider["status"], "not configured")
+        self.assertIn("VERCEL_TOKEN", provider["source_detail"])
+
+    def test_vercel_billing_charges_provider_message_is_sanitized(self) -> None:
+        live = {
+            "type": "vercel_billing_charges",
+            "url_env": "VERCEL_URL",
+            "token_env": "VERCEL_TOKEN",
+            "focus_mappings": {"fast_data_transfer_gb": {"contains_all": ["fast", "data", "transfer"]}},
+        }
+        payload = json.dumps({"error": {"code": "costs_not_found", "message": "costs_not_found"}})
+        with tempfile.TemporaryDirectory() as tmpdir:
+            env = {
+                "NUTSNEWS_FREE_TIER_CACHE_FILE": str(Path(tmpdir) / "cache.json"),
+                "NUTSNEWS_FREE_TIER_QUOTAS_JSON": json.dumps(vercel_quota_config(live)),
+                "VERCEL_URL": "https://api.vercel.com/v1/billing/charges?teamId=team_123",
+                "VERCEL_TOKEN": "sentinel-redaction-value",
+            }
+            data = FreeTierCollector(env=env, http_client=TextHttpClient(payload), now=NOW).collect()
+        provider = data["providers"][0]
+        self.assertEqual(provider["status"], "unavailable")
+        self.assertIn("costs_not_found", provider["source_detail"])
+        self.assertNotIn("sentinel-redaction-value", json.dumps(data))
+        self.assertNotIn("team_123", json.dumps(data))
 
     def test_sentry_base_url_accepts_api_root(self) -> None:
         live = {
