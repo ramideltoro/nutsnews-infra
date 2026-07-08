@@ -131,6 +131,25 @@ require(
 )
 require("free-tier-usage.env.j2" in TASKS, "Free-tier env template must be installed by Ansible.")
 require("vps_service_foundation_free_tier_quotas" in DEFAULTS, "Free-tier quota defaults must be config-driven.")
+first_refresh_block = TASKS.split("- name: Refresh operations portal status snapshot", 1)[1].split(
+    "- name: Refresh operations portal reporting status snapshot",
+    1,
+)[0]
+second_refresh_block = TASKS.split("- name: Refresh operations portal status after reporting update", 1)[1].split(
+    "- name: Validate Caddy Compose configuration",
+    1,
+)[0]
+for refresh_block in (first_refresh_block, second_refresh_block):
+    require("ansible.builtin.systemd_service" in refresh_block, "Portal status refresh must use systemd.")
+    require(
+        "vps_service_foundation_collector_service" in refresh_block,
+        "Portal status refresh must use the collector service with its EnvironmentFile.",
+    )
+    require("state: restarted" in refresh_block, "Portal status refresh must rerun the one-shot collector service.")
+    require(
+        "vps_service_foundation_collector_bin" not in refresh_block,
+        "Portal status refresh must not bypass the collector unit free-tier env.",
+    )
 for quota_key in (
     "fast_origin_transfer_gb",
     "logs_gb",
