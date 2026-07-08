@@ -108,17 +108,39 @@ vps_service_foundation_free_tier_quotas:
     quota_last_verified: "2026-07-08"
     notes: Free Hobby usage summary. Override these values if the account plan or official limits change.
     live:
-      type: json_api
+      type: vercel_billing_charges
       url_env: NUTSNEWS_VERCEL_USAGE_API_URL
       token_env: NUTSNEWS_VERCEL_API_TOKEN
       query_params:
         from: __current_month_start_iso__
         to: __now_iso__
-      metric_paths:
-        active_cpu_hours: usage.active_cpu_hours
-        provisioned_memory_gb_hours: usage.provisioned_memory_gb_hours
-        function_invocations: usage.function_invocations
-        fast_data_transfer_gb: usage.fast_data_transfer_gb
+      focus_mappings:
+        active_cpu_hours:
+          contains_all:
+            - active
+            - cpu
+          unit_contains_any:
+            - hour
+        provisioned_memory_gb_hours:
+          contains_all:
+            - provisioned
+            - memory
+          unit_contains_any:
+            - gb
+            - hour
+        function_invocations:
+          contains_all:
+            - function
+            - invocation
+          unit_contains_any:
+            - invocation
+        fast_data_transfer_gb:
+          contains_all:
+            - fast
+            - data
+            - transfer
+          unit_contains_any:
+            - gb
     metrics:
       - key: fast_data_transfer_gb
         label: Fast Data Transfer
