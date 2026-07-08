@@ -372,6 +372,14 @@ a:hover {
   font-size: 1rem;
 }
 
+.quota-card__header small {
+  display: block;
+  margin-top: 0.2rem;
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 720;
+}
+
 .quota-card__usage {
   display: grid;
   gap: 0.2rem;
@@ -391,6 +399,21 @@ a:hover {
   color: var(--muted);
   font-size: 0.82rem;
   line-height: 1.35;
+}
+
+.quota-card__bar {
+  overflow: hidden;
+  height: 0.55rem;
+  margin-top: 0.85rem;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.quota-card__bar span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--ok), var(--warn), var(--danger));
 }
 
 .quota-card__details {

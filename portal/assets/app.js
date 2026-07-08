@@ -91,16 +91,29 @@ function shortCommit(value) {
 
 function levelClass(level) {
   const normalized = String(level).toLowerCase();
-  if (["critical", "failed", "inactive", "exited", "unhealthy", "send failed", "stale", "unavailable"].includes(normalized)) {
+  if (
+    [
+      "critical",
+      "over limit",
+      "over_limit",
+      "failed",
+      "inactive",
+      "exited",
+      "unhealthy",
+      "send failed",
+      "stale",
+      "unavailable",
+    ].includes(normalized)
+  ) {
     return "pill--danger";
   }
   if (["warning", "degraded", "unknown", "misconfigured", "disabled", "never", "busy", "cached"].includes(normalized)) {
     return "pill--warn";
   }
-  if (["ok", "active", "running", "healthy", "enabled", "configured", "sent", "success", "fresh", "live"].includes(normalized)) {
+  if (["ok", "safe", "active", "running", "healthy", "enabled", "configured", "sent", "success", "fresh", "live"].includes(normalized)) {
     return "pill--ok";
   }
-  if (["not configured"].includes(normalized)) {
+  if (["not configured", "not_configured"].includes(normalized)) {
     return "pill--muted";
   }
   return "pill--muted";
@@ -336,14 +349,14 @@ function renderEmailReporting(data) {
 }
 
 function freeTierState(provider) {
-  const health = String(provider.health || "").toLowerCase();
-  if (health === "critical") {
+  const risk = String(provider.risk_status || provider.health || "").toLowerCase();
+  if (risk === "critical" || risk === "over_limit") {
     return "danger";
   }
-  if (health === "warning") {
+  if (risk === "warning") {
     return "warn";
   }
-  if (health === "healthy") {
+  if (risk === "safe" || risk === "healthy") {
     return "ok";
   }
   return "unknown";
@@ -352,15 +365,24 @@ function freeTierState(provider) {
 function quotaCard(provider) {
   const state = freeTierState(provider);
   const stale = provider.stale ? " " + pill("stale") : "";
+  const usedPercent = clamp(provider.percent_used);
+  const sourceStatus = provider.source_status || provider.status;
+  const riskLabel = provider.risk_label || provider.risk_status || provider.health;
   return `
     <article class="quota-card quota-card--${state}">
       <div class="quota-card__header">
-        <h3>${escapeHtml(provider.platform)}</h3>
-        <span>${pill(provider.status)}${stale}</span>
+        <div>
+          <h3>${escapeHtml(provider.platform)}</h3>
+          <small>${escapeHtml(text(provider.plan, "Free"))}</small>
+        </div>
+        <span>${pill(riskLabel)} ${pill(sourceStatus)}${stale}</span>
       </div>
       <div class="quota-card__usage">
         <strong>${escapeHtml(text(provider.current_usage))}</strong>
         <span>of ${escapeHtml(text(provider.quota))}</span>
+      </div>
+      <div class="quota-card__bar" aria-hidden="true">
+        <span style="width: ${usedPercent}%"></span>
       </div>
       <dl class="quota-card__details">
         <div><dt>Remaining</dt><dd>${escapeHtml(text(provider.remaining))}</dd></div>
@@ -376,9 +398,18 @@ function quotaCard(provider) {
 function renderFreeTierUsage(data) {
   const freeTier = data.free_tier_usage || {};
   const providers = freeTier.providers || [];
+  const summary = freeTier.summary || {};
   $("free-tier-updated").textContent = providers.length
     ? `Quota config verified in provider docs; snapshot ${text(freeTier.generated_at)}`
     : "No free-tier provider quota configuration found.";
+  renderStats("free-tier-summary", [
+    { label: "Services", value: text(summary.total_services, providers.length), hint: "tracked usage-limited services" },
+    { label: "Safe", value: text(summary.safe, "0"), hint: "below warning threshold" },
+    { label: "Warning", value: text(summary.warning, "0"), hint: "70% or higher" },
+    { label: "Critical", value: text(summary.critical, "0"), hint: "85% or higher" },
+    { label: "Over Limit", value: text(summary.over_limit, "0"), hint: "100% or higher" },
+    { label: "Unknown", value: text(summary.unknown_or_not_configured, "0"), hint: "missing or unavailable source" },
+  ]);
 
   $("free-tier-gauges").innerHTML = providers
     .map((provider) => {
@@ -408,12 +439,17 @@ function renderFreeTierUsage(data) {
           <td>${escapeHtml(text(metric.remaining_display))}</td>
           <td>${escapeHtml(text(metric.percent_used_display))}</td>
           <td>${escapeHtml(text(metric.percent_remaining_display))}</td>
-          <td>${pill(provider.status)}</td>
+          <td>${escapeHtml(text(metric.period))}</td>
+          <td>${escapeHtml(text(metric.reset_at))}</td>
+          <td>
+            ${pill(provider.risk_label || provider.risk_status || metric.risk_status)}
+            ${pill(provider.source_status || provider.status)}
+          </td>
         </tr>
       `,
     ),
   );
-  renderTable("free-tier-table", rows, "No free-tier usage metrics found.", 8);
+  renderTable("free-tier-table", rows, "No free-tier usage metrics found.", 10);
 }
 
 function renderResources(data) {

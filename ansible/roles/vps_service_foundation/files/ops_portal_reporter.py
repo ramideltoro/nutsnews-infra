@@ -230,6 +230,40 @@ def backup_lines(backups: dict[str, Any]) -> list[str]:
     ]
 
 
+def free_tier_lines(free_tier: dict[str, Any]) -> list[str]:
+    providers = free_tier.get("providers", [])
+    if not isinstance(providers, list) or not providers:
+        return ["- No free-tier usage providers are configured."]
+
+    lines = []
+    summary = free_tier.get("summary", {}) if isinstance(free_tier.get("summary"), dict) else {}
+    if summary:
+        lines.append(
+            "- "
+            f"Safe={summary.get('safe', 0)} "
+            f"warning={summary.get('warning', 0)} "
+            f"critical={summary.get('critical', 0)} "
+            f"over_limit={summary.get('over_limit', 0)} "
+            f"unknown={summary.get('unknown_or_not_configured', 0)}"
+        )
+
+    for provider in providers[:12]:
+        if not isinstance(provider, dict):
+            continue
+        lines.append(
+            "- "
+            f"{provider.get('platform', provider.get('key', 'unknown'))}: "
+            f"{provider.get('risk_label') or provider.get('risk_status') or provider.get('health', 'unknown')}, "
+            f"{provider.get('remaining', 'unknown')} remaining, "
+            f"{provider.get('percent_used_display', 'unknown')} used, "
+            f"source={provider.get('source_status') or provider.get('status', 'unknown')}, "
+            f"checked={provider.get('last_checked_at', 'unknown')}"
+        )
+    if len(providers) > 12:
+        lines.append(f"- {len(providers) - 12} additional provider(s) omitted from email.")
+    return lines
+
+
 def health_report_body(status: dict[str, Any]) -> str:
     host = status.get("host", {})
     resources = status.get("resources", {})
@@ -239,6 +273,7 @@ def health_report_body(status: dict[str, Any]) -> str:
     processes = status.get("processes", {})
     disk_usage = status.get("disk_usage", {})
     backups = status.get("backups", {})
+    free_tier = status.get("free_tier_usage", {})
 
     lines = [
         "NutsNews VPS health report",
@@ -256,7 +291,7 @@ def health_report_body(status: dict[str, Any]) -> str:
         "",
         "Current warnings and critical alerts",
     ]
-    lines.extend([f"- {alert['level']}: {alert['message']}" for alert in alerts] or ["- None. Suspiciously civilized."])
+    lines.extend([f"- {alert['level']}: {alert['message']}" for alert in alerts] or ["- None."])
     lines.extend(
         [
             "",
@@ -278,6 +313,9 @@ def health_report_body(status: dict[str, Any]) -> str:
             "",
             "VPS backup summary",
             *backup_lines(backups),
+            "",
+            "Free-tier usage summary",
+            *free_tier_lines(free_tier),
             "",
             "Reminder: this report is read-only. Fixes still go through PR, CI, merge, and protected apply.",
         ]

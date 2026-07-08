@@ -15,8 +15,10 @@ from typing import Any
 
 
 ALLOWED_SOURCE_STATUSES = {"live", "cached", "not configured", "unavailable", "unknown"}
+ALLOWED_RISK_STATUSES = {"safe", "warning", "critical", "over_limit", "unknown", "not_configured"}
 DEFAULT_WARNING_USED_PERCENT = 70.0
-DEFAULT_CRITICAL_USED_PERCENT = 90.0
+DEFAULT_CRITICAL_USED_PERCENT = 85.0
+DEFAULT_OVER_LIMIT_USED_PERCENT = 100.0
 
 
 def utc_now() -> str:
@@ -110,12 +112,41 @@ def display_number(value: float | None) -> str:
 def display_amount(value: float | None, unit: str) -> str:
     if value is None:
         return "unknown"
+    if unit == "%":
+        return f"{display_number(value)}%"
     suffix = f" {unit}" if unit else ""
     return f"{display_number(value)}{suffix}"
 
 
 def display_percent(value: float | None) -> str:
     return "unknown" if value is None else f"{value:.1f}%"
+
+
+def risk_counts(providers: list[dict[str, Any]]) -> dict[str, int]:
+    counts = {status: 0 for status in ALLOWED_RISK_STATUSES}
+    for provider in providers:
+        status = str(provider.get("risk_status") or provider.get("health") or "unknown").lower()
+        if status == "healthy":
+            status = "safe"
+        if status not in counts:
+            status = "unknown"
+        counts[status] += 1
+    return counts
+
+
+def summarize_providers(providers: list[dict[str, Any]]) -> dict[str, Any]:
+    counts = risk_counts(providers)
+    return {
+        "total_services": len(providers),
+        "safe": counts["safe"],
+        "ok": counts["safe"],
+        "warning": counts["warning"],
+        "critical": counts["critical"],
+        "over_limit": counts["over_limit"],
+        "unknown": counts["unknown"],
+        "not_configured": counts["not_configured"],
+        "unknown_or_not_configured": counts["unknown"] + counts["not_configured"],
+    }
 
 
 class ApiResult:
@@ -183,6 +214,12 @@ class FreeTierCollector:
             "generated_at": self.now.isoformat(),
             "cache_file": str(cache_file),
             "cache_ttl_seconds": cache_ttl_seconds,
+            "thresholds": {
+                "warning_used_percent": DEFAULT_WARNING_USED_PERCENT,
+                "critical_used_percent": DEFAULT_CRITICAL_USED_PERCENT,
+                "over_limit_used_percent": DEFAULT_OVER_LIMIT_USED_PERCENT,
+            },
+            "summary": summarize_providers(providers),
             "guardrails": [
                 "Read-only collectors only; provider mutations and automatic upgrades are intentionally unsupported.",
                 "Quota limits are supplied by Ansible configuration and should be rechecked against provider docs before rollout.",
@@ -285,6 +322,7 @@ class FreeTierCollector:
         return {
             "key": key,
             "platform": platform,
+            "plan": provider_config.get("plan", "Free"),
             "status": source_status if source_status in ALLOWED_SOURCE_STATUSES else "unknown",
             "source_status": source_status if source_status in ALLOWED_SOURCE_STATUSES else "unknown",
             "source_detail": source_detail,
@@ -301,8 +339,21 @@ class FreeTierCollector:
             "percent_used_display": primary["percent_used_display"],
             "percent_remaining_display": primary["percent_remaining_display"],
             "health": primary["health"],
+            "risk_status": self.provider_risk_status(source_status, primary),
+            "risk_label": self.provider_risk_status(source_status, primary).replace("_", " "),
             "metrics": metrics,
         }
+
+    def provider_risk_status(self, source_status: str, primary: dict[str, Any]) -> str:
+        risk_status = str(primary.get("risk_status") or primary.get("health") or "unknown").lower()
+        if risk_status == "healthy":
+            risk_status = "safe"
+        if risk_status in {"unknown", ""}:
+            if source_status == "not configured":
+                return "not_configured"
+            if source_status in {"unavailable", "unknown"}:
+                return "unknown"
+        return risk_status if risk_status in ALLOWED_RISK_STATUSES else "unknown"
 
     def collect_live(self, provider_config: dict[str, Any]) -> ApiResult:
         live = provider_config.get("live")
@@ -459,20 +510,24 @@ class FreeTierCollector:
         remaining_percent = None if used_percent is None else round(max(100.0 - used_percent, 0.0), 1)
         warning = safe_float(metric_config.get("warning_used_percent")) or DEFAULT_WARNING_USED_PERCENT
         critical = safe_float(metric_config.get("critical_used_percent")) or DEFAULT_CRITICAL_USED_PERCENT
+        over_limit = safe_float(metric_config.get("over_limit_used_percent")) or DEFAULT_OVER_LIMIT_USED_PERCENT
         if used_percent is None:
-            health = "unknown"
-        elif used_percent >= critical or (remaining is not None and remaining <= 0):
-            health = "critical"
+            risk_status = "unknown"
+        elif used_percent >= over_limit or (remaining is not None and remaining < 0):
+            risk_status = "over_limit"
+        elif used_percent >= critical:
+            risk_status = "critical"
         elif used_percent >= warning:
-            health = "warning"
+            risk_status = "warning"
         else:
-            health = "healthy"
+            risk_status = "safe"
 
         return {
             "key": key,
             "label": label,
             "unit": unit,
             "period": metric_config.get("period", ""),
+            "reset_at": metric_config.get("reset_at", "unknown"),
             "usage": None if usage is None else round(usage, 2),
             "limit": limit,
             "remaining": remaining,
@@ -483,7 +538,9 @@ class FreeTierCollector:
             "remaining_display": display_amount(remaining, unit),
             "percent_used_display": display_percent(used_percent),
             "percent_remaining_display": display_percent(remaining_percent),
-            "health": health,
+            "health": "healthy" if risk_status == "safe" else risk_status,
+            "risk_status": risk_status,
+            "risk_label": risk_status.replace("_", " "),
         }
 
     def primary_metric(self, metrics: list[dict[str, Any]]) -> dict[str, Any]:
@@ -496,6 +553,8 @@ class FreeTierCollector:
             "percent_used_display": "unknown",
             "percent_remaining_display": "unknown",
             "health": "unknown",
+            "risk_status": "unknown",
+            "risk_label": "unknown",
         }
         if not metrics:
             return unknown

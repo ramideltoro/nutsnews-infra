@@ -12,7 +12,7 @@ Use this runbook after the Ops Portal v1 PR is merged and before applying the se
 - Root-only reporter configuration at `/etc/nutsnews/ops-reporter.env`
 - Alert and daily report timers named `nutsnews-ops-alert-check.timer` and `nutsnews-ops-health-report.timer`
 - Backup status from `/opt/nutsnews/portal-assets/data/backup-status.json`
-- Free-tier usage and remaining quota status for Vercel, Sentry, Cloudflare, Better Stack, Supabase, and Grafana Cloud
+- Free-tier usage and remaining quota status for local VPS resources, Docker storage, backup storage, Vercel, Sentry, Cloudflare, Better Stack, Supabase, Grafana Cloud, and GitHub Actions
 - A Google OAuth gateway in front of every portal route and data endpoint
 - Caddy serving the protected portal publicly at `https://ops.nutsnews.com`
 - Caddy keeping host loopback access at `127.0.0.1:8080` for health checks and SSH tunnel fallback
@@ -39,7 +39,7 @@ The shorthand `https:///api/auth/callback/google` is not a valid runtime URL bec
 
 Email reporting is opt-in. SMTP host, credentials, sender, recipients, and cooldown values come from the protected `production-vps` GitHub Environment and are rendered into a root-only env file during protected apply. If email is disabled or incomplete, the reporter exits cleanly and the portal shows reporting as disabled or misconfigured.
 
-Free Tier Usage is read-only. The quota catalog lives in `vps_service_foundation_free_tier_quotas`; recheck official provider docs before changing those values. Provider credentials are optional and only support read-only collection. If a token, usage endpoint, or normalized snapshot is missing, malformed, or stale, the portal shows `not configured`, `unavailable`, `cached`, or `unknown` for that provider instead of failing the whole dashboard.
+Free Tier Usage is read-only. The quota catalog lives in `vps_service_foundation_free_tier_quotas`; recheck official provider docs before changing those values. Local VPS, Docker, and backup entries come from live read-only collector data. Provider credentials are optional and only support read-only collection. If a token, usage endpoint, or normalized snapshot is missing, malformed, or stale, the portal shows `not configured`, `unavailable`, `cached`, or `unknown` for that provider instead of failing the whole dashboard.
 
 SSH hardening allows `nutsnews_ops` to create only local TCP forwards to `127.0.0.1:8080` or `localhost:8080` for portal access. Remote forwarding, gateway exposure, stream-local forwarding, tunnel devices, and broad forwarding stay disabled.
 
@@ -127,6 +127,7 @@ Optional protected `production-vps` Environment values:
 - `NUTSNEWS_BETTER_STACK_API_TOKEN` and `NUTSNEWS_BETTER_STACK_USAGE_API_URL`
 - `NUTSNEWS_SUPABASE_ACCESS_TOKEN` and `NUTSNEWS_SUPABASE_USAGE_API_URL`
 - `NUTSNEWS_GRAFANA_CLOUD_USAGE_API_TOKEN` and `NUTSNEWS_GRAFANA_CLOUD_USAGE_API_URL`
+- `NUTSNEWS_GITHUB_USAGE_API_TOKEN` and `NUTSNEWS_GITHUB_ACTIONS_USAGE_API_URL`
 
 `NUTSNEWS_FREE_TIER_USAGE_JSON` must be a JSON object. The collector accepts provider-keyed snapshots such as:
 

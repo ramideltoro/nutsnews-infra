@@ -17,9 +17,10 @@ from pathlib import Path
 from typing import Any
 
 try:
-    from ops_free_tier_usage import collect_free_tier_usage
+    from ops_free_tier_usage import collect_free_tier_usage, summarize_providers
 except ImportError:
     collect_free_tier_usage = None
+    summarize_providers = None
 
 
 PRIVATE_KEY_LINE_PATTERN = ".*PRIVATE" + r"\s+" + "KEY.*"
@@ -787,6 +788,282 @@ def free_tier_usage_state() -> dict[str, Any]:
         }
 
 
+def gib(value: Any) -> float | None:
+    try:
+        return round(float(value) / (1024**3), 2)
+    except (TypeError, ValueError):
+        return None
+
+
+def display_number(value: float | None) -> str:
+    if value is None:
+        return "unknown"
+    if abs(value) >= 1000:
+        return f"{value:,.0f}"
+    if value == int(value):
+        return str(int(value))
+    return f"{value:,.2f}".rstrip("0").rstrip(".")
+
+
+def display_amount(value: float | None, unit: str) -> str:
+    if value is None:
+        return "unknown"
+    if unit == "%":
+        return f"{display_number(value)}%"
+    return f"{display_number(value)} {unit}".strip()
+
+
+def display_used_percent(value: float | None) -> str:
+    return "unknown" if value is None else f"{value:.1f}%"
+
+
+def usage_risk_status(used_percent: float | None, remaining: float | None) -> str:
+    if used_percent is None:
+        return "unknown"
+    if used_percent >= 100 or (remaining is not None and remaining < 0):
+        return "over_limit"
+    if used_percent >= 85:
+        return "critical"
+    if used_percent >= 70:
+        return "warning"
+    return "safe"
+
+
+def local_usage_metric(
+    key: str,
+    label: str,
+    used: float | None,
+    limit: float | None,
+    unit: str,
+    period: str,
+) -> dict[str, Any]:
+    remaining = None if used is None or limit is None else round(limit - used, 2)
+    if used is None or limit is None:
+        used_percent = None
+    elif limit <= 0:
+        used_percent = 0.0 if used <= 0 else 100.0
+    else:
+        used_percent = round((used / limit) * 100, 1)
+    remaining_percent = None if used_percent is None else round(max(100.0 - used_percent, 0.0), 1)
+    risk_status = usage_risk_status(used_percent, remaining)
+    return {
+        "key": key,
+        "label": label,
+        "unit": unit,
+        "period": period,
+        "reset_at": "not applicable",
+        "usage": used,
+        "limit": limit,
+        "remaining": remaining,
+        "percent_used": used_percent,
+        "percent_remaining": remaining_percent,
+        "usage_display": display_amount(used, unit),
+        "limit_display": display_amount(limit, unit),
+        "remaining_display": display_amount(remaining, unit),
+        "percent_used_display": display_used_percent(used_percent),
+        "percent_remaining_display": display_used_percent(remaining_percent),
+        "health": "healthy" if risk_status == "safe" else risk_status,
+        "risk_status": risk_status,
+        "risk_label": risk_status.replace("_", " "),
+    }
+
+
+def provider_primary_metric(metrics: list[dict[str, Any]]) -> dict[str, Any]:
+    with_usage = [metric for metric in metrics if metric.get("percent_used") is not None]
+    if with_usage:
+        return max(with_usage, key=lambda item: item.get("percent_used") or 0)
+    return metrics[0] if metrics else local_usage_metric("unknown", "Unknown", None, None, "", "current")
+
+
+def local_usage_provider(
+    key: str,
+    platform_name: str,
+    metrics: list[dict[str, Any]],
+    source_detail: str,
+    notes: str = "",
+    status: str = "live",
+    plan: str = "Current VPS allocation",
+) -> dict[str, Any]:
+    primary = provider_primary_metric(metrics)
+    risk_status = primary.get("risk_status", "unknown")
+    if status == "not configured":
+        risk_status = "not_configured"
+    return {
+        "key": key,
+        "platform": platform_name,
+        "plan": plan,
+        "status": status,
+        "source_status": status,
+        "source_detail": source_detail,
+        "last_checked_at": utc_now() if status == "live" else "unknown",
+        "stale": False,
+        "quota_source": "Live local collector from kernel, filesystem, Docker, and backup status data.",
+        "quota_last_verified": utc_now().split("T", 1)[0],
+        "notes": notes,
+        "current_usage": primary.get("usage_display", "unknown"),
+        "quota": primary.get("limit_display", "unknown"),
+        "remaining": primary.get("remaining_display", "unknown"),
+        "percent_used": primary.get("percent_used"),
+        "percent_remaining": primary.get("percent_remaining"),
+        "percent_used_display": primary.get("percent_used_display", "unknown"),
+        "percent_remaining_display": primary.get("percent_remaining_display", "unknown"),
+        "health": primary.get("health", "unknown"),
+        "risk_status": risk_status,
+        "risk_label": str(risk_status).replace("_", " "),
+        "metrics": metrics,
+    }
+
+
+def directory_size_bytes(path: Path) -> int | None:
+    usage = run(["du", "-sb", str(path)], timeout=8)
+    if not usage["ok"] or not usage["stdout"].strip():
+        return None
+    try:
+        return int(usage["stdout"].split()[0])
+    except (IndexError, ValueError):
+        return None
+
+
+def local_usage_providers(
+    resources: dict[str, Any],
+    docker: dict[str, Any],
+    backups: dict[str, Any],
+) -> list[dict[str, Any]]:
+    disk = resources.get("disk", {})
+    memory = resources.get("memory", {})
+    swap = resources.get("swap", {})
+    root_total_gib = gib(disk.get("total_bytes"))
+
+    providers = [
+        local_usage_provider(
+            "vps_host",
+            "VPS Host",
+            [
+                local_usage_metric(
+                    "cpu_sample_percent",
+                    "CPU Sample",
+                    resources.get("cpu_percent"),
+                    100.0,
+                    "%",
+                    "current",
+                ),
+                local_usage_metric(
+                    "ram_gib",
+                    "RAM",
+                    gib(memory.get("used_bytes")),
+                    gib(memory.get("total_bytes")),
+                    "GiB",
+                    "current",
+                ),
+                local_usage_metric(
+                    "root_disk_gib",
+                    "Root Disk",
+                    gib(disk.get("used_bytes")),
+                    root_total_gib,
+                    "GiB",
+                    "current",
+                ),
+                local_usage_metric(
+                    "swap_gib",
+                    "Swap",
+                    gib(swap.get("used_bytes")),
+                    gib(swap.get("total_bytes")),
+                    "GiB",
+                    "current",
+                ),
+            ],
+            "Usage read directly from /proc and filesystem statistics on the VPS.",
+            "CPU, RAM, root disk, and swap are usage-limited by the current VPS size.",
+        )
+    ]
+
+    docker_size = directory_size_bytes(Path("/var/lib/docker"))
+    docker_metrics = [
+        local_usage_metric(
+            "docker_data_gib",
+            "Docker Data Directory",
+            gib(docker_size),
+            root_total_gib,
+            "GiB",
+            "current",
+        )
+    ]
+    providers.append(
+        local_usage_provider(
+            "docker_storage",
+            "Docker Storage",
+            docker_metrics,
+            "Docker storage is measured with a read-only du scan of /var/lib/docker.",
+            "If /var/lib/docker is missing or unreadable, usage is shown as unavailable rather than estimated.",
+            "live" if docker_size is not None else "unavailable",
+        )
+    )
+
+    backup_size = gib(backups.get("size_bytes"))
+    stale_after_hours = round(safe_int(backups.get("stale_after_seconds"), 108000) / 3600, 2)
+    latest_age = backups.get("latest_snapshot_age_seconds")
+    latest_age_hours = None if latest_age is None else round(safe_int(latest_age) / 3600, 2)
+    backup_metrics = [
+        local_usage_metric(
+            "backup_local_cache_gib",
+            "Local Backup Cache",
+            backup_size,
+            root_total_gib,
+            "GiB",
+            "current",
+        ),
+        local_usage_metric(
+            "latest_snapshot_age_hours",
+            "Latest Snapshot Age",
+            latest_age_hours,
+            stale_after_hours,
+            "hours",
+            "current",
+        ),
+    ]
+    backup_status = "live" if backups.get("enabled") else "not configured"
+    providers.append(
+        local_usage_provider(
+            "backup_storage",
+            "Backup Storage",
+            backup_metrics,
+            "Backup usage combines the local backup cache size and the existing restic freshness status.",
+            "Remote OneDrive quota is not queried here; the portal shows local backup footprint and snapshot freshness.",
+            backup_status,
+        )
+    )
+
+    if not docker.get("available"):
+        providers[-2]["source_detail"] = "Docker CLI is unavailable or returned an error; storage usage is unavailable."
+        providers[-2]["risk_status"] = "unknown"
+        providers[-2]["risk_label"] = "unknown"
+        providers[-2]["health"] = "unknown"
+    return providers
+
+
+def summarize_free_tier_usage(free_tier: dict[str, Any]) -> dict[str, Any]:
+    providers = free_tier.get("providers", [])
+    if not isinstance(providers, list):
+        providers = []
+    if summarize_providers is not None:
+        return summarize_providers(providers)
+    counts = {"safe": 0, "warning": 0, "critical": 0, "over_limit": 0, "unknown": 0, "not_configured": 0}
+    for provider in providers:
+        status = str(provider.get("risk_status") or "unknown")
+        counts[status if status in counts else "unknown"] += 1
+    return {
+        "total_services": len(providers),
+        "safe": counts["safe"],
+        "ok": counts["safe"],
+        "warning": counts["warning"],
+        "critical": counts["critical"],
+        "over_limit": counts["over_limit"],
+        "unknown": counts["unknown"],
+        "not_configured": counts["not_configured"],
+        "unknown_or_not_configured": counts["unknown"] + counts["not_configured"],
+    }
+
+
 def resource_state() -> dict[str, Any]:
     mem = meminfo()
     memory_total = mem.get("MemTotal", 0)
@@ -817,11 +1094,33 @@ def resource_state() -> dict[str, Any]:
     }
 
 
+def free_tier_alerts(free_tier: dict[str, Any]) -> list[dict[str, str]]:
+    alerts = []
+    for provider in free_tier.get("providers", []):
+        if not isinstance(provider, dict):
+            continue
+        risk = str(provider.get("risk_status") or "unknown").lower()
+        if risk not in {"warning", "critical", "over_limit"}:
+            continue
+        level = "critical" if risk in {"critical", "over_limit"} else "warning"
+        name = str(provider.get("platform") or provider.get("key") or "Provider")
+        remaining = provider.get("remaining") or "unknown remaining"
+        used = provider.get("percent_used_display") or "unknown used"
+        alerts.append(
+            {
+                "level": level,
+                "message": f"{name} free-tier usage is {risk.replace('_', ' ')}: {remaining} remaining, {used} used.",
+            }
+        )
+    return alerts
+
+
 def alert_state(
     resources: dict[str, Any],
     docker: dict[str, Any],
     services: list[dict[str, str]],
     backups: dict[str, Any],
+    free_tier: dict[str, Any],
 ) -> list[dict[str, str]]:
     alerts = []
     disk = resources.get("disk", {})
@@ -878,6 +1177,8 @@ def alert_state(
             alerts.append({"level": "warning", "message": "No VPS restic backup snapshot is available yet."})
         elif latest_status == "stale" or (isinstance(latest_age, int) and latest_age > stale_after):
             alerts.append({"level": "critical", "message": "The latest VPS restic backup snapshot is stale."})
+
+    alerts.extend(free_tier_alerts(free_tier))
 
     if not alerts:
         alerts.append({"level": "ok", "message": "No local threshold alerts from the current snapshot."})
@@ -1042,6 +1343,12 @@ def collect() -> dict[str, Any]:
     reporting.update(systemd_timer_schedule("nutsnews-ops-health-report.timer"))
     backups = backup_state()
     app = app_state(docker)
+    free_tier = free_tier_usage_state()
+    external_free_tier_providers = free_tier.get("providers", [])
+    if not isinstance(external_free_tier_providers, list):
+        external_free_tier_providers = []
+    free_tier["providers"] = local_usage_providers(resources, docker, backups) + external_free_tier_providers
+    free_tier["summary"] = summarize_free_tier_usage(free_tier)
 
     return {
         "schema_version": 1,
@@ -1071,11 +1378,11 @@ def collect() -> dict[str, Any]:
         "logs": log_sections(),
         "security": security_state(),
         "backups": backups,
-        "free_tier_usage": free_tier_usage_state(),
+        "free_tier_usage": free_tier,
         "email_reporting": reporting,
         "alerts": {
             "email_configuration": reporting.get("status", "disabled"),
-            "items": alert_state(resources, docker, services, backups),
+            "items": alert_state(resources, docker, services, backups, free_tier),
         },
         "gitops": gitops_state(),
         "app": app,
