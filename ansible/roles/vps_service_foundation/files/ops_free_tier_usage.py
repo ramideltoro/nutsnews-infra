@@ -692,11 +692,6 @@ class FreeTierCollector:
         url_env = str(live.get("url_env", "NUTSNEWS_GITHUB_ACTIONS_USAGE_API_URL")).strip()
         token = self.env.get(token_env, "").strip()
         base_url = (self.env.get(url_env, "").strip() if url_env else "") or str(live.get("url", "")).strip()
-        if not token:
-            return ApiResult(
-                "not configured",
-                detail=f"Missing {token_env}; configure a fine-grained read-only GitHub token for repository Actions metadata.",
-            )
         if not base_url:
             return ApiResult("not configured", detail=f"Missing {url_env}; configure the repository REST API URL.")
         if not base_url.startswith("https://"):
@@ -705,9 +700,10 @@ class FreeTierCollector:
         base_url = base_url.rstrip("/")
         headers = {
             "Accept": "application/vnd.github+json",
-            "Authorization": f"Bearer {token}",
             "X-GitHub-Api-Version": "2022-11-28",
         }
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
         metrics: dict[str, float] = {}
         failures = []
 
@@ -735,20 +731,33 @@ class FreeTierCollector:
                 total_bytes = sum(safe_float(item.get("size_in_bytes")) or 0.0 for item in artifact_items if isinstance(item, dict))
                 metrics["artifact_storage_mb"] = round(total_bytes / (1024**2), 2)
 
-        try:
-            rate = self.http_client.get_json("https://api.github.com/rate_limit", headers=headers, timeout=self.http_timeout())
-        except ApiRequestError as exc:
-            failures.append(self.api_error_detail("GitHub rate-limit API", exc))
-        else:
-            used = safe_float(nested(rate, "resources.core.used"))
-            if used is not None:
-                metrics["rest_api_requests"] = used
+        if token:
+            try:
+                rate = self.http_client.get_json("https://api.github.com/rate_limit", headers=headers, timeout=self.http_timeout())
+            except ApiRequestError as exc:
+                failures.append(self.api_error_detail("GitHub rate-limit API", exc))
+            else:
+                used = safe_float(nested(rate, "resources.core.used"))
+                if used is not None:
+                    metrics["rest_api_requests"] = used
 
         if not metrics:
             detail = failures[0] if failures else "GitHub Actions usage could not be read."
+            if not token:
+                detail = (
+                    f"Missing {token_env}; unauthenticated public GitHub Actions usage could not be read. "
+                    f"{detail}"
+                )
+                return ApiResult("not configured", detail=detail)
             return ApiResult("unavailable", detail=detail)
 
-        detail = "Usage loaded from read-only GitHub REST APIs."
+        if token:
+            detail = "Usage loaded from read-only GitHub REST APIs."
+        else:
+            detail = (
+                "Usage loaded from public GitHub REST APIs without a token. "
+                f"Configure {token_env} for private repository access and authenticated REST rate-limit telemetry."
+            )
         if failures:
             detail = f"{detail} Some metrics are unavailable: {failures[0]}"
         if "hosted_runner_minutes" not in metrics:

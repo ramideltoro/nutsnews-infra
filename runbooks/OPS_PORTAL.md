@@ -150,7 +150,7 @@ Current provider-specific notes:
 - Better Stack monitor usage is read from the monitors API by counting the returned `data` list. Telemetry volume metrics still need a normalized snapshot or a dedicated read-only usage endpoint.
 - Supabase analytics endpoints return `result` rows for a specific metric. If the portal reports missing quota metrics, configure a normalized snapshot or add a collector for the specific Supabase quota metric; do not map unrelated API-request counts to storage, egress, auth, edge function, or realtime quotas.
 - Grafana Cloud billed usage requires numeric `month` and `year` parameters. A `403` response means `NUTSNEWS_GRAFANA_CLOUD_USAGE_API_TOKEN` does not have permission for billed usage on the configured org.
-- GitHub Actions uses `NUTSNEWS_GITHUB_USAGE_API_TOKEN` with `NUTSNEWS_GITHUB_ACTIONS_USAGE_API_URL`. Use a fine-grained read-only token for repository Actions metadata; do not create custom secrets whose names begin with `GITHUB_`.
+- GitHub Actions reads public repository cache and artifact usage without a token when the configured repository API URL is public. Set `NUTSNEWS_GITHUB_USAGE_API_TOKEN` only when private repository access or authenticated REST rate-limit telemetry is needed. Use a fine-grained read-only token for repository Actions metadata; do not create custom secrets whose names begin with `GITHUB_`.
 
 Ansible renders these values into `/etc/nutsnews/free-tier-usage.env` with mode `0600`, and the collector keeps only sanitized status in `/opt/nutsnews/portal-assets/data/status.json`.
 
