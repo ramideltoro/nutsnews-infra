@@ -16,6 +16,7 @@ from typing import Any
 
 
 ALLOWED_SOURCE_STATUSES = {"live", "cached", "not configured", "unavailable", "unknown"}
+ALLOWED_MEASUREMENT_STATUSES = {"measured", "missing credential", "unavailable", "unsupported", "unknown"}
 ALLOWED_RISK_STATUSES = {"safe", "warning", "critical", "over_limit", "unknown", "not_configured"}
 DEFAULT_WARNING_USED_PERCENT = 70.0
 DEFAULT_CRITICAL_USED_PERCENT = 85.0
@@ -159,8 +160,34 @@ def risk_counts(providers: list[dict[str, Any]]) -> dict[str, int]:
 
 def summarize_providers(providers: list[dict[str, Any]]) -> dict[str, Any]:
     counts = risk_counts(providers)
+    metrics = [
+        metric
+        for provider in providers
+        for metric in provider.get("metrics", [])
+        if isinstance(metric, dict)
+    ]
+    measured_metrics = [
+        metric
+        for metric in metrics
+        if metric.get("measurement_status") == "measured" or metric.get("usage") is not None
+    ]
+    unavailable_metrics = [
+        metric
+        for metric in metrics
+        if metric.get("measurement_status") in {"missing credential", "unavailable", "unknown"}
+        and metric.get("usage") is None
+    ]
+    unsupported_metrics = [
+        metric
+        for metric in metrics
+        if metric.get("measurement_status") == "unsupported"
+    ]
     return {
         "total_services": len(providers),
+        "total_metrics": len(metrics),
+        "measured_metrics": len(measured_metrics),
+        "unavailable_metrics": len(unavailable_metrics),
+        "unsupported_metrics": len(unsupported_metrics),
         "safe": counts["safe"],
         "ok": counts["safe"],
         "warning": counts["warning"],
@@ -471,8 +498,15 @@ class FreeTierCollector:
                 source_detail = f"{source_detail} Cached data is stale."
 
         metrics = [
-            self.metric_result(metric_config, usage_source.get(str(metric_config.get("key", "")))) for metric_config in metrics_config
+            self.metric_result(
+                metric_config,
+                usage_source.get(str(metric_config.get("key", ""))),
+                source_status,
+                provider_config,
+            )
+            for metric_config in metrics_config
         ]
+        metric_status_counts = self.measurement_status_counts(metrics)
         primary = self.primary_metric(metrics)
         if not metrics:
             source_status = "unknown"
@@ -500,6 +534,7 @@ class FreeTierCollector:
             "health": primary["health"],
             "risk_status": self.provider_risk_status(source_status, primary),
             "risk_label": self.provider_risk_status(source_status, primary).replace("_", " "),
+            "metric_status_counts": metric_status_counts,
             "metrics": metrics,
         }
 
@@ -1130,7 +1165,58 @@ class FreeTierCollector:
             return {}
         return {"metrics": metrics, "last_checked_at": provider.get("last_checked_at") or snapshot.get("last_checked_at")}
 
-    def metric_result(self, metric_config: dict[str, Any], raw_usage: Any) -> dict[str, Any]:
+    def measurement_status(self, metric_config: dict[str, Any], usage: float | None, source_status: str) -> str:
+        if usage is not None:
+            return "measured"
+        configured_status = str(metric_config.get("measurement_status") or "").strip().lower()
+        if configured_status in ALLOWED_MEASUREMENT_STATUSES:
+            return configured_status
+        usage_source = str(metric_config.get("usage_source") or "").strip().lower()
+        if usage_source == "unsupported":
+            return "unsupported"
+        if source_status == "not configured":
+            return "missing credential"
+        if source_status in {"live", "cached", "unavailable"}:
+            return "unavailable"
+        return "unknown"
+
+    def measurement_detail(
+        self,
+        metric_config: dict[str, Any],
+        measurement_status: str,
+        source_status: str,
+    ) -> str:
+        configured_detail = str(metric_config.get("measurement_detail") or "").strip()
+        if configured_detail:
+            return configured_detail
+        if measurement_status == "measured":
+            return "Usage was measured by the configured read-only source."
+        if measurement_status == "missing credential":
+            return "Usage source is not configured for this metric."
+        if measurement_status == "unsupported":
+            return "No read-only usage source is wired for this quota yet."
+        if measurement_status == "unavailable" and source_status in {"live", "cached"}:
+            return "The configured usage source did not return this metric."
+        if measurement_status == "unavailable":
+            return "The configured usage source could not be read."
+        return "Metric usage is unknown."
+
+    def measurement_status_counts(self, metrics: list[dict[str, Any]]) -> dict[str, int]:
+        counts = {status: 0 for status in ALLOWED_MEASUREMENT_STATUSES}
+        for metric in metrics:
+            status = str(metric.get("measurement_status") or "unknown").lower()
+            if status not in counts:
+                status = "unknown"
+            counts[status] += 1
+        return counts
+
+    def metric_result(
+        self,
+        metric_config: dict[str, Any],
+        raw_usage: Any,
+        source_status: str = "unknown",
+        provider_config: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         key = str(metric_config.get("key") or "unknown")
         label = str(metric_config.get("label") or key)
         unit = str(metric_config.get("unit") or "")
@@ -1152,6 +1238,8 @@ class FreeTierCollector:
             risk_status = "warning"
         else:
             risk_status = "safe"
+        provider_config = provider_config or {}
+        measurement_status = self.measurement_status(metric_config, usage, source_status)
 
         return {
             "key": key,
@@ -1159,6 +1247,13 @@ class FreeTierCollector:
             "unit": unit,
             "period": metric_config.get("period", ""),
             "reset_at": metric_config.get("reset_at", "unknown"),
+            "description": metric_config.get("description", ""),
+            "quota_source": metric_config.get("quota_source") or provider_config.get("quota_source", ""),
+            "quota_last_verified": metric_config.get("quota_last_verified")
+            or provider_config.get("quota_last_verified", ""),
+            "usage_source": metric_config.get("usage_source", ""),
+            "measurement_status": measurement_status,
+            "measurement_detail": self.measurement_detail(metric_config, measurement_status, source_status),
             "usage": None if usage is None else round(usage, 2),
             "limit": limit,
             "remaining": remaining,

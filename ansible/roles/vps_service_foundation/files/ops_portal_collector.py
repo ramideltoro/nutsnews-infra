@@ -852,6 +852,16 @@ def local_usage_metric(
         "unit": unit,
         "period": period,
         "reset_at": "not applicable",
+        "description": "",
+        "quota_source": "Live local collector from kernel, filesystem, Docker, and backup status data.",
+        "quota_last_verified": utc_now().split("T", 1)[0],
+        "usage_source": "local",
+        "measurement_status": "measured" if used is not None else "unavailable",
+        "measurement_detail": (
+            "Usage was measured by the local read-only collector."
+            if used is not None
+            else "The local read-only collector could not measure this metric."
+        ),
         "usage": used,
         "limit": limit,
         "remaining": remaining,

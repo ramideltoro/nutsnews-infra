@@ -786,6 +786,10 @@
     },
     "summary": {
       "total_services": 10,
+      "total_metrics": 17,
+      "measured_metrics": 14,
+      "unavailable_metrics": 4,
+      "unsupported_metrics": 0,
       "safe": 5,
       "ok": 5,
       "warning": 1,

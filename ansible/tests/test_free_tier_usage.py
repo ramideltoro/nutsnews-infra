@@ -279,6 +279,7 @@ class FreeTierUsageTests(unittest.TestCase):
         self.assertEqual(data["providers"][0]["risk_status"], "not_configured")
         self.assertEqual(data["providers"][0]["current_usage"], "unknown")
         self.assertIn("DEMO_TOKEN", data["providers"][0]["source_detail"])
+        self.assertEqual(data["providers"][0]["metrics"][0]["measurement_status"], "missing credential")
 
     def test_malformed_provider_response(self) -> None:
         live = {
@@ -342,6 +343,64 @@ class FreeTierUsageTests(unittest.TestCase):
         provider = data["providers"][0]
         self.assertEqual(provider["status"], "live")
         self.assertEqual(provider["metrics"][0]["usage"], 3)
+        self.assertEqual(provider["metrics"][0]["measurement_status"], "measured")
+
+    def test_metric_metadata_and_unavailable_states_are_sanitized(self) -> None:
+        provider = quota_config(
+            live={
+                "type": "json_api",
+                "url_env": "DEMO_USAGE_URL",
+                "token_env": "DEMO_TOKEN",
+                "metric_paths": {"requests": "usage.requests", "bytes": "usage.bytes"},
+            }
+        )[0]
+        provider["metrics"].append(
+            {
+                "key": "bytes",
+                "label": "Bytes",
+                "unit": "bytes/month",
+                "period": "monthly",
+                "limit": 1000,
+                "quota_source": "https://example.invalid/bytes",
+            }
+        )
+        provider["metrics"].append(
+            {
+                "key": "deployments",
+                "label": "Deployments",
+                "unit": "deployments/day",
+                "period": "daily",
+                "limit": 100,
+                "usage_source": "unsupported",
+            }
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            env = {
+                "NUTSNEWS_FREE_TIER_CACHE_FILE": str(Path(tmpdir) / "cache.json"),
+                "NUTSNEWS_FREE_TIER_QUOTAS_JSON": json.dumps([provider]),
+                "DEMO_USAGE_URL": "https://example.invalid/usage",
+                "DEMO_TOKEN": "sentinel-redaction-value",
+            }
+            data = FreeTierCollector(
+                env=env,
+                http_client=FakeHttpClient({"usage": {"requests": 25}}),
+                now=NOW,
+            ).collect()
+        provider_result = data["providers"][0]
+        metrics = {metric["key"]: metric for metric in provider_result["metrics"]}
+        self.assertEqual(metrics["requests"]["measurement_status"], "measured")
+        self.assertEqual(metrics["bytes"]["measurement_status"], "unavailable")
+        self.assertEqual(metrics["deployments"]["measurement_status"], "unsupported")
+        self.assertEqual(metrics["bytes"]["quota_source"], "https://example.invalid/bytes")
+        self.assertEqual(metrics["requests"]["quota_last_verified"], "2026-07-08")
+        self.assertEqual(provider_result["metric_status_counts"]["measured"], 1)
+        self.assertEqual(provider_result["metric_status_counts"]["unavailable"], 1)
+        self.assertEqual(provider_result["metric_status_counts"]["unsupported"], 1)
+        self.assertEqual(data["summary"]["total_metrics"], 3)
+        self.assertEqual(data["summary"]["measured_metrics"], 1)
+        self.assertEqual(data["summary"]["unavailable_metrics"], 1)
+        self.assertEqual(data["summary"]["unsupported_metrics"], 1)
+        self.assertNotIn("sentinel-redaction-value", json.dumps(data))
 
     def test_grafana_cloud_usage_datasource_queries_prometheus(self) -> None:
         live = {

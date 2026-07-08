@@ -141,12 +141,24 @@ vps_service_foundation_free_tier_quotas:
             - transfer
           unit_contains_any:
             - gb
+        fast_origin_transfer_gb:
+          contains_all:
+            - fast
+            - origin
+            - transfer
+          unit_contains_any:
+            - gb
     metrics:
       - key: fast_data_transfer_gb
         label: Fast Data Transfer
         unit: GB/month
         period: monthly
         limit: 100
+      - key: fast_origin_transfer_gb
+        label: Fast Origin Transfer
+        unit: GB/month
+        period: monthly
+        limit: 10
       - key: function_invocations
         label: Function Invocations
         unit: invocations/month
@@ -162,6 +174,30 @@ vps_service_foundation_free_tier_quotas:
         unit: GB-hours/month
         period: monthly
         limit: 360
+      - key: deployments_created_per_day
+        label: Deployments Created
+        unit: deployments/day
+        period: daily
+        limit: 100
+        usage_source: unsupported
+      - key: concurrent_deployments
+        label: Concurrent Deployments
+        unit: deployments
+        period: current
+        limit: 1
+        usage_source: unsupported
+      - key: build_time_minutes_per_deployment
+        label: Build Time per Deployment
+        unit: minutes/deployment
+        period: per deployment
+        limit: 45
+        usage_source: unsupported
+      - key: static_file_upload_mb
+        label: Static File Uploads
+        unit: MB/deployment
+        period: per deployment
+        limit: 100
+        usage_source: unsupported
   - key: sentry
     platform: Sentry
     plan: Developer Free
@@ -181,6 +217,16 @@ vps_service_foundation_free_tier_quotas:
         period: monthly
         limit: 5000
         live_category: error
+      - key: logs_gb
+        label: Logs
+        unit: GB/month
+        period: monthly
+        limit: 5
+      - key: application_metrics_gb
+        label: Application Metrics
+        unit: GB/month
+        period: monthly
+        limit: 5
       - key: spans
         label: Tracing Spans
         unit: spans/month
@@ -197,6 +243,21 @@ vps_service_foundation_free_tier_quotas:
         unit: GB/month
         period: monthly
         limit: 1
+      - key: uptime_monitors
+        label: Uptime Monitors
+        unit: monitors
+        period: current
+        limit: 1
+      - key: cron_monitors
+        label: Cron Monitors
+        unit: monitors
+        period: current
+        limit: 1
+      - key: metric_monitors
+        label: Metric Monitors
+        unit: monitors
+        period: current
+        limit: 20
   - key: cloudflare
     platform: Cloudflare
     plan: Free
@@ -214,26 +275,125 @@ vps_service_foundation_free_tier_quotas:
         unit: requests/day
         period: daily
         limit: 100000
+        quota_source: https://developers.cloudflare.com/workers/platform/limits/
+      - key: workers_cpu_time_ms
+        label: Workers CPU Time
+        unit: ms/request
+        period: per request
+        limit: 10
+        quota_source: https://developers.cloudflare.com/workers/platform/limits/
+        usage_source: unsupported
+      - key: workers_subrequests
+        label: Workers Subrequests
+        unit: subrequests/request
+        period: per request
+        limit: 50
+        quota_source: https://developers.cloudflare.com/workers/platform/limits/
+        usage_source: unsupported
+      - key: workers_env_vars_per_worker
+        label: Workers Environment Variables
+        unit: variables/Worker
+        period: current
+        limit: 64
+        quota_source: https://developers.cloudflare.com/workers/platform/limits/
+        usage_source: unsupported
+      - key: workers_size_mb
+        label: Worker Size
+        unit: MB/Worker
+        period: current
+        limit: 3
+        quota_source: https://developers.cloudflare.com/workers/platform/limits/
+        usage_source: unsupported
+      - key: workers_count
+        label: Workers Count
+        unit: Workers
+        period: current
+        limit: 100
+        quota_source: https://developers.cloudflare.com/workers/platform/limits/
+        usage_source: unsupported
+      - key: workers_cron_triggers
+        label: Workers Cron Triggers
+        unit: triggers/account
+        period: current
+        limit: 5
+        quota_source: https://developers.cloudflare.com/workers/platform/limits/
+        usage_source: unsupported
+      - key: kv_reads
+        label: Workers KV Reads
+        unit: reads/day
+        period: daily
+        limit: 100000
+        quota_source: https://developers.cloudflare.com/kv/platform/limits/
+      - key: kv_writes_different_keys
+        label: Workers KV Writes
+        unit: writes/day
+        period: daily
+        limit: 1000
+        quota_source: https://developers.cloudflare.com/kv/platform/limits/
+      - key: kv_storage_account_gb
+        label: Workers KV Account Storage
+        unit: GB/account
+        period: current
+        limit: 1
+        quota_source: https://developers.cloudflare.com/kv/platform/limits/
+      - key: kv_storage_namespace_gb
+        label: Workers KV Namespace Storage
+        unit: GB/namespace
+        period: current
+        limit: 1
+        quota_source: https://developers.cloudflare.com/kv/platform/limits/
       - key: pages_builds
         label: Pages Builds
         unit: builds/month
         period: monthly
         limit: 500
+        quota_source: https://developers.cloudflare.com/pages/platform/limits/
+      - key: pages_concurrent_builds
+        label: Pages Concurrent Builds
+        unit: builds
+        period: current
+        limit: 1
+        quota_source: https://developers.cloudflare.com/pages/platform/limits/
+        usage_source: unsupported
+      - key: pages_custom_domains
+        label: Pages Custom Domains
+        unit: domains/project
+        period: current
+        limit: 100
+        quota_source: https://developers.cloudflare.com/pages/platform/limits/
+        usage_source: unsupported
+      - key: pages_files
+        label: Pages Site Files
+        unit: files/site
+        period: current
+        limit: 20000
+        quota_source: https://developers.cloudflare.com/pages/platform/limits/
+        usage_source: unsupported
+      - key: pages_asset_size_mib
+        label: Pages Asset File Size
+        unit: MiB/file
+        period: current
+        limit: 25
+        quota_source: https://developers.cloudflare.com/pages/platform/limits/
+        usage_source: unsupported
       - key: r2_storage_gb_month
         label: R2 Standard Storage
         unit: GB-month/month
         period: monthly
         limit: 10
+        quota_source: https://developers.cloudflare.com/r2/pricing/
       - key: r2_class_a_requests
         label: R2 Class A Operations
         unit: requests/month
         period: monthly
         limit: 1000000
+        quota_source: https://developers.cloudflare.com/r2/pricing/
       - key: r2_class_b_requests
         label: R2 Class B Operations
         unit: requests/month
         period: monthly
         limit: 10000000
+        quota_source: https://developers.cloudflare.com/r2/pricing/
   - key: better_stack
     platform: Better Stack
     plan: Free
@@ -250,7 +410,10 @@ vps_service_foundation_free_tier_quotas:
         logs_gb: usage.logs_gb
         traces_gb: usage.traces_gb
         metrics_gb: usage.metrics_gb
+        web_events_gb: usage.web_events_gb
         session_replays: usage.session_replays
+        status_pages: usage.status_pages
+        status_page_subscribers: usage.status_page_subscribers
     metrics:
       - key: monitors_heartbeats
         label: Monitors and Heartbeats
@@ -277,11 +440,26 @@ vps_service_foundation_free_tier_quotas:
         unit: GB/month
         period: monthly
         limit: 30
+      - key: web_events_gb
+        label: Web Events
+        unit: GB/month
+        period: monthly
+        limit: 3
       - key: session_replays
         label: Session Replays
         unit: replays/month
         period: monthly
         limit: 5000
+      - key: status_pages
+        label: Status Pages
+        unit: pages
+        period: current
+        limit: 1
+      - key: status_page_subscribers
+        label: Status Page Subscribers
+        unit: subscribers
+        period: current
+        limit: 1000
   - key: supabase
     platform: Supabase
     plan: Free
@@ -296,9 +474,11 @@ vps_service_foundation_free_tier_quotas:
         egress_gb: usage.egress_gb
         database_mb: usage.database_mb
         monthly_active_users: usage.monthly_active_users
+        monthly_active_third_party_users: usage.monthly_active_third_party_users
         storage_gb: usage.storage_gb
         edge_function_invocations: usage.edge_function_invocations
         realtime_messages: usage.realtime_messages
+        realtime_peak_connections: usage.realtime_peak_connections
     metrics:
       - key: egress_gb
         label: Egress
@@ -312,6 +492,11 @@ vps_service_foundation_free_tier_quotas:
         limit: 500
       - key: monthly_active_users
         label: Monthly Active Users
+        unit: MAU/month
+        period: monthly
+        limit: 50000
+      - key: monthly_active_third_party_users
+        label: Monthly Active Third-Party Users
         unit: MAU/month
         period: monthly
         limit: 50000
@@ -330,6 +515,11 @@ vps_service_foundation_free_tier_quotas:
         unit: messages/month
         period: monthly
         limit: 2000000
+      - key: realtime_peak_connections
+        label: Realtime Peak Connections
+        unit: connections
+        period: current
+        limit: 200
   - key: grafana_cloud
     platform: Grafana Cloud
     plan: Free

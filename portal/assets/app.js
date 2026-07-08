@@ -107,13 +107,40 @@ function levelClass(level) {
   ) {
     return "pill--danger";
   }
-  if (["warning", "degraded", "unknown", "misconfigured", "disabled", "never", "busy", "cached"].includes(normalized)) {
+  if (
+    [
+      "warning",
+      "degraded",
+      "unknown",
+      "misconfigured",
+      "disabled",
+      "never",
+      "busy",
+      "cached",
+      "missing credential",
+    ].includes(normalized)
+  ) {
     return "pill--warn";
   }
-  if (["ok", "safe", "active", "running", "healthy", "enabled", "configured", "sent", "success", "fresh", "live"].includes(normalized)) {
+  if (
+    [
+      "ok",
+      "safe",
+      "active",
+      "running",
+      "healthy",
+      "enabled",
+      "configured",
+      "sent",
+      "success",
+      "fresh",
+      "live",
+      "measured",
+    ].includes(normalized)
+  ) {
     return "pill--ok";
   }
-  if (["not configured", "not_configured"].includes(normalized)) {
+  if (["not configured", "not_configured", "unsupported"].includes(normalized)) {
     return "pill--muted";
   }
   return "pill--muted";
@@ -362,18 +389,59 @@ function freeTierState(provider) {
   return "unknown";
 }
 
+function sourceLink(value) {
+  const match = text(value, "").match(/https:\/\/[^\s]+/);
+  const url = match ? match[0] : "";
+  if (!url) {
+    return "";
+  }
+  return `<a class="quota-source" href="${escapeHtml(url)}" rel="noreferrer">docs</a>`;
+}
+
+function quotaMetricState(provider, metric) {
+  if (metric.risk_status && metric.risk_status !== "unknown") {
+    return metric.risk_status;
+  }
+  return metric.measurement_status || provider.source_status || provider.status || "unknown";
+}
+
+function quotaMetricRow(provider, metric) {
+  const state = quotaMetricState(provider, metric);
+  const source = sourceLink(metric.quota_source || provider.quota_source);
+  const detail = metric.measurement_detail || provider.source_detail || "";
+  return `
+    <tr>
+      <td>
+        <span class="quota-metric-name">${escapeHtml(metric.label)}</span>
+        ${detail ? `<small>${escapeHtml(detail)}</small>` : ""}
+      </td>
+      <td>${escapeHtml(text(metric.usage_display))}</td>
+      <td>${escapeHtml(text(metric.limit_display))}</td>
+      <td>${escapeHtml(text(metric.percent_used_display))}</td>
+      <td>${escapeHtml(text(metric.remaining_display))}</td>
+      <td>${escapeHtml(text(metric.period))}</td>
+      <td>${escapeHtml(text(metric.reset_at))}</td>
+      <td>${pill(state)} ${source}</td>
+    </tr>
+  `;
+}
+
 function quotaCard(provider) {
   const state = freeTierState(provider);
   const stale = provider.stale ? " " + pill("stale") : "";
   const usedPercent = clamp(provider.percent_used);
   const sourceStatus = provider.source_status || provider.status;
   const riskLabel = provider.risk_label || provider.risk_status || provider.health;
+  const metrics = provider.metrics || [];
+  const statusCounts = provider.metric_status_counts || {};
+  const measured = statusCounts.measured ?? metrics.filter((metric) => metric.usage !== null && metric.usage !== undefined).length;
+  const source = sourceLink(provider.quota_source);
   return `
     <article class="quota-card quota-card--${state}">
       <div class="quota-card__header">
         <div>
           <h3>${escapeHtml(provider.platform)}</h3>
-          <small>${escapeHtml(text(provider.plan, "Free"))}</small>
+          <small>${escapeHtml(text(provider.plan, "Free"))} ${source}</small>
         </div>
         <span>${pill(riskLabel)} ${pill(sourceStatus)}${stale}</span>
       </div>
@@ -389,8 +457,28 @@ function quotaCard(provider) {
         <div><dt>Used</dt><dd>${escapeHtml(text(provider.percent_used_display))}</dd></div>
         <div><dt>Free</dt><dd>${escapeHtml(text(provider.percent_remaining_display))}</dd></div>
         <div><dt>Checked</dt><dd>${escapeHtml(compactTimestamp(provider.last_checked_at))}</dd></div>
+        <div><dt>Measured</dt><dd>${escapeHtml(`${measured}/${metrics.length}`)}</dd></div>
       </dl>
       <p>${escapeHtml(text(provider.source_detail, "Usage source unknown."))}</p>
+      <div class="table-wrap table-wrap--quota">
+        <table>
+          <thead>
+            <tr>
+              <th>Metric</th>
+              <th>Usage</th>
+              <th>Limit</th>
+              <th>Used</th>
+              <th>Remaining</th>
+              <th>Period</th>
+              <th>Reset</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${metrics.length ? metrics.map((metric) => quotaMetricRow(provider, metric)).join("") : `<tr><td colspan="8">No quota metrics configured.</td></tr>`}
+          </tbody>
+        </table>
+      </div>
     </article>
   `;
 }
@@ -404,6 +492,7 @@ function renderFreeTierUsage(data) {
     : "No free-tier provider quota configuration found.";
   renderStats("free-tier-summary", [
     { label: "Services", value: text(summary.total_services, providers.length), hint: "tracked usage-limited services" },
+    { label: "Metrics", value: `${text(summary.measured_metrics, "0")}/${text(summary.total_metrics, "0")}`, hint: "measured rows" },
     { label: "Safe", value: text(summary.safe, "0"), hint: "below warning threshold" },
     { label: "Warning", value: text(summary.warning, "0"), hint: "70% or higher" },
     { label: "Critical", value: text(summary.critical, "0"), hint: "85% or higher" },
@@ -442,8 +531,8 @@ function renderFreeTierUsage(data) {
           <td>${escapeHtml(text(metric.period))}</td>
           <td>${escapeHtml(text(metric.reset_at))}</td>
           <td>
-            ${pill(provider.risk_label || provider.risk_status || metric.risk_status)}
-            ${pill(provider.source_status || provider.status)}
+            ${pill(quotaMetricState(provider, metric))}
+            ${pill(metric.measurement_status || provider.source_status || provider.status)}
           </td>
         </tr>
       `,
