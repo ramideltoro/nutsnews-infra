@@ -135,16 +135,21 @@ Optional protected `production-vps` Environment values:
 {
   "vercel": {
     "last_checked_at": "2026-07-05T00:00:00+00:00",
-    "fast_data_transfer_gb": 32
+    "usage": {
+      "fast_data_transfer_gb": 32,
+      "function_invocations": 1200
+    }
   }
 }
 ```
+
+It also accepts `providers.vercel.metrics`, `providers.vercel.usage`, top-level provider metric values, and metric-list entries like `{"key":"fast_data_transfer_gb","usage":32}`. Snapshot values are fallback data only; prefer live collectors when the provider exposes read-only quota usage.
 
 Generic `*_USAGE_API_URL` endpoints must be HTTPS GET endpoints and return read-only normalized JSON with metric values under `usage`, for example `{"usage":{"logs_gb":1.2}}`. Provider-specific collectors may add safe query parameters or parse documented read-only response shapes, but they must still avoid paid APIs, mutating endpoints, automatic upgrade flows, and tokens with write/admin scopes.
 
 Current provider-specific notes:
 
-- Vercel usage is read from the Billing Charges FOCUS JSONL endpoint. Configure `NUTSNEWS_VERCEL_USAGE_API_URL` as the HTTPS billing charges URL, including the correct `teamId` or `slug` query parameter when the account is team-owned; the collector adds ISO 8601 `from` and `to` parameters and aggregates `ConsumedQuantity` by configured service/unit matchers. A `costs_not_found` response usually means the configured team identifier, account access, or billing endpoint does not expose the desired Hobby quota metrics.
+- Vercel usage is read from the Billing Charges FOCUS JSONL endpoint. Configure `NUTSNEWS_VERCEL_USAGE_API_URL` as the HTTPS billing charges URL, including the correct `teamId` or `slug` query parameter when the account is team-owned; the collector adds ISO 8601 `from` and `to` parameters and aggregates documented FOCUS quantity fields by configured service/unit matchers. A `costs_not_found` response usually means the configured team identifier, account access, or billing endpoint does not expose the desired Hobby quota metrics. Vercel monthly Hobby quota rows reset at the next UTC month boundary in the portal output.
 - Sentry accepts either `https://sentry.io` or `https://sentry.io/api/0` as `NUTSNEWS_SENTRY_BASE_URL`; the collector normalizes the API root before calling Stats v2. `401 Invalid token` means `NUTSNEWS_SENTRY_AUTH_TOKEN` must be replaced with a token that can read organization stats for `NUTSNEWS_SENTRY_ORG`.
 - Cloudflare Workers request usage is read with a POST to the GraphQL Analytics API using `NUTSNEWS_CLOUDFLARE_ACCOUNT_ID`. Workers KV, Pages, and R2 quota metrics still need a normalized snapshot or a dedicated collector.
 - Better Stack monitor usage is read from the configured normalized endpoint by counting the returned `data` list. Telemetry volume, web event, status page subscriber, and session replay metrics still need normalized usage fields or a dedicated read-only usage endpoint.
