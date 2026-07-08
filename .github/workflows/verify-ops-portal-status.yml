@@ -1,0 +1,92 @@
+name: Verify Ops Portal Status
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-vps-ops-portal-status
+  cancel-in-progress: false
+
+jobs:
+  verify-status:
+    name: Verify sanitized Ops Portal status
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: production-vps
+
+    steps:
+      - name: Validate required environment secrets
+        shell: bash
+        env:
+          NUTSNEWS_VPS_SSH_PRIVATE_KEY: ${{ secrets.NUTSNEWS_VPS_SSH_PRIVATE_KEY }}
+          NUTSNEWS_VPS_KNOWN_HOSTS: ${{ secrets.NUTSNEWS_VPS_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+
+          missing=0
+          for secret_name in \
+            NUTSNEWS_VPS_SSH_PRIVATE_KEY \
+            NUTSNEWS_VPS_KNOWN_HOSTS
+          do
+            if [[ -z "${!secret_name}" ]]; then
+              echo "Missing required production-vps environment secret: $secret_name" >&2
+              missing=1
+            fi
+          done
+
+          exit "$missing"
+
+      - name: Prepare SSH material
+        shell: bash
+        env:
+          NUTSNEWS_VPS_SSH_PRIVATE_KEY: ${{ secrets.NUTSNEWS_VPS_SSH_PRIVATE_KEY }}
+          NUTSNEWS_VPS_KNOWN_HOSTS: ${{ secrets.NUTSNEWS_VPS_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+
+          install -m 0700 -d "$HOME/.ssh"
+          printf '%s\n' "$NUTSNEWS_VPS_SSH_PRIVATE_KEY" > "$HOME/.ssh/nutsnews_vps"
+          chmod 0600 "$HOME/.ssh/nutsnews_vps"
+
+          printf '%s\n' "$NUTSNEWS_VPS_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          chmod 0600 "$HOME/.ssh/known_hosts"
+
+          ssh-keygen -y -f "$HOME/.ssh/nutsnews_vps" > /dev/null
+          ssh-keygen -F 65.75.202.112 -f "$HOME/.ssh/known_hosts" > /dev/null
+
+      - name: Read sanitized portal status
+        shell: bash
+        env:
+          VPS_HOST: 65.75.202.112
+          VPS_USER: nutsnews_ops
+          PORTAL_STATUS_FILE: /opt/nutsnews/portal-assets/data/status.json
+        run: |
+          set -euo pipefail
+
+          ssh_args=(
+            -i "$HOME/.ssh/nutsnews_vps"
+            -o UserKnownHostsFile="$HOME/.ssh/known_hosts"
+            -o StrictHostKeyChecking=yes
+            -o IdentitiesOnly=yes
+            -o BatchMode=yes
+            -o LogLevel=ERROR
+          )
+          target="${VPS_USER}@${VPS_HOST}"
+
+          echo "Reading sanitized Ops Portal Vercel free-tier status from ${PORTAL_STATUS_FILE}."
+          set +e
+          # shellcheck disable=SC2029
+          ssh "${ssh_args[@]}" "$target" "/usr/bin/python3 -c 'import json,sys; from pathlib import Path; p=Path(\"${PORTAL_STATUS_FILE}\"); p.exists() or sys.exit(\"portal status file is missing\"); data=json.loads(p.read_text()); ft=data.get(\"free_tier_usage\",{}); vercel=next((item for item in ft.get(\"providers\",[]) if item.get(\"key\")==\"vercel\"), None); vercel or sys.exit(\"vercel provider is missing\"); metric_keys=(\"key\",\"usage_display\",\"limit_display\",\"remaining_display\",\"percent_used_display\",\"reset_at\",\"measurement_status\"); summary_keys=(\"status\",\"source_status\",\"source_detail\",\"current_usage\",\"quota\",\"remaining\",\"percent_used_display\",\"last_checked_at\"); payload={\"generated_at\": ft.get(\"generated_at\"), \"vercel\": {k: vercel.get(k, \"unknown\") for k in summary_keys}, \"metrics\": [{k: metric.get(k, \"unknown\") for k in metric_keys} for metric in vercel.get(\"metrics\",[])]}; print(json.dumps(payload, indent=2, sort_keys=True)); expected={\"fast_data_transfer_gb\",\"fast_origin_transfer_gb\",\"function_invocations\",\"active_cpu_hours\",\"provisioned_memory_gb_hours\"}; measured=[metric.get(\"key\") for metric in vercel.get(\"metrics\",[]) if metric.get(\"key\") in expected and metric.get(\"measurement_status\") == \"measured\" and metric.get(\"usage\") is not None]; sys.exit(0 if measured else 2)'"
+          portal_status="$?"
+          set -e
+
+          if [[ "$portal_status" -ne 0 ]]; then
+            echo "Vercel free-tier metrics are not measured in the sanitized portal status snapshot." >&2
+            exit "$portal_status"
+          fi
+
+          echo
+          echo "Ops Portal Vercel free-tier status verified."
