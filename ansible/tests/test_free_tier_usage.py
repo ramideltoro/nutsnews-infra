@@ -46,9 +46,11 @@ class FakeHttpClient:
 class GitHubHttpClient:
     def __init__(self) -> None:
         self.urls: list[str] = []
+        self.headers: list[dict[str, str]] = []
 
     def get_json(self, url, headers=None, params=None, timeout=8):  # noqa: ANN001, ANN201
         self.urls.append(url)
+        self.headers.append(headers or {})
         if url.endswith("/actions/cache/usage"):
             return {"active_caches_size_in_bytes": 1073741824}
         if url.endswith("/actions/artifacts"):
@@ -289,7 +291,31 @@ class FreeTierUsageTests(unittest.TestCase):
         self.assertIn("/api/0/organizations/demo-org/stats_v2/", client.urls[0])
         self.assertNotIn("/api/0/api/0/", client.urls[0])
 
-    def test_github_actions_missing_token_is_actionable(self) -> None:
+    def test_github_actions_public_usage_without_token(self) -> None:
+        live = {
+            "type": "github_actions",
+            "url_env": "DEMO_GITHUB_URL",
+            "token_env": "DEMO_GITHUB_TOKEN",
+            "url": "https://api.github.com/repos/example/repo",
+        }
+        client = GitHubHttpClient()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            env = {
+                "NUTSNEWS_FREE_TIER_CACHE_FILE": str(Path(tmpdir) / "cache.json"),
+                "NUTSNEWS_FREE_TIER_QUOTAS_JSON": json.dumps(github_quota_config(live)),
+            }
+            data = FreeTierCollector(env=env, http_client=client, now=NOW).collect()
+        provider = data["providers"][0]
+        self.assertEqual(provider["status"], "live")
+        usage_by_key = {metric["key"]: metric["usage"] for metric in provider["metrics"]}
+        self.assertEqual(usage_by_key["artifact_storage_mb"], 3)
+        self.assertEqual(usage_by_key["cache_storage_gb"], 1)
+        self.assertIsNone(usage_by_key["rest_api_requests"])
+        self.assertNotIn("https://api.github.com/rate_limit", client.urls)
+        self.assertNotIn("Authorization", client.headers[0])
+        self.assertIn("without a token", provider["source_detail"])
+
+    def test_github_actions_missing_token_remains_actionable_when_public_usage_fails(self) -> None:
         live = {
             "type": "github_actions",
             "url_env": "DEMO_GITHUB_URL",
@@ -301,10 +327,15 @@ class FreeTierUsageTests(unittest.TestCase):
                 "NUTSNEWS_FREE_TIER_CACHE_FILE": str(Path(tmpdir) / "cache.json"),
                 "NUTSNEWS_FREE_TIER_QUOTAS_JSON": json.dumps(github_quota_config(live)),
             }
-            data = FreeTierCollector(env=env, now=NOW).collect()
+            data = FreeTierCollector(
+                env=env,
+                http_client=FakeHttpClient(ApiRequestError(status_code=404, body=b'{"message":"not found"}')),
+                now=NOW,
+            ).collect()
         provider = data["providers"][0]
         self.assertEqual(provider["status"], "not configured")
         self.assertIn("DEMO_GITHUB_TOKEN", provider["source_detail"])
+        self.assertIn("HTTP 404", provider["source_detail"])
 
     def test_github_actions_live_usage(self) -> None:
         live = {
