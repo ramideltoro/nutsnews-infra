@@ -117,6 +117,7 @@ require("local_usage_providers" in COLLECTOR, "Collector must include local usag
 require("free_tier_alerts" in COLLECTOR, "Collector must emit free-tier alert pressure.")
 require("NUTSNEWS_FREE_TIER_QUOTAS_JSON" in FREE_TIER_ENV, "Free-tier env must pass quota config.")
 require("NUTSNEWS_GITHUB_ACTIONS_USAGE_API_URL" in FREE_TIER_ENV, "Free-tier env must pass GitHub usage URL.")
+require("NUTSNEWS_CLOUDFLARE_ACCOUNT_ID" in FREE_TIER_ENV, "Free-tier env must pass Cloudflare account ID.")
 require("vps_service_foundation_free_tier_env_file" in COLLECTOR_UNIT, "Collector unit must load the free-tier env file.")
 require(
     "vps_service_foundation_source_free_tier_collector_module" in TASKS
@@ -125,6 +126,7 @@ require(
 )
 require("free-tier-usage.env.j2" in TASKS, "Free-tier env template must be installed by Ansible.")
 require("vps_service_foundation_free_tier_quotas" in DEFAULTS, "Free-tier quota defaults must be config-driven.")
+require("cloudflare_graphql" in FREE_TIER_COLLECTOR, "Free-tier collector must support Cloudflare GraphQL.")
 require("No live API credentials" in FREE_TIER_COLLECTOR, "Free-tier collector must degrade when tokens are missing.")
 require("Free-tier usage summary" in REPORTER, "Reporter must include free-tier usage in health reports.")
 

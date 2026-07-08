@@ -208,6 +208,7 @@ jobs:
           NUTSNEWS_SENTRY_BASE_URL: ${{ secrets.NUTSNEWS_SENTRY_BASE_URL }}
           NUTSNEWS_CLOUDFLARE_USAGE_API_TOKEN: ${{ secrets.NUTSNEWS_CLOUDFLARE_USAGE_API_TOKEN }}
           NUTSNEWS_CLOUDFLARE_USAGE_API_URL: ${{ secrets.NUTSNEWS_CLOUDFLARE_USAGE_API_URL }}
+          NUTSNEWS_CLOUDFLARE_ACCOUNT_ID: ${{ secrets.NUTSNEWS_CLOUDFLARE_ACCOUNT_ID }}
           NUTSNEWS_BETTER_STACK_API_TOKEN: ${{ secrets.NUTSNEWS_BETTER_STACK_API_TOKEN }}
           NUTSNEWS_BETTER_STACK_USAGE_API_URL: ${{ secrets.NUTSNEWS_BETTER_STACK_USAGE_API_URL }}
           NUTSNEWS_SUPABASE_ACCESS_TOKEN: ${{ secrets.NUTSNEWS_SUPABASE_ACCESS_TOKEN }}
@@ -489,6 +490,7 @@ jobs:
               "vps_service_foundation_free_tier_sentry_base_url": optional_https_url("NUTSNEWS_SENTRY_BASE_URL") or "https://sentry.io",
               "vps_service_foundation_free_tier_cloudflare_api_token": os.environ.get("NUTSNEWS_CLOUDFLARE_USAGE_API_TOKEN", ""),
               "vps_service_foundation_free_tier_cloudflare_usage_api_url": optional_https_url("NUTSNEWS_CLOUDFLARE_USAGE_API_URL"),
+              "vps_service_foundation_free_tier_cloudflare_account_id": os.environ.get("NUTSNEWS_CLOUDFLARE_ACCOUNT_ID", ""),
               "vps_service_foundation_free_tier_better_stack_api_token": os.environ.get("NUTSNEWS_BETTER_STACK_API_TOKEN", ""),
               "vps_service_foundation_free_tier_better_stack_usage_api_url": optional_https_url("NUTSNEWS_BETTER_STACK_USAGE_API_URL"),
               "vps_service_foundation_free_tier_supabase_access_token": os.environ.get("NUTSNEWS_SUPABASE_ACCESS_TOKEN", ""),

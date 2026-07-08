@@ -88,6 +88,7 @@ vps_service_foundation_free_tier_sentry_org: ""
 vps_service_foundation_free_tier_sentry_base_url: https://sentry.io
 vps_service_foundation_free_tier_cloudflare_api_token: ""
 vps_service_foundation_free_tier_cloudflare_usage_api_url: ""
+vps_service_foundation_free_tier_cloudflare_account_id: ""
 vps_service_foundation_free_tier_better_stack_api_token: ""
 vps_service_foundation_free_tier_better_stack_usage_api_url: ""
 vps_service_foundation_free_tier_supabase_access_token: ""
@@ -178,15 +179,10 @@ vps_service_foundation_free_tier_quotas:
     quota_last_verified: "2026-07-08"
     notes: Workers, Pages, and R2 free limits used by NutsNews edge and Grafana state workflows.
     live:
-      type: json_api
+      type: cloudflare_graphql
       url_env: NUTSNEWS_CLOUDFLARE_USAGE_API_URL
       token_env: NUTSNEWS_CLOUDFLARE_API_TOKEN
-      metric_paths:
-        workers_requests: usage.workers_requests
-        pages_builds: usage.pages_builds
-        r2_storage_gb_month: usage.r2_storage_gb_month
-        r2_class_a_requests: usage.r2_class_a_requests
-        r2_class_b_requests: usage.r2_class_b_requests
+      account_id_env: NUTSNEWS_CLOUDFLARE_ACCOUNT_ID
     metrics:
       - key: workers_requests
         label: Workers Requests

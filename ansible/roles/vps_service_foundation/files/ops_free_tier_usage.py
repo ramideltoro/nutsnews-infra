@@ -19,6 +19,22 @@ ALLOWED_RISK_STATUSES = {"safe", "warning", "critical", "over_limit", "unknown",
 DEFAULT_WARNING_USED_PERCENT = 70.0
 DEFAULT_CRITICAL_USED_PERCENT = 85.0
 DEFAULT_OVER_LIMIT_USED_PERCENT = 100.0
+CLOUDFLARE_WORKERS_USAGE_QUERY = """
+query NutsNewsWorkersUsage($accountTag: string, $datetimeStart: string, $datetimeEnd: string) {
+  viewer {
+    accounts(filter: {accountTag: $accountTag}) {
+      workersInvocationsAdaptive(
+        limit: 10000,
+        filter: {datetime_geq: $datetimeStart, datetime_leq: $datetimeEnd}
+      ) {
+        sum {
+          requests
+        }
+      }
+    }
+  }
+}
+"""
 
 
 def utc_now() -> str:
@@ -466,6 +482,8 @@ class FreeTierCollector:
             return self.collect_sentry_stats(provider_config, live)
         if live_type == "github_actions":
             return self.collect_github_actions(live)
+        if live_type == "cloudflare_graphql":
+            return self.collect_cloudflare_graphql(live)
         if live_type == "json_api":
             return self.collect_json_api(live)
         return ApiResult("unknown", detail="Unsupported live usage collector type.")
@@ -595,6 +613,79 @@ class FreeTierCollector:
             detail = failures[0] if failures else "Sentry stats could not be read."
             return ApiResult("unavailable", detail=detail)
         return ApiResult("live", metrics=metrics, detail="Usage loaded from Sentry stats API.")
+
+    def collect_cloudflare_graphql(self, live: dict[str, Any]) -> ApiResult:
+        url_env = str(live.get("url_env", "NUTSNEWS_CLOUDFLARE_USAGE_API_URL")).strip()
+        token_env = str(live.get("token_env", "NUTSNEWS_CLOUDFLARE_API_TOKEN")).strip()
+        account_id_env = str(live.get("account_id_env", "NUTSNEWS_CLOUDFLARE_ACCOUNT_ID")).strip()
+        url = self.env.get(url_env, "").strip() or "https://api.cloudflare.com/client/v4/graphql"
+        token = self.env.get(token_env, "").strip()
+        account_id = self.env.get(account_id_env, "").strip()
+        if not url or not token or not account_id:
+            missing = []
+            if not url:
+                missing.append(url_env)
+            if not token:
+                missing.append(token_env)
+            if not account_id:
+                missing.append(account_id_env)
+            return ApiResult(
+                "not configured",
+                detail=f"Missing {', '.join(missing)}; configure Cloudflare GraphQL read-only usage access.",
+            )
+        if not url.startswith("https://"):
+            return ApiResult("unavailable", detail="Cloudflare GraphQL endpoint must use HTTPS.")
+
+        headers = {"Accept": "application/json", "Authorization": f"Bearer {token}"}
+        datetime_start = self.now.replace(hour=0, minute=0, second=0, microsecond=0).isoformat().replace("+00:00", "Z")
+        datetime_end = self.now.isoformat().replace("+00:00", "Z")
+        body = {
+            "query": CLOUDFLARE_WORKERS_USAGE_QUERY,
+            "variables": {
+                "accountTag": account_id,
+                "datetimeStart": datetime_start,
+                "datetimeEnd": datetime_end,
+            },
+        }
+        try:
+            data = self.http_client.post_json(url, body, headers=headers, timeout=self.http_timeout())
+        except ApiRequestError as exc:
+            return ApiResult("unavailable", detail=self.api_error_detail("Cloudflare GraphQL API", exc))
+        except (OSError, TimeoutError, urllib.error.URLError, urllib.error.HTTPError, json.JSONDecodeError) as exc:
+            return ApiResult("unavailable", detail=f"Cloudflare GraphQL API request failed: {exc.__class__.__name__}.")
+
+        if isinstance(data, dict) and data.get("errors"):
+            message = response_message(data)
+            detail = f"Cloudflare GraphQL API returned errors ({response_shape(data)})."
+            if message:
+                detail = f"{detail} Provider message: {message}."
+            return ApiResult("unavailable", detail=detail)
+
+        accounts = nested(data, "data.viewer.accounts")
+        if not isinstance(accounts, list) or not accounts:
+            return ApiResult(
+                "unavailable",
+                detail=f"Cloudflare GraphQL API did not return account data for {account_id_env}.",
+            )
+        rows = accounts[0].get("workersInvocationsAdaptive") if isinstance(accounts[0], dict) else None
+        if not isinstance(rows, list):
+            return ApiResult(
+                "unavailable",
+                detail=f"Cloudflare GraphQL API response did not include Workers analytics ({response_shape(data)}).",
+            )
+
+        requests = 0.0
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            value = safe_float(nested(row, "sum.requests"))
+            if value is not None:
+                requests += value
+        return ApiResult(
+            "live",
+            metrics={"workers_requests": requests},
+            detail="Workers requests loaded from Cloudflare GraphQL Analytics API. Pages and R2 quota metrics require a normalized snapshot or a dedicated collector.",
+        )
 
     def collect_github_actions(self, live: dict[str, Any]) -> ApiResult:
         token_env = str(live.get("token_env", "NUTSNEWS_GITHUB_USAGE_API_TOKEN")).strip()
