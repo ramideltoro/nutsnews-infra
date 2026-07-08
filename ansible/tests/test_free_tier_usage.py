@@ -58,6 +58,41 @@ class GitHubHttpClient:
         raise ApiRequestError(status_code=404, body=b'{"message":"not found"}', content_type="application/json")
 
 
+class CloudflareHttpClient:
+    def __init__(self, payload: object | Exception | None = None) -> None:
+        self.payload = payload
+        self.urls: list[str] = []
+        self.headers: list[dict[str, str]] = []
+        self.bodies: list[dict] = []
+
+    def post_json(self, url, body, headers=None, timeout=8):  # noqa: ANN001, ANN201
+        self.urls.append(url)
+        self.headers.append(headers or {})
+        self.bodies.append(body)
+        if isinstance(self.payload, Exception):
+            raise self.payload
+        if self.payload is not None:
+            return self.payload
+        return {
+            "data": {
+                "viewer": {
+                    "accounts": [
+                        {
+                            "workersInvocationsAdaptive": [
+                                {"sum": {"requests": 7}},
+                                {"sum": {"requests": 5}},
+                            ]
+                        }
+                    ]
+                }
+            },
+            "errors": None,
+        }
+
+    def get_json(self, url, headers=None, params=None, timeout=8):  # noqa: ANN001, ANN201
+        raise AssertionError("Cloudflare GraphQL collector must use POST.")
+
+
 def quota_config(live: dict | None = None) -> list[dict]:
     provider = {
         "key": "demo",
@@ -89,6 +124,20 @@ def github_quota_config(live: dict) -> list[dict]:
                 {"key": "artifact_storage_mb", "label": "Artifacts", "unit": "MB/month", "limit": 500},
                 {"key": "cache_storage_gb", "label": "Actions Cache", "unit": "GB/repository", "limit": 10},
                 {"key": "rest_api_requests", "label": "REST API Requests", "unit": "requests/hour", "limit": 5000},
+            ],
+            "live": live,
+        }
+    ]
+
+
+def cloudflare_quota_config(live: dict) -> list[dict]:
+    return [
+        {
+            "key": "cloudflare",
+            "platform": "Cloudflare",
+            "metrics": [
+                {"key": "workers_requests", "label": "Workers Requests", "unit": "requests/day", "limit": 100000},
+                {"key": "pages_builds", "label": "Pages Builds", "unit": "builds/month", "limit": 500},
             ],
             "live": live,
         }
@@ -278,6 +327,83 @@ class FreeTierUsageTests(unittest.TestCase):
         self.assertEqual(usage_by_key["cache_storage_gb"], 1)
         self.assertEqual(usage_by_key["rest_api_requests"], 42)
         self.assertNotIn("sentinel-redaction-value", json.dumps(data))
+
+    def test_cloudflare_graphql_missing_account_id_is_actionable(self) -> None:
+        live = {
+            "type": "cloudflare_graphql",
+            "url_env": "DEMO_CLOUDFLARE_URL",
+            "token_env": "DEMO_CLOUDFLARE_TOKEN",
+            "account_id_env": "DEMO_CLOUDFLARE_ACCOUNT_ID",
+        }
+        with tempfile.TemporaryDirectory() as tmpdir:
+            env = {
+                "NUTSNEWS_FREE_TIER_CACHE_FILE": str(Path(tmpdir) / "cache.json"),
+                "NUTSNEWS_FREE_TIER_QUOTAS_JSON": json.dumps(cloudflare_quota_config(live)),
+                "DEMO_CLOUDFLARE_URL": "https://api.cloudflare.com/client/v4/graphql",
+                "DEMO_CLOUDFLARE_TOKEN": "sentinel-redaction-value",
+            }
+            data = FreeTierCollector(env=env, now=NOW).collect()
+        provider = data["providers"][0]
+        self.assertEqual(provider["status"], "not configured")
+        self.assertIn("DEMO_CLOUDFLARE_ACCOUNT_ID", provider["source_detail"])
+        self.assertNotIn("sentinel-redaction-value", json.dumps(data))
+
+    def test_cloudflare_graphql_live_usage(self) -> None:
+        live = {
+            "type": "cloudflare_graphql",
+            "url_env": "DEMO_CLOUDFLARE_URL",
+            "token_env": "DEMO_CLOUDFLARE_TOKEN",
+            "account_id_env": "DEMO_CLOUDFLARE_ACCOUNT_ID",
+        }
+        client = CloudflareHttpClient()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            env = {
+                "NUTSNEWS_FREE_TIER_CACHE_FILE": str(Path(tmpdir) / "cache.json"),
+                "NUTSNEWS_FREE_TIER_QUOTAS_JSON": json.dumps(cloudflare_quota_config(live)),
+                "DEMO_CLOUDFLARE_URL": "https://api.cloudflare.com/client/v4/graphql",
+                "DEMO_CLOUDFLARE_TOKEN": "sentinel-redaction-value",
+                "DEMO_CLOUDFLARE_ACCOUNT_ID": "sentinel-account-id",
+            }
+            data = FreeTierCollector(env=env, http_client=client, now=NOW).collect()
+        provider = data["providers"][0]
+        usage_by_key = {metric["key"]: metric["usage"] for metric in provider["metrics"]}
+        self.assertEqual(provider["status"], "live")
+        self.assertEqual(usage_by_key["workers_requests"], 12)
+        self.assertIsNone(usage_by_key["pages_builds"])
+        self.assertEqual(client.urls, ["https://api.cloudflare.com/client/v4/graphql"])
+        self.assertEqual(client.bodies[0]["variables"]["accountTag"], "sentinel-account-id")
+        self.assertEqual(client.bodies[0]["variables"]["datetimeStart"], "2026-07-07T00:00:00Z")
+        self.assertEqual(client.bodies[0]["variables"]["datetimeEnd"], "2026-07-07T12:00:00Z")
+        self.assertIn("Authorization", client.headers[0])
+        self.assertNotIn("sentinel-redaction-value", json.dumps(data))
+        self.assertNotIn("sentinel-account-id", json.dumps(data))
+
+    def test_cloudflare_graphql_errors_are_sanitized(self) -> None:
+        live = {
+            "type": "cloudflare_graphql",
+            "url_env": "DEMO_CLOUDFLARE_URL",
+            "token_env": "DEMO_CLOUDFLARE_TOKEN",
+            "account_id_env": "DEMO_CLOUDFLARE_ACCOUNT_ID",
+        }
+        payload = {"data": None, "errors": [{"message": "permission denied"}]}
+        with tempfile.TemporaryDirectory() as tmpdir:
+            env = {
+                "NUTSNEWS_FREE_TIER_CACHE_FILE": str(Path(tmpdir) / "cache.json"),
+                "NUTSNEWS_FREE_TIER_QUOTAS_JSON": json.dumps(cloudflare_quota_config(live)),
+                "DEMO_CLOUDFLARE_URL": "https://api.cloudflare.com/client/v4/graphql",
+                "DEMO_CLOUDFLARE_TOKEN": "sentinel-redaction-value",
+                "DEMO_CLOUDFLARE_ACCOUNT_ID": "sentinel-account-id",
+            }
+            data = FreeTierCollector(
+                env=env,
+                http_client=CloudflareHttpClient(payload),
+                now=NOW,
+            ).collect()
+        detail = data["providers"][0]["source_detail"]
+        self.assertEqual(data["providers"][0]["status"], "unavailable")
+        self.assertIn("permission denied", detail)
+        self.assertNotIn("sentinel-redaction-value", json.dumps(data))
+        self.assertNotIn("sentinel-account-id", json.dumps(data))
 
     def test_stale_cached_data(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

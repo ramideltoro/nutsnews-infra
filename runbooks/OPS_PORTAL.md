@@ -123,7 +123,7 @@ Optional protected `production-vps` Environment values:
 - `NUTSNEWS_FREE_TIER_USAGE_JSON`: normalized usage snapshot JSON for providers without a live collector
 - `NUTSNEWS_VERCEL_API_TOKEN` and `NUTSNEWS_VERCEL_USAGE_API_URL`
 - `NUTSNEWS_SENTRY_AUTH_TOKEN`, `NUTSNEWS_SENTRY_ORG`, and optionally `NUTSNEWS_SENTRY_BASE_URL`
-- `NUTSNEWS_CLOUDFLARE_USAGE_API_TOKEN` and `NUTSNEWS_CLOUDFLARE_USAGE_API_URL`
+- `NUTSNEWS_CLOUDFLARE_USAGE_API_TOKEN`, `NUTSNEWS_CLOUDFLARE_USAGE_API_URL`, and `NUTSNEWS_CLOUDFLARE_ACCOUNT_ID`
 - `NUTSNEWS_BETTER_STACK_API_TOKEN` and `NUTSNEWS_BETTER_STACK_USAGE_API_URL`
 - `NUTSNEWS_SUPABASE_ACCESS_TOKEN` and `NUTSNEWS_SUPABASE_USAGE_API_URL`
 - `NUTSNEWS_GRAFANA_CLOUD_USAGE_API_TOKEN` and `NUTSNEWS_GRAFANA_CLOUD_USAGE_API_URL`
@@ -146,7 +146,7 @@ Current provider-specific notes:
 
 - Vercel billing charges requires ISO 8601 `from` and `to` query parameters. A `costs_not_found` response usually means the configured team identifier, account access, or billing endpoint does not expose the desired Hobby quota metrics.
 - Sentry accepts either `https://sentry.io` or `https://sentry.io/api/0` as `NUTSNEWS_SENTRY_BASE_URL`; the collector normalizes the API root before calling Stats v2. `401 Invalid token` means `NUTSNEWS_SENTRY_AUTH_TOKEN` must be replaced with a token that can read organization stats for `NUTSNEWS_SENTRY_ORG`.
-- Cloudflare GraphQL must be queried with POST and account-scoped analytics inputs. If the portal reports `request must be a POST`, the next code change must add a Cloudflare GraphQL collector and pass the required account identifier instead of treating the endpoint as normalized GET JSON.
+- Cloudflare Workers request usage is read with a POST to the GraphQL Analytics API using `NUTSNEWS_CLOUDFLARE_ACCOUNT_ID`. Pages build and R2 quota metrics still need a normalized snapshot or a dedicated collector.
 - Better Stack monitor usage is read from the monitors API by counting the returned `data` list. Telemetry volume metrics still need a normalized snapshot or a dedicated read-only usage endpoint.
 - Supabase analytics endpoints return `result` rows for a specific metric. If the portal reports missing quota metrics, configure a normalized snapshot or add a collector for the specific Supabase quota metric; do not map unrelated API-request counts to storage, egress, auth, edge function, or realtime quotas.
 - Grafana Cloud billed usage requires numeric `month` and `year` parameters. A `403` response means `NUTSNEWS_GRAFANA_CLOUD_USAGE_API_TOKEN` does not have permission for billed usage on the configured org.
