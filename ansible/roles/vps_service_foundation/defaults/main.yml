@@ -153,31 +153,37 @@ vps_service_foundation_free_tier_quotas:
         label: Fast Data Transfer
         unit: GB/month
         period: monthly
+        reset_at: __next_month_start_iso__
         limit: 100
       - key: fast_origin_transfer_gb
         label: Fast Origin Transfer
         unit: GB/month
         period: monthly
+        reset_at: __next_month_start_iso__
         limit: 10
       - key: function_invocations
         label: Function Invocations
         unit: invocations/month
         period: monthly
+        reset_at: __next_month_start_iso__
         limit: 1000000
       - key: active_cpu_hours
         label: Active CPU
         unit: CPU-hours/month
         period: monthly
+        reset_at: __next_month_start_iso__
         limit: 4
       - key: provisioned_memory_gb_hours
         label: Provisioned Memory
         unit: GB-hours/month
         period: monthly
+        reset_at: __next_month_start_iso__
         limit: 360
       - key: deployments_created_per_day
         label: Deployments Created
         unit: deployments/day
         period: daily
+        reset_at: __next_day_start_iso__
         limit: 100
         usage_source: unsupported
       - key: concurrent_deployments

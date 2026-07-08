@@ -521,6 +521,120 @@ class FreeTierUsageTests(unittest.TestCase):
         self.assertNotIn("sentinel-redaction-value", json.dumps(data))
         self.assertNotIn("team_123", json.dumps(data))
 
+    def test_vercel_billing_charges_matches_focus_alias_fields(self) -> None:
+        live = {
+            "type": "vercel_billing_charges",
+            "url_env": "VERCEL_URL",
+            "token_env": "VERCEL_TOKEN",
+            "focus_mappings": {
+                "function_invocations": {
+                    "contains_all": ["function", "invocation"],
+                    "unit_contains_any": ["invocation"],
+                },
+                "active_cpu_hours": {
+                    "contains_all": ["active", "cpu"],
+                    "unit_contains_any": ["hour"],
+                },
+            },
+        }
+        payload = "\n".join(
+            [
+                json.dumps(
+                    {
+                        "ServiceName": "Managed Infrastructure",
+                        "ChargeDescription": "Function Invocations",
+                        "UsageQuantity": "1200",
+                        "PricingUnit": "invocations",
+                    }
+                ),
+                json.dumps(
+                    {
+                        "ServiceName": "Managed Infrastructure",
+                        "Tags": {"VercelProduct": "Active CPU"},
+                        "BilledQuantity": "0.5",
+                        "PricingUnit": "CPU-hours",
+                    }
+                ),
+            ]
+        )
+        client = TextHttpClient(payload)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            env = {
+                "NUTSNEWS_FREE_TIER_CACHE_FILE": str(Path(tmpdir) / "cache.json"),
+                "NUTSNEWS_FREE_TIER_QUOTAS_JSON": json.dumps(vercel_quota_config(live)),
+                "VERCEL_URL": "https://api.vercel.com/v1/billing/charges?teamId=team_123",
+                "VERCEL_TOKEN": "sentinel-redaction-value",
+            }
+            data = FreeTierCollector(env=env, http_client=client, now=NOW).collect()
+        provider = data["providers"][0]
+        usage_by_key = {metric["key"]: metric["usage"] for metric in provider["metrics"]}
+        self.assertEqual(provider["status"], "live")
+        self.assertEqual(usage_by_key["function_invocations"], 1200)
+        self.assertEqual(usage_by_key["active_cpu_hours"], 0.5)
+        self.assertNotIn("sentinel-redaction-value", json.dumps(data))
+        self.assertNotIn("team_123", json.dumps(data))
+
+    def test_vercel_snapshot_usage_wrapper_populates_after_billing_api_error(self) -> None:
+        live = {
+            "type": "vercel_billing_charges",
+            "url_env": "VERCEL_URL",
+            "token_env": "VERCEL_TOKEN",
+            "focus_mappings": {"fast_data_transfer_gb": {"contains_all": ["fast", "data", "transfer"]}},
+        }
+        payload = json.dumps({"error": {"code": "costs_not_found", "message": "costs_not_found"}})
+        snapshot = {
+            "providers": {
+                "vercel": {
+                    "last_checked_at": "2026-07-07T11:30:00+00:00",
+                    "usage": {
+                        "fast_data_transfer_gb": {"current": 3.75},
+                        "function_invocations": {"used": 1200},
+                        "active_cpu_hours": {"value": 0.25},
+                        "provisioned_memory_gb_hours": 12,
+                    },
+                }
+            }
+        }
+        with tempfile.TemporaryDirectory() as tmpdir:
+            env = {
+                "NUTSNEWS_FREE_TIER_CACHE_FILE": str(Path(tmpdir) / "cache.json"),
+                "NUTSNEWS_FREE_TIER_QUOTAS_JSON": json.dumps(vercel_quota_config(live)),
+                "NUTSNEWS_FREE_TIER_USAGE_JSON": json.dumps(snapshot),
+                "VERCEL_URL": "https://api.vercel.com/v1/billing/charges?teamId=team_123",
+                "VERCEL_TOKEN": "sentinel-redaction-value",
+            }
+            data = FreeTierCollector(env=env, http_client=TextHttpClient(payload), now=NOW).collect()
+        provider = data["providers"][0]
+        usage_by_key = {metric["key"]: metric["usage"] for metric in provider["metrics"]}
+        self.assertEqual(provider["status"], "cached")
+        self.assertEqual(provider["source_detail"], "Usage loaded from configured snapshot.")
+        self.assertEqual(provider["last_checked_at"], "2026-07-07T11:30:00+00:00")
+        self.assertEqual(usage_by_key["fast_data_transfer_gb"], 3.75)
+        self.assertEqual(usage_by_key["function_invocations"], 1200)
+        self.assertEqual(usage_by_key["active_cpu_hours"], 0.25)
+        self.assertEqual(usage_by_key["provisioned_memory_gb_hours"], 12)
+        self.assertNotIn("sentinel-redaction-value", json.dumps(data))
+        self.assertNotIn("team_123", json.dumps(data))
+
+    def test_metric_reset_placeholders_are_rendered(self) -> None:
+        provider = quota_config()[0]
+        provider["metrics"][0]["reset_at"] = "__next_month_start_iso__"
+        daily_metric = dict(provider["metrics"][0])
+        daily_metric["key"] = "daily_requests"
+        daily_metric["label"] = "Daily Requests"
+        daily_metric["reset_at"] = "__next_day_start_iso__"
+        provider["metrics"].append(daily_metric)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            env = {
+                "NUTSNEWS_FREE_TIER_CACHE_FILE": str(Path(tmpdir) / "cache.json"),
+                "NUTSNEWS_FREE_TIER_QUOTAS_JSON": json.dumps([provider]),
+                "NUTSNEWS_FREE_TIER_USAGE_JSON": json.dumps({"demo": {"requests": 25, "daily_requests": 1}}),
+            }
+            data = FreeTierCollector(env=env, now=NOW).collect()
+        resets = {metric["key"]: metric["reset_at"] for metric in data["providers"][0]["metrics"]}
+        self.assertEqual(resets["requests"], "2026-08-01T00:00:00Z")
+        self.assertEqual(resets["daily_requests"], "2026-07-08T00:00:00Z")
+
     def test_vercel_billing_charges_missing_env_is_actionable(self) -> None:
         live = {
             "type": "vercel_billing_charges",

@@ -10,7 +10,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -21,6 +21,18 @@ ALLOWED_RISK_STATUSES = {"safe", "warning", "critical", "over_limit", "unknown",
 DEFAULT_WARNING_USED_PERCENT = 70.0
 DEFAULT_CRITICAL_USED_PERCENT = 85.0
 DEFAULT_OVER_LIMIT_USED_PERCENT = 100.0
+DEFAULT_VERCEL_FOCUS_MATCH_FIELDS = [
+    "ServiceName",
+    "ServiceCategory",
+    "ChargeCategory",
+    "ChargeDescription",
+    "Description",
+    "ResourceName",
+    "PricingUnit",
+    "ConsumedUnit",
+    "Tags",
+]
+VERCEL_FOCUS_QUANTITY_FIELDS = ["ConsumedQuantity", "BilledQuantity", "UsageQuantity", "Quantity"]
 CLOUDFLARE_WORKERS_USAGE_QUERY = """
 query NutsNewsWorkersUsage($accountTag: string, $datetimeStart: string, $datetimeEnd: string) {
   viewer {
@@ -783,7 +795,7 @@ class FreeTierCollector:
                 message = response_message(parsed)
                 if message:
                     return [], f"Vercel billing charges API returned a message: {message}."
-                data = parsed.get("data") or parsed.get("charges")
+                data = parsed.get("data") or parsed.get("charges") or parsed.get("items") or parsed.get("rows")
                 if isinstance(data, list):
                     return [item for item in data if isinstance(item, dict)], ""
                 return [], f"Vercel billing charges response was JSON but not FOCUS charges ({response_shape(parsed)})."
@@ -815,7 +827,7 @@ class FreeTierCollector:
         metrics = {str(key): 0.0 for key in mappings.keys()}
         matched = {str(key): False for key in mappings.keys()}
         for record in records:
-            quantity = safe_float(record.get("ConsumedQuantity"))
+            quantity = self.vercel_focus_quantity(record)
             if quantity is None:
                 continue
             for metric_key, raw_mapping in mappings.items():
@@ -829,11 +841,18 @@ class FreeTierCollector:
                 matched[key] = True
         return {key: round(value, 4) for key, value in metrics.items() if matched.get(key)}
 
+    def vercel_focus_quantity(self, record: dict[str, Any]) -> float | None:
+        for field in VERCEL_FOCUS_QUANTITY_FIELDS:
+            value = safe_float(record.get(field))
+            if value is not None:
+                return value
+        return None
+
     def vercel_focus_record_matches(self, record: dict[str, Any], mapping: dict[str, Any]) -> bool:
-        fields = mapping.get("fields", ["ServiceName", "ConsumedUnit", "PricingUnit"])
+        fields = mapping.get("fields", DEFAULT_VERCEL_FOCUS_MATCH_FIELDS)
         haystack_parts = []
         if isinstance(fields, list):
-            haystack_parts = [str(record.get(str(field), "")) for field in fields]
+            haystack_parts = [self.vercel_focus_field_text(record.get(str(field), "")) for field in fields]
         haystack = self.normalized_text(" ".join(haystack_parts))
 
         required_any = mapping.get("contains_any", [])
@@ -851,10 +870,23 @@ class FreeTierCollector:
         unit_any = mapping.get("unit_contains_any", [])
         if isinstance(unit_any, str):
             unit_any = [unit_any]
-        unit = self.normalized_text(str(record.get("ConsumedUnit", "")))
+        unit = self.normalized_text(
+            " ".join(
+                self.vercel_focus_field_text(record.get(field, ""))
+                for field in ("ConsumedUnit", "PricingUnit")
+            )
+        )
         if unit_any and not any(self.normalized_text(term) in unit for term in unit_any):
             return False
         return True
+
+    def vercel_focus_field_text(self, value: Any) -> str:
+        if isinstance(value, (dict, list)):
+            try:
+                return json.dumps(value, sort_keys=True)
+            except (TypeError, ValueError):
+                return str(value)
+        return str(value)
 
     def normalized_text(self, value: Any) -> str:
         return " ".join(str(value).lower().replace("_", " ").replace("-", " ").split())
@@ -1093,6 +1125,17 @@ class FreeTierCollector:
         if value == "__current_month_start_iso__":
             start = self.now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
             return start.isoformat().replace("+00:00", "Z")
+        if value == "__next_month_start_iso__":
+            year = self.now.year + (1 if self.now.month == 12 else 0)
+            month = 1 if self.now.month == 12 else self.now.month + 1
+            start = self.now.replace(year=year, month=month, day=1, hour=0, minute=0, second=0, microsecond=0)
+            return start.isoformat().replace("+00:00", "Z")
+        if value == "__current_day_start_iso__":
+            start = self.now.replace(hour=0, minute=0, second=0, microsecond=0)
+            return start.isoformat().replace("+00:00", "Z")
+        if value == "__next_day_start_iso__":
+            start = (self.now + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+            return start.isoformat().replace("+00:00", "Z")
         if value == "__now_iso__":
             return self.now.isoformat().replace("+00:00", "Z")
         if value == "__current_month_number__":
@@ -1135,9 +1178,9 @@ class FreeTierCollector:
             return 21600
 
     def provider_usage_from_snapshot(self, snapshot: dict[str, Any], provider_key: str) -> dict[str, Any]:
-        provider = {}
+        provider: dict[str, Any] = {}
         if isinstance(snapshot.get(provider_key), dict):
-            provider = snapshot[provider_key]
+            provider = {**provider, **snapshot[provider_key]}
         providers = snapshot.get("providers")
         if isinstance(providers, dict) and isinstance(providers.get(provider_key), dict):
             provider = {**provider, **providers[provider_key]}
@@ -1146,24 +1189,59 @@ class FreeTierCollector:
                 if isinstance(item, dict) and item.get("key") == provider_key:
                     provider = {**provider, **item}
                     break
+        usage = snapshot.get("usage")
+        if isinstance(usage, dict):
+            if isinstance(usage.get(provider_key), dict):
+                provider = {**provider, **usage[provider_key]}
+            elif snapshot.get("key") == provider_key or snapshot.get("provider") == provider_key:
+                provider = {**provider, "usage": usage}
+        if isinstance(snapshot.get("metrics"), (dict, list)) and (
+            snapshot.get("key") == provider_key or snapshot.get("provider") == provider_key
+        ):
+            provider = {**provider, "metrics": snapshot["metrics"]}
 
         metrics: dict[str, float] = {}
-        raw_metrics = provider.get("metrics", provider)
+        raw_metric_sources = []
+        for field in ("metrics", "usage"):
+            raw = provider.get(field)
+            if isinstance(raw, (dict, list)):
+                raw_metric_sources.append(raw)
+        raw_metric_sources.append(provider)
+        for raw_metrics in raw_metric_sources:
+            self.merge_snapshot_metrics(metrics, raw_metrics)
+        if not metrics:
+            return {}
+        return {
+            "metrics": metrics,
+            "last_checked_at": provider.get("last_checked_at")
+            or provider.get("updated_at")
+            or snapshot.get("last_checked_at")
+            or snapshot.get("updated_at")
+            or snapshot.get("generated_at"),
+        }
+
+    def merge_snapshot_metrics(self, metrics: dict[str, float], raw_metrics: Any) -> None:
         if isinstance(raw_metrics, dict):
             for key, value in raw_metrics.items():
-                number = safe_float(value)
+                number = self.snapshot_metric_value(value)
                 if number is not None:
                     metrics[str(key)] = number
         elif isinstance(raw_metrics, list):
             for item in raw_metrics:
                 if not isinstance(item, dict) or "key" not in item:
                     continue
-                number = safe_float(item.get("usage"))
+                number = self.snapshot_metric_value(item)
                 if number is not None:
                     metrics[str(item["key"])] = number
-        if not metrics:
-            return {}
-        return {"metrics": metrics, "last_checked_at": provider.get("last_checked_at") or snapshot.get("last_checked_at")}
+
+    def snapshot_metric_value(self, value: Any) -> float | None:
+        if isinstance(value, dict):
+            for field in ("usage", "value", "current", "used"):
+                number = safe_float(value.get(field))
+                if number is not None:
+                    return number
+            return None
+        return safe_float(value)
 
     def measurement_status(self, metric_config: dict[str, Any], usage: float | None, source_status: str) -> str:
         if usage is not None:
@@ -1246,7 +1324,7 @@ class FreeTierCollector:
             "label": label,
             "unit": unit,
             "period": metric_config.get("period", ""),
-            "reset_at": metric_config.get("reset_at", "unknown"),
+            "reset_at": self.dynamic_param_value(str(metric_config.get("reset_at", "unknown"))),
             "description": metric_config.get("description", ""),
             "quota_source": metric_config.get("quota_source") or provider_config.get("quota_source", ""),
             "quota_last_verified": metric_config.get("quota_last_verified")
