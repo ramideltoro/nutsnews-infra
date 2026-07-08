@@ -183,7 +183,7 @@ a:hover {
 }
 
 .quota-grid {
-  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  grid-template-columns: 1fr;
   margin: 0.75rem 0;
 }
 
@@ -373,7 +373,10 @@ a:hover {
 }
 
 .quota-card__header small {
-  display: block;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.45rem;
   margin-top: 0.2rem;
   color: var(--muted);
   font-size: 0.75rem;
@@ -418,7 +421,7 @@ a:hover {
 
 .quota-card__details {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(8rem, 1fr));
   gap: 0.55rem;
   margin: 0.85rem 0;
 }
@@ -441,6 +444,35 @@ a:hover {
   color: var(--text);
   font-size: 0.9rem;
   font-weight: 760;
+}
+
+.quota-source {
+  display: inline-flex;
+  align-items: center;
+  min-height: 1.35rem;
+  padding: 0.12rem 0.42rem;
+  border: 1px solid rgba(76, 201, 192, 0.38);
+  border-radius: 999px;
+  color: var(--info);
+  background: rgba(76, 201, 192, 0.08);
+  font-size: 0.72rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.quota-metric-name {
+  display: block;
+  color: var(--text);
+  font-weight: 760;
+}
+
+td small {
+  display: block;
+  max-width: 34rem;
+  margin-top: 0.25rem;
+  color: var(--muted);
+  font-size: 0.76rem;
+  line-height: 1.35;
 }
 
 .pill {
@@ -513,6 +545,21 @@ a:hover {
 .table-wrap--stacked {
   margin-top: 0.75rem;
   padding: 0.85rem;
+}
+
+.table-wrap--quota {
+  margin-top: 0.85rem;
+  background: rgba(14, 14, 14, 0.72);
+}
+
+.table-wrap--quota table {
+  min-width: 880px;
+}
+
+.table-wrap--quota th,
+.table-wrap--quota td {
+  padding: 0.58rem;
+  font-size: 0.82rem;
 }
 
 table {

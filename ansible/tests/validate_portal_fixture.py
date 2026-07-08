@@ -75,6 +75,9 @@ for token in (
     "renderFreeTierUsage",
     "app-links",
     "quota-card",
+    "quota-metric-name",
+    "measurement_status",
+    "metric_status_counts",
 ):
     require(token in APP_JS or token in STYLES, f"Portal UI missing {token}.")
 
@@ -126,8 +129,30 @@ require(
 )
 require("free-tier-usage.env.j2" in TASKS, "Free-tier env template must be installed by Ansible.")
 require("vps_service_foundation_free_tier_quotas" in DEFAULTS, "Free-tier quota defaults must be config-driven.")
+for quota_key in (
+    "fast_origin_transfer_gb",
+    "logs_gb",
+    "application_metrics_gb",
+    "kv_reads",
+    "kv_storage_account_gb",
+    "web_events_gb",
+    "monthly_active_third_party_users",
+    "realtime_peak_connections",
+    "synthetic_api_executions",
+):
+    require(quota_key in DEFAULTS, f"Free-tier quota defaults missing {quota_key}.")
+for quota_source in (
+    "https://vercel.com/docs/limits",
+    "https://sentry.io/pricing/",
+    "https://developers.cloudflare.com/kv/platform/limits/",
+    "https://developers.cloudflare.com/r2/pricing/",
+    "https://supabase.com/docs/guides/platform/billing-on-supabase",
+    "https://docs.github.com/en/billing/concepts/product-billing/github-actions",
+):
+    require(quota_source in DEFAULTS, f"Free-tier quota source missing {quota_source}.")
 require("cloudflare_graphql" in FREE_TIER_COLLECTOR, "Free-tier collector must support Cloudflare GraphQL.")
 require("No live API credentials" in FREE_TIER_COLLECTOR, "Free-tier collector must degrade when tokens are missing.")
+require("ALLOWED_MEASUREMENT_STATUSES" in FREE_TIER_COLLECTOR, "Free-tier collector must expose metric measurement states.")
 require("Free-tier usage summary" in REPORTER, "Reporter must include free-tier usage in health reports.")
 
 app = STATUS["app"]
