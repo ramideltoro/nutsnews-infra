@@ -834,7 +834,7 @@ class FreeTierCollector:
                 timeout=self.http_timeout(),
             )
         except ApiRequestError as exc:
-            return ApiResult("unavailable", detail=self.api_error_detail("Vercel billing charges API", exc))
+            return ApiResult("unavailable", detail=self.vercel_api_error_detail(exc))
         except (OSError, TimeoutError, urllib.error.URLError, urllib.error.HTTPError, json.JSONDecodeError) as exc:
             return ApiResult("unavailable", detail=f"Vercel billing charges API request failed: {exc.__class__.__name__}.")
 
@@ -1239,17 +1239,31 @@ class FreeTierCollector:
             parts.append(exc.error_class)
         if exc.content_type:
             parts.append(f"content-type {exc.content_type.split(';')[0]}")
-        message = ""
-        if exc.body:
-            try:
-                message = response_message(json.loads(exc.body.decode("utf-8")))
-            except (UnicodeDecodeError, json.JSONDecodeError):
-                message = ""
+        message = self.api_error_message(exc)
         if message:
             parts.append(f"message: {message}")
         elif exc.reason:
             parts.append(f"reason: {sanitize_text(exc.reason)}")
         return "; ".join(parts) + "."
+
+    def api_error_message(self, exc: ApiRequestError) -> str:
+        if not exc.body:
+            return ""
+        try:
+            return response_message(json.loads(exc.body.decode("utf-8")))
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            return ""
+
+    def vercel_api_error_detail(self, exc: ApiRequestError) -> str:
+        detail = self.api_error_detail("Vercel billing charges API", exc)
+        message = self.api_error_message(exc).lower()
+        if exc.status_code == 404 and "cost" in message and "not found" in message:
+            return (
+                f"{detail} Vercel returned Costs not found for the configured Billing Charges request; "
+                "verify the protected teamId or slug, account billing visibility, and token role. "
+                "Keep Vercel live usage unavailable until Vercel exposes a supported read-only usage source."
+            )
+        return detail
 
     def http_timeout(self) -> int:
         try:
@@ -1409,13 +1423,26 @@ class FreeTierCollector:
             risk_status = "safe"
         provider_config = provider_config or {}
         measurement_status = self.measurement_status(metric_config, usage, source_status)
+        reset_at = self.dynamic_param_value(str(metric_config.get("reset_at", "unknown")))
+        unmeasured_display = self.unmeasured_display_label(provider_config, measurement_status, usage)
+        usage_display = display_amount(usage, unit)
+        remaining_display = display_amount(remaining, unit)
+        percent_used_display = display_percent(used_percent)
+        percent_remaining_display = display_percent(remaining_percent)
+        if unmeasured_display:
+            usage_display = unmeasured_display
+            remaining_display = unmeasured_display
+            percent_used_display = unmeasured_display
+            percent_remaining_display = unmeasured_display
+            if reset_at == "unknown" and measurement_status == "unsupported":
+                reset_at = "unsupported"
 
         return {
             "key": key,
             "label": label,
             "unit": unit,
             "period": metric_config.get("period", ""),
-            "reset_at": self.dynamic_param_value(str(metric_config.get("reset_at", "unknown"))),
+            "reset_at": reset_at,
             "description": metric_config.get("description", ""),
             "quota_source": metric_config.get("quota_source") or provider_config.get("quota_source", ""),
             "quota_last_verified": metric_config.get("quota_last_verified")
@@ -1433,15 +1460,29 @@ class FreeTierCollector:
             "remaining": remaining,
             "percent_used": used_percent,
             "percent_remaining": remaining_percent,
-            "usage_display": display_amount(usage, unit),
+            "usage_display": usage_display,
             "limit_display": display_amount(limit, unit),
-            "remaining_display": display_amount(remaining, unit),
-            "percent_used_display": display_percent(used_percent),
-            "percent_remaining_display": display_percent(remaining_percent),
+            "remaining_display": remaining_display,
+            "percent_used_display": percent_used_display,
+            "percent_remaining_display": percent_remaining_display,
             "health": "healthy" if risk_status == "safe" else risk_status,
             "risk_status": risk_status,
             "risk_label": risk_status.replace("_", " "),
         }
+
+    def unmeasured_display_label(
+        self,
+        provider_config: dict[str, Any],
+        measurement_status: str,
+        usage: float | None,
+    ) -> str:
+        if usage is not None:
+            return ""
+        if not config_bool(provider_config.get("display_unmeasured_status"), False):
+            return ""
+        if measurement_status in {"missing credential", "unavailable", "unsupported"}:
+            return measurement_status
+        return ""
 
     def primary_metric(self, metrics: list[dict[str, Any]]) -> dict[str, Any]:
         unknown = {

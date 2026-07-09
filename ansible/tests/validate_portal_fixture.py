@@ -167,6 +167,35 @@ for key in (
     "github_actions",
 ):
     require(key in provider_keys, f"Free-tier fixture missing provider {key}.")
+vercel_fixture = next(provider for provider in providers if provider.get("key") == "vercel")
+require(
+    "display_unmeasured_status" in DEFAULTS,
+    "Vercel quota defaults must opt into explicit unmeasured display states.",
+)
+require(
+    "vercel_api_error_detail" in FREE_TIER_COLLECTOR,
+    "Vercel API failures must include Vercel-specific non-secret guidance.",
+)
+require(
+    vercel_fixture.get("current_usage") != "unknown",
+    "Vercel provider fixture must not render current usage as generic unknown.",
+)
+require(
+    "Costs not found" in vercel_fixture.get("source_detail", "")
+    and "teamId or slug" in vercel_fixture.get("source_detail", ""),
+    "Vercel unavailable fixture must include current safe Billing Charges guidance.",
+)
+for metric in vercel_fixture.get("metrics", []):
+    status = metric.get("measurement_status")
+    if status in {"missing credential", "unavailable", "unsupported"}:
+        require(
+            metric.get("usage") is None,
+            f"Vercel unmeasured metric {metric.get('key')} must keep numeric usage null.",
+        )
+        require(
+            metric.get("usage_display") == status,
+            f"Vercel unmeasured metric {metric.get('key')} must display {status}, not generic unknown.",
+        )
 source_statuses = {provider.get("source_status") for provider in providers}
 for status in ("live", "cached", "not configured", "unavailable"):
     require(status in source_statuses, f"Free-tier fixture missing {status} source state.")

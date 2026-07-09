@@ -120,6 +120,7 @@ vps_service_foundation_free_tier_quotas:
     quota_source: https://vercel.com/docs/limits
     quota_last_verified: "2026-07-08"
     notes: Free Hobby usage summary. Override these values if the account plan or official limits change.
+    display_unmeasured_status: true
     live:
       type: vercel_billing_charges
       url_env: NUTSNEWS_VERCEL_USAGE_API_URL

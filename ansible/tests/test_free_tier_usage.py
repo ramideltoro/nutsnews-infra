@@ -212,6 +212,7 @@ def vercel_quota_config(live: dict) -> list[dict]:
         {
             "key": "vercel",
             "platform": "Vercel",
+            "display_unmeasured_status": True,
             "metrics": [
                 {"key": "fast_data_transfer_gb", "label": "Fast Data Transfer", "unit": "GB/month", "limit": 100},
                 {"key": "function_invocations", "label": "Function Invocations", "unit": "invocations/month", "limit": 1000000},
@@ -597,6 +598,52 @@ class FreeTierUsageTests(unittest.TestCase):
         self.assertEqual(metrics["function_invocations"]["usage"], 0)
         self.assertEqual(metrics["function_invocations"]["measurement_status"], "measured")
         self.assertEqual(metrics["function_invocations"]["usage_display"], "0 invocations/month")
+        self.assertEqual(metrics["fast_data_transfer_gb"]["usage_display"], "unavailable")
+
+    def test_vercel_unsupported_metrics_render_explicit_status(self) -> None:
+        live = {
+            "type": "vercel_billing_charges",
+            "url_env": "VERCEL_URL",
+            "token_env": "VERCEL_TOKEN",
+            "focus_mappings": {
+                "function_invocations": {
+                    "contains_all": ["function", "invocation"],
+                    "unit_contains_any": ["invocation"],
+                },
+            },
+        }
+        config = vercel_quota_config(live)
+        config[0]["metrics"].append(
+            {
+                "key": "concurrent_deployments",
+                "label": "Concurrent Deployments",
+                "unit": "deployments",
+                "period": "current",
+                "limit": 1,
+                "usage_source": "unsupported",
+            }
+        )
+        payload = json.dumps(
+            {
+                "ServiceName": "Function Invocations",
+                "ConsumedQuantity": "10",
+                "ConsumedUnit": "invocations",
+            }
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            env = {
+                "NUTSNEWS_FREE_TIER_CACHE_FILE": str(Path(tmpdir) / "cache.json"),
+                "NUTSNEWS_FREE_TIER_QUOTAS_JSON": json.dumps(config),
+                "VERCEL_URL": "https://api.vercel.com/v1/billing/charges?teamId=team_123",
+                "VERCEL_TOKEN": "sentinel-redaction-value",
+            }
+            data = FreeTierCollector(env=env, http_client=TextHttpClient(payload), now=NOW).collect()
+        metrics = {metric["key"]: metric for metric in data["providers"][0]["metrics"]}
+        self.assertEqual(metrics["concurrent_deployments"]["measurement_status"], "unsupported")
+        self.assertEqual(metrics["concurrent_deployments"]["usage_display"], "unsupported")
+        self.assertEqual(metrics["concurrent_deployments"]["remaining_display"], "unsupported")
+        self.assertEqual(metrics["concurrent_deployments"]["percent_used_display"], "unsupported")
+        self.assertEqual(metrics["concurrent_deployments"]["reset_at"], "unsupported")
 
     def test_vercel_billing_charges_null_quantity_is_unavailable_not_zero(self) -> None:
         live = {
@@ -629,7 +676,9 @@ class FreeTierUsageTests(unittest.TestCase):
         metrics = {metric["key"]: metric for metric in provider["metrics"]}
         self.assertEqual(provider["status"], "unavailable")
         self.assertIsNone(metrics["function_invocations"]["usage"])
-        self.assertEqual(metrics["function_invocations"]["usage_display"], "unknown")
+        self.assertEqual(metrics["function_invocations"]["usage_display"], "unavailable")
+        self.assertEqual(metrics["function_invocations"]["remaining_display"], "unavailable")
+        self.assertEqual(metrics["function_invocations"]["percent_used_display"], "unavailable")
         self.assertEqual(metrics["function_invocations"]["measurement_status"], "unavailable")
         self.assertIn("did not include configured quota metric records", metrics["function_invocations"]["measurement_detail"])
 
@@ -765,7 +814,9 @@ class FreeTierUsageTests(unittest.TestCase):
         self.assertIn("costs_not_found", provider["source_detail"])
         self.assertIn("fallback is disabled", provider["source_detail"])
         self.assertIsNone(metrics["fast_data_transfer_gb"]["usage"])
-        self.assertEqual(metrics["fast_data_transfer_gb"]["usage_display"], "unknown")
+        self.assertEqual(metrics["fast_data_transfer_gb"]["usage_display"], "unavailable")
+        self.assertEqual(metrics["fast_data_transfer_gb"]["remaining_display"], "unavailable")
+        self.assertEqual(metrics["fast_data_transfer_gb"]["percent_used_display"], "unavailable")
         self.assertEqual(metrics["fast_data_transfer_gb"]["measurement_status"], "unavailable")
         self.assertIn("costs_not_found", metrics["fast_data_transfer_gb"]["measurement_detail"])
         self.assertNotIn("sentinel-redaction-value", json.dumps(data))
@@ -816,8 +867,11 @@ class FreeTierUsageTests(unittest.TestCase):
         self.assertEqual(provider["status"], "unavailable")
         self.assertIn("HTTP 404", provider["source_detail"])
         self.assertIn("Costs not found", provider["source_detail"])
+        self.assertIn("verify the protected teamId or slug", provider["source_detail"])
         self.assertIsNone(metrics["fast_data_transfer_gb"]["usage"])
-        self.assertEqual(metrics["fast_data_transfer_gb"]["usage_display"], "unknown")
+        self.assertEqual(metrics["fast_data_transfer_gb"]["usage_display"], "unavailable")
+        self.assertEqual(metrics["fast_data_transfer_gb"]["remaining_display"], "unavailable")
+        self.assertEqual(metrics["fast_data_transfer_gb"]["percent_used_display"], "unavailable")
         self.assertEqual(metrics["fast_data_transfer_gb"]["measurement_status"], "unavailable")
         self.assertNotIn("sentinel-redaction-value", json.dumps(data))
         self.assertNotIn("team_123", json.dumps(data))
