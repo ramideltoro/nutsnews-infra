@@ -8,7 +8,7 @@ vps.nutsnews.com {
 
   log {
     output stdout
-    format console
+    format json
   }
 
   header {
@@ -34,7 +34,7 @@ ops.nutsnews.com {
 
   log {
     output stdout
-    format console
+    format json
   }
 
   header {
@@ -65,7 +65,7 @@ ops.nutsnews.com {
 
   log {
     output stdout
-    format console
+    format json
   }
 
   header {

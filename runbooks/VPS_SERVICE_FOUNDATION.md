@@ -45,7 +45,7 @@ curl -fsS http://127.0.0.1:8080/
 curl -fsS http://127.0.0.1:8080/data/status.json
 systemctl status nutsnews-infra-health.service
 systemctl status nutsnews-ops-portal-collector.timer
-sudo docker logs nutsnews-caddy --since 10m | grep -E 'status=429|rate'
+sudo docker logs nutsnews-caddy --since 10m | grep -E '"status":429|rate'
 ```
 
 From a workstation or external monitor after DNS is pointed at the VPS and ports `80` and `443` are reachable:
@@ -67,10 +67,10 @@ Default Caddy limits are keyed by `{remote_host}` with IPv6 clients grouped by `
 | API routes | `/api/*` | 60 requests per minute |
 | Public/default content | `/*` | 600 requests per minute |
 
-Requests over the limit return HTTP 429 with `Retry-After`. Caddy logs are written to Docker stdout, and rate-limit hits can be inspected with:
+Requests over the limit return HTTP 429 with `Retry-After`. Caddy access logs are written as JSON to Docker stdout so Alloy can parse request metadata without extra host mounts. Rate-limit hits can be inspected with:
 
 ```bash
-sudo docker logs nutsnews-caddy --since 30m | grep -E 'status=429|rate'
+sudo docker logs nutsnews-caddy --since 30m | grep -E '"status":429|rate'
 ```
 
 Tune limits in `ansible/roles/vps_service_foundation/defaults/main.yml` by changing `vps_service_foundation_caddy_rate_limit_zones`, then run the protected workflow in `check` mode before `apply`. To disable the limiter temporarily through GitOps, set `vps_service_foundation_caddy_rate_limits_enabled: false`, merge the PR, and apply through the same workflow.
@@ -184,7 +184,7 @@ Rate-limit verification after deployment:
 
 ```bash
 for i in $(seq 1 35); do curl -sk -o /dev/null -w "%{http_code}\n" https://vps.nutsnews.com/health; done
-sudo docker logs nutsnews-caddy --since 10m | grep -E 'status=429|rate'
+sudo docker logs nutsnews-caddy --since 10m | grep -E '"status":429|rate'
 ```
 
 ## Recovery

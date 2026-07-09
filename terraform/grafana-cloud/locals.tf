@@ -30,6 +30,35 @@ locals {
       ]
     }
 
+    logs_overview = {
+      uid         = "nutsnews-logs-overview"
+      title       = "NutsNews Logs Overview"
+      description = "Centralized Loki log volume, levels, systemd units, Docker containers, Caddy status classes, and recent errors."
+      panels = [
+        { title = "Log volume by source", type = "timeseries", datasource = "loki", unit = "short", width = 12, height = 8, expr = "sum by (source) (count_over_time({${local.base_log_filter}}[$__interval]))" },
+        { title = "Log volume by service", type = "timeseries", datasource = "loki", unit = "short", width = 12, height = 8, expr = "sum by (service) (count_over_time({${local.base_log_filter}}[$__interval]))" },
+        { title = "Log volume by level", type = "timeseries", datasource = "loki", unit = "short", width = 12, height = 8, expr = "sum by (level) (count_over_time({${local.base_log_filter},level!=\"\"}[$__interval]))" },
+        { title = "Systemd journal by unit", type = "timeseries", datasource = "loki", unit = "short", width = 12, height = 8, expr = "sum by (unit) (count_over_time({${local.base_log_filter},source=\"journal\",unit!=\"\"}[$__interval]))" },
+        { title = "Docker logs by container", type = "timeseries", datasource = "loki", unit = "short", width = 12, height = 8, expr = "sum by (compose_project, container) (count_over_time({${local.base_log_filter},source=\"docker\"}[$__interval]))" },
+        {
+          title      = "Caddy status classes"
+          type       = "timeseries"
+          datasource = "loki"
+          unit       = "short"
+          width      = 12
+          height     = 8
+          targets = [
+            { expr = "sum(count_over_time({${local.base_log_filter},source=\"docker\",container=\"nutsnews-caddy\"} | json | status >= 200 | status < 300 [$__interval]))", legend = "2xx" },
+            { expr = "sum(count_over_time({${local.base_log_filter},source=\"docker\",container=\"nutsnews-caddy\"} | json | status >= 300 | status < 400 [$__interval]))", legend = "3xx" },
+            { expr = "sum(count_over_time({${local.base_log_filter},source=\"docker\",container=\"nutsnews-caddy\"} | json | status >= 400 | status < 500 [$__interval]))", legend = "4xx" },
+            { expr = "sum(count_over_time({${local.base_log_filter},source=\"docker\",container=\"nutsnews-caddy\"} | json | status >= 500 | status < 600 [$__interval]))", legend = "5xx" },
+          ]
+        },
+        { title = "Recent errors", type = "logs", datasource = "loki", unit = "short", width = 12, height = 8, expr = "{${local.base_log_filter}} |~ \"(?i)(error|critical|panic|failed|denied)\"" },
+        { title = "Dropped log guardrails", type = "timeseries", datasource = "prometheus", unit = "ops", width = 12, height = 8, expr = "sum by (reason) (rate(loki_process_dropped_lines_total{${local.base_metric_filter}}[$__rate_interval]))" },
+      ]
+    }
+
     cpu_load_processes = {
       uid         = "nutsnews-cpu-load-processes"
       title       = "NutsNews CPU Load Processes"
@@ -86,7 +115,7 @@ locals {
         { title = "Network receive", type = "timeseries", datasource = "prometheus", unit = "Bps", width = 12, height = 8, expr = "sum by (instance, device) (rate(node_network_receive_bytes_total{${local.node_exporter_metric_filter}}[5m]))" },
         { title = "Network transmit", type = "timeseries", datasource = "prometheus", unit = "Bps", width = 12, height = 8, expr = "sum by (instance, device) (rate(node_network_transmit_bytes_total{${local.node_exporter_metric_filter}}[5m]))" },
         { title = "Network errors", type = "timeseries", datasource = "prometheus", unit = "ops", width = 12, height = 8, expr = "sum by (instance, device) (rate(node_network_receive_errs_total{${local.node_exporter_metric_filter}}[5m]) + rate(node_network_transmit_errs_total{${local.node_exporter_metric_filter}}[5m]))" },
-        { title = "Caddy warnings and errors", type = "logs", datasource = "loki", unit = "short", width = 12, height = 8, expr = "{${local.base_log_filter},log_source=\"nutsnews-service\"} |~ \"(?i)(caddy|reverse_proxy|tls|http)\" |~ \"(?i)(warn|error|failed|panic)\"" },
+        { title = "Caddy warnings and errors", type = "logs", datasource = "loki", unit = "short", width = 12, height = 8, expr = "{${local.base_log_filter},source=\"docker\",container=\"nutsnews-caddy\"} |~ \"(?i)(warn|error|failed|panic|tls|reverse_proxy)\"" },
       ]
     }
 
@@ -98,7 +127,7 @@ locals {
         { title = "Container CPU", type = "timeseries", datasource = "prometheus", unit = "percentunit", width = 12, height = 8, expr = "sum by (container, compose_project) (rate(container_cpu_usage_seconds_total{${local.base_metric_filter},container!=\"\"}[5m]))" },
         { title = "Container memory", type = "timeseries", datasource = "prometheus", unit = "bytes", width = 12, height = 8, expr = "sum by (container, compose_project) (container_memory_working_set_bytes{${local.base_metric_filter},container!=\"\"})" },
         { title = "Container restarts and health", type = "timeseries", datasource = "prometheus", unit = "short", width = 12, height = 8, expr = "nutsnews_docker_container_restart_count{${local.base_metric_filter}} or nutsnews_docker_container_healthy{${local.base_metric_filter}}" },
-        { title = "Container logs", type = "logs", datasource = "loki", unit = "short", width = 12, height = 8, expr = "{${local.base_log_filter},log_source=\"docker\"}" },
+        { title = "Container logs", type = "logs", datasource = "loki", unit = "short", width = 12, height = 8, expr = "{${local.base_log_filter},source=\"docker\"}" },
       ]
     }
 
@@ -120,8 +149,8 @@ locals {
       description = "Authentication and security logs with redacted secrets and IP addresses."
       panels = [
         { title = "Recent failed logins", type = "timeseries", datasource = "prometheus", unit = "short", width = 12, height = 8, expr = "nutsnews_security_failed_logins_recent{${local.base_metric_filter}} or nutsnews_security_failed_logins_invalid_user{${local.base_metric_filter}}" },
-        { title = "Auth log stream", type = "logs", datasource = "loki", unit = "short", width = 12, height = 8, expr = "{${local.base_log_filter},log_source=\"auth\"}" },
-        { title = "High-priority journal", type = "logs", datasource = "loki", unit = "short", width = 12, height = 8, expr = "{${local.base_log_filter},log_source=\"journal\",level=~\"emerg|alert|crit|err|warning\"}" },
+        { title = "Auth log stream", type = "logs", datasource = "loki", unit = "short", width = 12, height = 8, expr = "{${local.base_log_filter},source=\"auth\"}" },
+        { title = "High-priority journal", type = "logs", datasource = "loki", unit = "short", width = 12, height = 8, expr = "{${local.base_log_filter},source=\"journal\",level=~\"emerg|alert|crit|err|warning\"}" },
         { title = "Dropped log guardrail counters", type = "timeseries", datasource = "prometheus", unit = "ops", width = 12, height = 8, expr = "sum by (reason) (rate(loki_process_dropped_lines_total{${local.base_metric_filter}}[5m]))" },
       ]
     }
@@ -157,7 +186,7 @@ locals {
       panels = [
         { title = "App deployment state", type = "timeseries", datasource = "prometheus", unit = "short", width = 12, height = 8, expr = "nutsnews_app_enabled{${local.base_metric_filter}} or nutsnews_app_container_running{${local.base_metric_filter}} or nutsnews_app_container_healthy{${local.base_metric_filter}} or nutsnews_app_route_ready{${local.base_metric_filter}}" },
         { title = "App container resource usage", type = "timeseries", datasource = "prometheus", unit = "short", width = 12, height = 8, expr = "sum by (container) (container_memory_working_set_bytes{${local.base_metric_filter},container=~\"nutsnews.*\"}) or sum by (container) (rate(container_cpu_usage_seconds_total{${local.base_metric_filter},container=~\"nutsnews.*\"}[5m]))" },
-        { title = "Application route logs", type = "logs", datasource = "loki", unit = "short", width = 12, height = 8, expr = "{${local.base_log_filter}} |~ \"(?i)(nutsnews-app|app-stage|healthz|api)\"" },
+        { title = "Application route logs", type = "logs", datasource = "loki", unit = "short", width = 12, height = 8, expr = "{${local.base_log_filter},source=\"docker\",container=~\"nutsnews-app|nutsnews-caddy\"} |~ \"(?i)(app-stage|healthz|api)\"" },
         { title = "Service health endpoint failures", type = "logs", datasource = "loki", unit = "short", width = 12, height = 8, expr = "{${local.base_log_filter},log_source=\"nutsnews-service\"} |~ \"(?i)(health|route|upstream)\" |~ \"(?i)(fail|error|timeout|unhealthy)\"" },
       ]
     }
@@ -356,4 +385,37 @@ locals {
       }
     ]
   ])
+
+  log_pipeline_alert_rules = {
+    alloy_loki_dropped_entries = {
+      title         = "Grafana Alloy Loki dropped log entries"
+      datasource    = "prometheus"
+      expr          = "sum(rate(loki_write_dropped_entries_total{service_namespace=\"nutsnews\", deployment_environment=\"${var.deployment_environment}\"}[5m]))"
+      threshold     = 0
+      for_period    = "5m"
+      severity      = "critical"
+      no_data_state = "Alerting"
+      description   = "Alloy reports dropped Loki entries after exhausting retries, which means log shipping is losing data."
+    }
+    alloy_loki_batch_retries = {
+      title         = "Grafana Alloy Loki write retries"
+      datasource    = "prometheus"
+      expr          = "sum(rate(loki_write_batch_retries_total{service_namespace=\"nutsnews\", deployment_environment=\"${var.deployment_environment}\"}[5m]))"
+      threshold     = 0
+      for_period    = "10m"
+      severity      = "warning"
+      no_data_state = "OK"
+      description   = "Alloy is retrying Loki writes. Check Grafana Cloud Logs credentials, endpoint reachability, and quota state."
+    }
+    high_error_log_volume = {
+      title         = "NutsNews high error log volume"
+      datasource    = "loki"
+      expr          = "sum(count_over_time({service_namespace=\"nutsnews\", deployment_environment=\"${var.deployment_environment}\"} |~ \"(?i)(error|critical|panic|failed|denied)\" [5m]))"
+      threshold     = 20
+      for_period    = "10m"
+      severity      = "warning"
+      no_data_state = "OK"
+      description   = "Recent log volume contains repeated error, critical, panic, failed, or denied entries."
+    }
+  }
 }

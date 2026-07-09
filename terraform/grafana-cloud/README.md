@@ -1,6 +1,6 @@
 # Grafana Cloud Observability
 
-This OpenTofu module manages Grafana Cloud folders, dashboards, quota guardrail alert rules, and optional Synthetic Monitoring HTTP checks for the NutsNews VPS.
+This OpenTofu module manages Grafana Cloud folders, dashboards, quota guardrail alert rules, log-pipeline alert rules, and optional Synthetic Monitoring HTTP checks for the NutsNews VPS.
 
 ## State
 
@@ -53,10 +53,12 @@ Set `TF_VAR_synthetic_http_checks` to `{}` to disable Synthetic Monitoring resou
 The committed defaults assume the current Grafana Cloud Free limits documented in the shared runbook. Check Grafana pricing before changing them:
 
 - Metrics: 10,000 active series per month.
-- Logs: 50 GB ingested per month.
+- Logs: 50 GB ingested per month with 14-day retention.
 - Synthetic Monitoring API tests: 100,000 executions per month.
 - Synthetic Monitoring browser tests: 10,000 executions per month.
 - k6: 500 virtual user hours per month.
+
+The `NutsNews Logs Overview` dashboard uses the Loki datasource for source, service, level, systemd unit, Docker container, Caddy status-class, and recent-error views. Log ingest and active stream quota risk are covered by the quota guardrail rules, while the log-pipeline rules alert on Alloy Loki dropped entries, write retries, and high error log volume.
 
 ## Local Validation
 

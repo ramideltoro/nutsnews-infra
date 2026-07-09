@@ -144,8 +144,10 @@
   "observability": {
     "alloy": {
       "collect_docker": false,
+      "collect_docker_logs": true,
       "container_metrics_strategy": "cadvisor_disabled",
       "enabled": true,
+      "log_shipping_strategy": "docker_api_logs_enabled",
       "permission_errors": {
         "available": true,
         "count": 0,
@@ -165,7 +167,8 @@
         "enabled": "enabled",
         "name": "alloy.service"
       },
-      "strategy_note": "Docker/cAdvisor collection is intentionally disabled; host, systemd, journal/file, and textfile telemetry stay active.",
+      "log_strategy_note": "Docker container logs are collected through the Docker API socket with Alloy running as a non-root docker group member.",
+      "strategy_note": "Docker/cAdvisor collection is intentionally disabled; host, systemd, journal/file, Docker log, and textfile telemetry stay active.",
       "textfile_dir": "/var/lib/nutsnews/alloy/textfile",
       "textfile_files": [
         {
@@ -177,7 +180,7 @@
         "ActiveState": "active",
         "DropInPaths": "/etc/systemd/system/alloy.service.d/10-nutsnews-env.conf",
         "SubState": "running",
-        "SupplementaryGroups": "adm systemd-journal",
+        "SupplementaryGroups": "adm systemd-journal docker",
         "User": "alloy"
       }
     }

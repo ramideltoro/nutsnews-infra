@@ -539,9 +539,17 @@
               - vps_service_foundation_grafana_alloy_logs_username | trim | length > 0
               - vps_service_foundation_grafana_alloy_access_policy_token | trim | length > 0
               - vps_service_foundation_grafana_alloy_scrape_interval is match('^[0-9]+(ms|s|m|h)$')
+              - vps_service_foundation_grafana_alloy_docker_log_compose_projects is iterable
+              - vps_service_foundation_grafana_alloy_docker_log_compose_projects | length > 0
+              - >-
+                {{
+                  (not (vps_service_foundation_grafana_alloy_collect_docker_logs | bool))
+                  or (vps_service_foundation_grafana_alloy_docker_socket is match('^unix://'))
+                }}
             fail_msg: >-
               Grafana Alloy is enabled, but Grafana Cloud telemetry endpoints,
-              usernames, Access Policy token, or scrape interval are incomplete.
+              usernames, Access Policy token, scrape interval, or Docker log
+              discovery settings are incomplete.
               Add the documented production-vps Environment secrets and rerun
               protected apply.
             success_msg: Grafana Alloy telemetry inputs are complete.
@@ -599,6 +607,16 @@
             name: "{{ vps_service_foundation_grafana_alloy_package }}"
             state: present
 
+        - name: Ensure Alloy Docker telemetry group exists
+          ansible.builtin.group:
+            name: "{{ item }}"
+            state: present
+          loop: "{{ vps_service_foundation_grafana_alloy_docker_groups }}"
+          when:
+            - >-
+              (vps_service_foundation_grafana_alloy_collect_docker | bool)
+              or (vps_service_foundation_grafana_alloy_collect_docker_logs | bool)
+
         - name: Set Alloy supplementary groups for journal logs and optional Docker telemetry
           ansible.builtin.user:
             name: "{{ vps_service_foundation_grafana_alloy_user }}"
@@ -607,7 +625,10 @@
                 (
                   vps_service_foundation_grafana_alloy_groups
                   + (
-                    (vps_service_foundation_grafana_alloy_collect_docker | bool)
+                    (
+                      (vps_service_foundation_grafana_alloy_collect_docker | bool)
+                      or (vps_service_foundation_grafana_alloy_collect_docker_logs | bool)
+                    )
                     | ternary(vps_service_foundation_grafana_alloy_docker_groups, [])
                   )
                 ) | join(',')
@@ -763,7 +784,7 @@
             }}
         fail_msg: >-
           Grafana Alloy emitted recent containerd socket permission errors after apply.
-          Keep cAdvisor/Docker socket collection disabled until the privilege boundary is reviewed.
+          Keep cAdvisor/container metric collection disabled until the privilege boundary is reviewed.
         success_msg: Grafana Alloy has no recent containerd socket permission errors.
       when: vps_service_foundation_grafana_alloy_enabled | bool
 
