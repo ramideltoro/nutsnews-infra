@@ -9,13 +9,9 @@
     ]
   },
   "backups": {
-    "backup_paths": [
-      "/opt/nutsnews",
-      "/etc/nutsnews",
-      "/etc/systemd/system/nutsnews-restic-backup.service",
-      "/etc/systemd/system/nutsnews-restic-backup.timer"
-    ],
-    "backup_paths_file": "/etc/nutsnews/vps-backup-paths.txt",
+    "backup_path_count": 4,
+    "backup_paths_redacted": true,
+    "backup_paths_source": "Root-only Ansible-managed path list.",
     "backup_service": {
       "active": "inactive",
       "enabled": "static",
@@ -26,7 +22,7 @@
     "enabled": true,
     "encrypted_before_transport": true,
     "encryption": "restic",
-    "exclude_file": "/etc/nutsnews/vps-backup-excludes.txt",
+    "exclude_source": "Root-only Ansible-managed exclude list.",
     "last_backup": {
       "data_added_bytes": 1048576,
       "duration_seconds": 38.2,
@@ -63,18 +59,33 @@
     "latest_snapshot": {
       "hostname": "vps.nutsnews.com",
       "id": "abc123def456",
-      "paths": [
-        "/opt/nutsnews",
-        "/etc/nutsnews"
-      ],
+      "path_count": 2,
       "short_id": "abc123de",
       "time": "2026-07-05T00:30:00+00:00"
     },
+    "latest_snapshot_verification": {
+      "age_seconds": 3000,
+      "checked_latest_snapshot": true,
+      "checked_snapshot_id": "abc123de",
+      "checked_snapshot_is_older": false,
+      "checked_snapshot_time": "2026-07-05T00:30:00+00:00",
+      "detail": "The latest restic snapshot has a recent successful verification.",
+      "last_checked_at": "2026-07-05T01:00:00+00:00",
+      "latest_snapshot_id": "abc123de",
+      "latest_snapshot_time": "2026-07-05T00:30:00+00:00",
+      "latest_snapshot_verified": true,
+      "stale": false,
+      "stale_after_hours": 192,
+      "stale_after_seconds": 691200,
+      "status": "success"
+    },
     "latest_snapshot_age_seconds": 3600,
+    "latest_snapshot_verified": true,
     "latest_status": "fresh",
     "missing_configuration": [],
-    "missing_paths": [],
+    "missing_path_count": 0,
     "next_run_at": "2026-07-06 03:25:00 UTC",
+    "protected_path_count": 4,
     "raw_onedrive_backups": false,
     "rclone_remote": "nutsnews-onedrive",
     "repository": "rclone:nutsnews-onedrive:nutsnews-backups/vps",
@@ -94,6 +105,12 @@
     "stale_after_seconds": 108000,
     "status": "success",
     "status_file": "/opt/nutsnews/portal-assets/data/backup-status.json",
+    "services": {
+      "backup_service": "nutsnews-restic-backup.service",
+      "backup_timer": "nutsnews-restic-backup.timer",
+      "verify_service": "nutsnews-restic-verify.service",
+      "verify_timer": "nutsnews-restic-verify.timer"
+    },
     "timer": "nutsnews-restic-backup.timer",
     "timer_active": "active",
     "timer_result": "success",
@@ -104,7 +121,25 @@
       "active": "inactive",
       "enabled": "static",
       "name": "nutsnews-restic-verify.service"
-    }
+    },
+    "verify_stale_after_hours": 192,
+    "verify_stale_after_seconds": 691200,
+    "verify_last_timer_trigger_at": "2026-07-05 05:15:00 UTC",
+    "verify_next_run_at": "2026-07-12 05:15:00 UTC",
+    "verify_timer": "nutsnews-restic-verify.timer",
+    "verify_timer_active": "active",
+    "verify_timer_state": {
+      "last_report_timer_trigger_at": "2026-07-05 05:15:00 UTC",
+      "last_timer_trigger_at": "2026-07-05 05:15:00 UTC",
+      "next_report_run_at": "2026-07-12 05:15:00 UTC",
+      "next_run_at": "2026-07-12 05:15:00 UTC",
+      "timer": "nutsnews-restic-verify.timer",
+      "timer_active": "active",
+      "timer_result": "success",
+      "timer_sub_state": "waiting"
+    },
+    "verify_timer_sub_state": "waiting",
+    "verification_status": "success"
   },
   "docker": {
     "available": true,
@@ -1078,6 +1113,11 @@
       "active": "active",
       "enabled": "enabled",
       "name": "nutsnews-restic-backup.timer"
+    },
+    {
+      "active": "active",
+      "enabled": "enabled",
+      "name": "nutsnews-restic-verify.timer"
     },
     {
       "active": "inactive",

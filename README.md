@@ -38,7 +38,7 @@ The Ops Portal layer adds a read-only dashboard served publicly at `https://ops.
 
 The `Send VPS Health Report` workflow can be triggered manually through the same protected `production-vps` Environment. It connects as `nutsnews_ops` with the existing SSH secret and known-hosts pattern, then starts only the existing `nutsnews-ops-health-report.service` unit on the VPS.
 
-The encrypted VPS backup layer uses restic with the rclone backend to write ciphertext to the dedicated OneDrive remote `nutsnews-onedrive` at `rclone:nutsnews-onedrive:nutsnews-backups/vps`. Backup secrets come only from the protected `production-vps` Environment, Ansible writes root-only config on the VPS, and manual backup/verification workflows start only fixed systemd units.
+The encrypted VPS backup layer uses restic with the rclone backend to write ciphertext to the dedicated OneDrive remote `nutsnews-onedrive` at `rclone:nutsnews-onedrive:nutsnews-backups/vps`. Backup secrets come only from the protected `production-vps` Environment, Ansible writes root-only config on the VPS, and scheduled/manual backup verification starts only fixed systemd units. The Ops Portal reports whether the newest snapshot has a recent successful verification.
 
 The observability layer adds optional Grafana Alloy telemetry on the VPS and OpenTofu-managed Grafana Cloud folders, dashboards, quota guardrails, and Synthetic Monitoring checks. Grafana Cloud URLs, usernames, tenant-specific IDs, service account tokens, Access Policy tokens, synthetic targets, and Terraform backend coordinates are supplied through the protected environment, never committed.
 

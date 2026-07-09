@@ -42,6 +42,8 @@ sudo ls -la /tmp/nutsnews-restore/etc/nutsnews
 
 Backups without restore tests are just emotional support files.
 
+The scheduled `nutsnews-restic-verify.timer` checks repository readability and the latest snapshot on the VPS. It is not a full restore drill; restore drills still require staging a restore on a trusted host and are tracked separately from routine verification.
+
 1. Restore the latest snapshot to a staging directory.
 2. Confirm `/opt/nutsnews/data` exists if app data has been created.
 3. Confirm `/etc/nutsnews` exists and is readable only by root.

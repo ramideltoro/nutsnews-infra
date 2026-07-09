@@ -740,11 +740,19 @@ function renderBackups(data) {
   const lastBackup = backups.last_backup || {};
   const lastPrune = backups.last_prune || {};
   const lastCheck = backups.last_check || {};
+  const verification = backups.latest_snapshot_verification || {};
   const retention = backups.retention || {};
   const enabledLabel = backups.enabled ? "enabled" : "disabled";
   const configuredLabel = backups.configured ? "configured" : "misconfigured";
   const snapshotId = latestSnapshot.short_id || latestSnapshot.id || "none";
   const age = backups.latest_snapshot_age_seconds;
+  const verificationAge = verification.age_seconds;
+  const protectedPathCount = Number.isFinite(Number(backups.protected_path_count))
+    ? backups.protected_path_count
+    : (backups.backup_paths || []).length;
+  const missingPathCount = Number.isFinite(Number(backups.missing_path_count))
+    ? backups.missing_path_count
+    : (backups.missing_paths || []).length;
   renderMetrics("backup-grid", [
     { label: "Backup State", value: `${enabledLabel} / ${configuredLabel}`, hint: text(backups.status || backups.security_model) },
     { label: "Repository", value: text(backups.repository_path), hint: text(backups.repository) },
@@ -754,14 +762,24 @@ function renderBackups(data) {
       hint: `${text(latestSnapshot.time || backups.latest_status)}${Number.isFinite(Number(age)) ? ` age ${duration(age)}` : ""}`,
     },
     { label: "Freshness", value: text(backups.latest_status), hint: `stale after ${duration(backups.stale_after_seconds)}` },
+    {
+      label: "Latest Verification",
+      value: text(verification.status || backups.verification_status),
+      hint: `${text(verification.detail)}${Number.isFinite(Number(verificationAge)) ? ` age ${duration(verificationAge)}` : ""}`,
+    },
+    {
+      label: "Checked Snapshot",
+      value: text(verification.checked_snapshot_id || lastCheck.latest_snapshot_id, "none"),
+      hint: `latest ${snapshotId}; checked at ${text(verification.last_checked_at || lastCheck.finished_at)}`,
+    },
     { label: "Last Backup", value: text(lastBackup.status), hint: text(lastBackup.finished_at || lastBackup.error) },
     { label: "Last Prune", value: text(lastPrune.status), hint: `keep ${text(retention.keep_daily)}d ${text(retention.keep_weekly)}w ${text(retention.keep_monthly)}m` },
-    { label: "Last Verify", value: text(lastCheck.status), hint: text(lastCheck.finished_at || lastCheck.error) },
-    { label: "Next Run", value: text(backups.next_run_at), hint: `${text(backups.timer_active)} ${text(backups.timer_sub_state)}` },
+    { label: "Backup Next Run", value: text(backups.next_run_at), hint: `${text(backups.timer_active)} ${text(backups.timer_sub_state)}` },
+    { label: "Verify Next Run", value: text(backups.verify_next_run_at), hint: `${text(backups.verify_timer_active)} ${text(backups.verify_timer_sub_state)}` },
     {
       label: "Protected Paths",
-      value: text((backups.backup_paths || []).length, "0"),
-      hint: (backups.missing_paths || []).length ? `missing ${backups.missing_paths.length}` : "all configured paths found",
+      value: text(protectedPathCount, "0"),
+      hint: missingPathCount ? `missing ${missingPathCount}; path details stay root-only` : "path details stay root-only",
     },
   ]);
 }

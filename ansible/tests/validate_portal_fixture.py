@@ -3,7 +3,10 @@
 
 from __future__ import annotations
 
+import importlib.util
 import json
+import sys
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 
@@ -28,14 +31,57 @@ FREE_TIER_ENV = (
 BACKUP_SERVICE = (
     ROOT / "ansible/roles/vps_service_foundation/templates/nutsnews-restic-backup.service.j2"
 ).read_text(encoding="utf-8")
+BACKUP_VERIFY_TIMER = (
+    ROOT / "ansible/roles/vps_service_foundation/templates/nutsnews-restic-verify.timer.j2"
+).read_text(encoding="utf-8")
 BACKUP_ENV = (ROOT / "ansible/roles/vps_service_foundation/templates/vps-backup.env.j2").read_text(encoding="utf-8")
 RUN_BACKUP_WORKFLOW = (ROOT / ".github/workflows/run-vps-backup.yml").read_text(encoding="utf-8")
 VERIFY_BACKUP_WORKFLOW = (ROOT / ".github/workflows/verify-vps-backup.yml").read_text(encoding="utf-8")
+sys.dont_write_bytecode = True
+COLLECTOR_SPEC = importlib.util.spec_from_file_location(
+    "ops_portal_collector_for_validation",
+    ROOT / "ansible/roles/vps_service_foundation/files/ops_portal_collector.py",
+)
+require_collector_loader = COLLECTOR_SPEC is not None and COLLECTOR_SPEC.loader is not None
+if not require_collector_loader:
+    raise SystemExit("Could not load collector module for verification-state validation.")
+COLLECTOR_MODULE = importlib.util.module_from_spec(COLLECTOR_SPEC)
+assert COLLECTOR_SPEC is not None and COLLECTOR_SPEC.loader is not None
+COLLECTOR_SPEC.loader.exec_module(COLLECTOR_MODULE)
 
 
 def require(condition: bool, message: str) -> None:
     if not condition:
         raise SystemExit(message)
+
+
+def verification_case(
+    *,
+    enabled: bool = True,
+    configured: bool = True,
+    check_status: str = "success",
+    checked_id: str = "abc123de",
+    checked_time: str = "2026-07-05T00:30:00+00:00",
+    finished_at: str | None = None,
+) -> dict[str, object]:
+    if finished_at is None:
+        finished_at = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+    return {
+        "enabled": enabled,
+        "configured": configured,
+        "verify_stale_after_seconds": 691200,
+        "latest_snapshot": {
+            "id": "abc123def456",
+            "short_id": "abc123de",
+            "time": "2026-07-05T00:30:00+00:00",
+        },
+        "last_check": {
+            "status": check_status,
+            "finished_at": finished_at,
+            "latest_snapshot_id": checked_id,
+            "latest_snapshot_time": checked_time,
+        },
+    }
 
 
 host = STATUS["host"]
@@ -221,20 +267,63 @@ require(backups.get("latest_status") == "fresh", "Fixture latest backup must be 
 require(backups.get("last_backup", {}).get("status") == "success", "Fixture backup status must be success.")
 require(backups.get("last_prune", {}).get("status") == "success", "Fixture prune status must be success.")
 require(backups.get("last_check", {}).get("status") == "success", "Fixture verify status must be success.")
+verification = backups.get("latest_snapshot_verification", {})
+require(isinstance(verification, dict), "Fixture must include latest snapshot verification status.")
+require(verification.get("status") == "success", "Fixture latest snapshot verification must be success.")
+require(verification.get("latest_snapshot_verified") is True, "Fixture latest snapshot must be marked verified.")
+require(verification.get("checked_latest_snapshot") is True, "Fixture verification must match the latest snapshot.")
+require(verification.get("stale") is False, "Fixture verification should not be stale.")
+require(backups.get("verification_status") == "success", "Fixture top-level verification status must be success.")
+require(backups.get("latest_snapshot_verified") is True, "Fixture top-level latest snapshot verified flag must be true.")
+require(backups.get("verify_timer") == "nutsnews-restic-verify.timer", "Fixture verify timer missing.")
+require(backups.get("verify_timer_active") == "active", "Fixture verify timer must be active.")
+require(backups.get("verify_stale_after_hours") == 192, "Fixture verify stale threshold must be 192 hours.")
 require(backups.get("retention", {}).get("prune_after_backup") is True, "Backups must prune after backup.")
-require("/opt/nutsnews" in backups.get("backup_paths", []), "Backups must include /opt/nutsnews.")
-require("/etc/nutsnews" in backups.get("backup_paths", []), "Backups must include /etc/nutsnews.")
-require("backup_paths" in APP_JS and "Last Prune" in APP_JS and "Last Verify" in APP_JS, "Portal UI missing backup status.")
+require(backups.get("backup_paths_redacted") is True, "Backup paths must be redacted from public status.")
+require("backup_paths" not in backups, "Public backup fixture must not expose raw backup paths.")
+require("missing_paths" not in backups, "Public backup fixture must not expose raw missing paths.")
+require("paths" not in backups.get("latest_snapshot", {}), "Public latest snapshot fixture must not expose raw paths.")
+require(backups.get("protected_path_count", 0) >= 1, "Backups must expose a protected path count.")
+require(
+    "Latest Verification" in APP_JS and "Verify Next Run" in APP_JS and "Last Prune" in APP_JS,
+    "Portal UI missing backup verification status.",
+)
 require("NUTSNEWS_BACKUP_STATUS_FILE" in COLLECTOR_UNIT, "Collector unit must pass backup status file path.")
 require("vps-backup.env.j2" in TASKS, "Backup environment template must be managed by Ansible.")
 require("vps_service_foundation_backup_restic_password_file" in TASKS, "Restic password file must be managed by Ansible.")
 require("vps_service_foundation_backup_rclone_config_file" in TASKS, "rclone config must be managed by Ansible.")
+require("nutsnews-restic-verify.timer.j2" in TASKS, "Verify timer template must be managed by Ansible.")
+require("vps_service_foundation_backup_verify_timer" in DEFAULTS, "Verify timer name must be configurable.")
+require("vps_service_foundation_backup_verify_on_calendar" in DEFAULTS, "Verify timer cadence must be configurable.")
+require("vps_service_foundation_backup_verify_randomized_delay_seconds" in DEFAULTS, "Verify randomized delay must be configurable.")
+require("vps_service_foundation_backup_verify_stale_after_hours" in DEFAULTS, "Verify stale threshold must be configurable.")
 require("no_log: true" in TASKS, "Secret-bearing backup tasks must use no_log.")
 require("RESTIC_PASSWORD_FILE" in BACKUP_ENV, "Backup service must use RESTIC_PASSWORD_FILE.")
 require("RCLONE_CONFIG" in BACKUP_ENV, "Backup service must use an explicit rclone config.")
+require("NUTSNEWS_BACKUP_VERIFY_STALE_AFTER_HOURS" in BACKUP_ENV, "Backup env must pass verify stale threshold.")
+require("NUTSNEWS_BACKUP_VERIFY_TIMER" in BACKUP_ENV, "Backup env must pass verify timer name.")
 require("ReadWritePaths=" in BACKUP_SERVICE, "Backup service must constrain writable paths.")
+require("Unit={{ vps_service_foundation_backup_verify_service }}" in BACKUP_VERIFY_TIMER, "Verify timer must start the fixed verify service.")
+require("RandomizedDelaySec={{ vps_service_foundation_backup_verify_randomized_delay_seconds }}" in BACKUP_VERIFY_TIMER, "Verify timer must use configured randomized delay.")
 require("restic encrypts snapshots locally" in BACKUP_RUNNER, "Backup status must explain encryption before transport.")
 require("--keep-daily" in BACKUP_RUNNER and "--prune" in BACKUP_RUNNER, "Backup runner must enforce retention pruning.")
+require("latest_snapshot_verification" in BACKUP_RUNNER, "Backup runner must expose latest snapshot verification.")
+require("backup_paths_redacted" in BACKUP_RUNNER, "Backup runner must redact raw backup paths from public status.")
+require("latest_snapshot_verification" in COLLECTOR, "Collector must expose latest snapshot verification.")
+
+stale_finished_at = (datetime.now(timezone.utc) - timedelta(days=9)).replace(microsecond=0).isoformat()
+verification_cases = {
+    "success": verification_case(),
+    "failed": verification_case(check_status="failed"),
+    "stale": verification_case(finished_at=stale_finished_at),
+    "latest_unverified": verification_case(checked_id="old12345", checked_time="2026-07-04T00:30:00+00:00"),
+    "disabled": verification_case(enabled=False),
+    "misconfigured": verification_case(configured=False),
+}
+for expected_status, case in verification_cases.items():
+    actual = COLLECTOR_MODULE.backup_verification_status(case).get("status")
+    require(actual == expected_status, f"Verification case {expected_status} returned {actual}.")
+
 require("Run VPS Backup" in RUN_BACKUP_WORKFLOW, "Manual run backup workflow missing.")
 require("Verify VPS Backup" in VERIFY_BACKUP_WORKFLOW, "Manual verify backup workflow missing.")
 require("inputs:" not in RUN_BACKUP_WORKFLOW, "Run backup workflow must not accept arbitrary input.")
