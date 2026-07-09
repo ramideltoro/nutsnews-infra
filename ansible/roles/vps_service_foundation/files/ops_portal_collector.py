@@ -892,14 +892,16 @@ def backup_state() -> dict[str, Any]:
     combined["verify_last_timer_trigger_at"] = combined["verify_timer_state"].get("last_timer_trigger_at", "never")
 
     snapshot = combined.get("latest_snapshot")
-    if isinstance(snapshot, dict) and combined.get("latest_snapshot_age_seconds") is None:
-        combined["latest_snapshot_age_seconds"] = age_seconds(snapshot.get("time"))
-    if combined.get("enabled") and combined.get("latest_snapshot_age_seconds") is not None:
-        combined["latest_status"] = (
-            "fresh"
-            if safe_int(combined.get("latest_snapshot_age_seconds")) <= safe_int(combined.get("stale_after_seconds"), 108000)
-            else "stale"
-        )
+    if isinstance(snapshot, dict):
+        live_age = age_seconds(snapshot.get("time"))
+        combined["latest_snapshot_age_seconds"] = live_age
+        if combined.get("enabled"):
+            if live_age is None:
+                combined["latest_status"] = "unknown"
+            else:
+                combined["latest_status"] = (
+                    "fresh" if live_age <= safe_int(combined.get("stale_after_seconds"), 108000) else "stale"
+                )
     combined["latest_snapshot_verification"] = backup_verification_status(combined)
     combined["verification_status"] = combined["latest_snapshot_verification"].get("status", "unknown")
     combined["latest_snapshot_verified"] = combined["latest_snapshot_verification"].get("latest_snapshot_verified", False)
