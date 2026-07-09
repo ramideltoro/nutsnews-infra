@@ -74,8 +74,16 @@ for token in (
     "Validate zram fallback swap is active",
     "swapon",
     "Assert zram fallback runtime state",
+    "(/dev/)?",
+    "[ \\t]+[0-9]+[ \\t]+[0-9]+[ \\t]+(partition|zram)[ \\t]+",
+    "vps_service_foundation_zram_swap_priority | string",
 ):
     require(token in TASKS, f"zram Ansible task flow missing {token}.")
+
+require(
+    "{{" not in TASKS[TASKS.index("Assert zram fallback runtime state") : TASKS.index("- name: Manage Docker service")],
+    "zram runtime assertion must use plain Ansible expressions, not deprecated templating delimiters.",
+)
 
 for token in (
     "[{{ vps_service_foundation_zram_device }}]",
