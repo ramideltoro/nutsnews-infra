@@ -54,7 +54,7 @@ The service foundation role installs Docker Engine and Compose, creates the `/op
 
 The same role installs restic and rclone, writes root-only backup config under `/etc/nutsnews`, installs `nutsnews-restic-backup.service`, `nutsnews-restic-backup.timer`, `nutsnews-restic-verify.service`, and `nutsnews-restic-verify.timer`, and enables the backup and verification timers only when backup secrets are supplied through the protected `production-vps` Environment.
 
-The role can also install Grafana Alloy and a read-only textfile metrics timer when `enable_grafana_alloy` is explicitly set in the protected workflow. Grafana Cloud telemetry endpoints, usernames, and Access Policy token values come only from the protected `production-vps` Environment.
+The role can also install Grafana Alloy and a read-only textfile metrics timer when `enable_grafana_alloy` is explicitly set in the protected workflow. Grafana Cloud telemetry endpoints, usernames, and Access Policy token values come only from the protected `production-vps` Environment. Docker/cAdvisor collection is disabled by default; keep it that way until the required socket privilege boundary is reviewed and documented.
 
 ## Protected Manual Workflow
 

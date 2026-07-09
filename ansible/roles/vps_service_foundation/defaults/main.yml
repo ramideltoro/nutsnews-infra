@@ -25,6 +25,7 @@ vps_service_foundation_grafana_alloy_user: alloy
 vps_service_foundation_grafana_alloy_groups:
   - adm
   - systemd-journal
+vps_service_foundation_grafana_alloy_docker_groups:
   - docker
 vps_service_foundation_grafana_alloy_env_file: "{{ vps_service_foundation_private_config_dir }}/grafana-alloy.env"
 vps_service_foundation_grafana_alloy_config_file: /etc/alloy/config.alloy
@@ -39,7 +40,7 @@ vps_service_foundation_grafana_alloy_metrics_username: ""
 vps_service_foundation_grafana_alloy_logs_url: ""
 vps_service_foundation_grafana_alloy_logs_username: ""
 vps_service_foundation_grafana_alloy_access_policy_token: ""
-vps_service_foundation_grafana_alloy_collect_docker: true
+vps_service_foundation_grafana_alloy_collect_docker: false
 vps_service_foundation_grafana_alloy_docker_log_rate: 3
 vps_service_foundation_grafana_alloy_docker_log_burst: 30
 vps_service_foundation_grafana_alloy_journal_log_rate: 2
@@ -47,6 +48,10 @@ vps_service_foundation_grafana_alloy_journal_log_burst: 20
 vps_service_foundation_grafana_alloy_file_log_rate: 2
 vps_service_foundation_grafana_alloy_file_log_burst: 20
 vps_service_foundation_grafana_alloy_textfile_dir: /var/lib/nutsnews/alloy/textfile
+vps_service_foundation_grafana_alloy_ready_url: http://127.0.0.1:12345/-/ready
+vps_service_foundation_grafana_alloy_error_validation_since: "-30 min"
+vps_service_foundation_grafana_alloy_containerd_permission_error_pattern: "containerd\\.sock: connect: permission denied"
+vps_service_foundation_grafana_alloy_containerd_permission_error_threshold: 0
 vps_service_foundation_observability_textfile_bin: /usr/local/bin/nutsnews-observability-textfile
 vps_service_foundation_observability_textfile_service: nutsnews-observability-textfile.service
 vps_service_foundation_observability_textfile_timer: nutsnews-observability-textfile.timer

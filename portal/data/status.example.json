@@ -141,6 +141,47 @@
     "verify_timer_sub_state": "waiting",
     "verification_status": "success"
   },
+  "observability": {
+    "alloy": {
+      "collect_docker": false,
+      "container_metrics_strategy": "cadvisor_disabled",
+      "enabled": true,
+      "permission_errors": {
+        "available": true,
+        "count": 0,
+        "error": "",
+        "pattern": "containerd.sock: connect: permission denied",
+        "recent_lines": [],
+        "window": "-30 min"
+      },
+      "ready": {
+        "error": "",
+        "ok": true,
+        "status": 200
+      },
+      "ready_url": "http://127.0.0.1:12345/-/ready",
+      "service": {
+        "active": "active",
+        "enabled": "enabled",
+        "name": "alloy.service"
+      },
+      "strategy_note": "Docker/cAdvisor collection is intentionally disabled; host, systemd, journal/file, and textfile telemetry stay active.",
+      "textfile_dir": "/var/lib/nutsnews/alloy/textfile",
+      "textfile_files": [
+        {
+          "path": "/var/lib/nutsnews/alloy/textfile/nutsnews.prom",
+          "size_bytes": 2048
+        }
+      ],
+      "unit": {
+        "ActiveState": "active",
+        "DropInPaths": "/etc/systemd/system/alloy.service.d/10-nutsnews-env.conf",
+        "SubState": "running",
+        "SupplementaryGroups": "adm systemd-journal",
+        "User": "alloy"
+      }
+    }
+  },
   "docker": {
     "available": true,
     "compose_projects": [],
