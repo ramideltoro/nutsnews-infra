@@ -700,7 +700,7 @@ function renderObservability(data) {
       </tr>
     `,
   );
-  renderTable("alloy-errors-table", rows, "No recent containerd socket permission errors.", 1);
+  renderTable("alloy-errors-table", rows, "No recent Alloy permission errors.", 1);
 }
 
 function renderDocker(data) {

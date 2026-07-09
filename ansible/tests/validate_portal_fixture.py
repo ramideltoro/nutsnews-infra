@@ -13,6 +13,7 @@ from pathlib import Path
 ROOT = Path(".")
 STATUS = json.loads((ROOT / "portal/data/status.example.json").read_text(encoding="utf-8"))
 APP_JS = (ROOT / "portal/assets/app.js").read_text(encoding="utf-8")
+INDEX_HTML = (ROOT / "portal/index.html").read_text(encoding="utf-8")
 STYLES = (ROOT / "portal/assets/styles.css").read_text(encoding="utf-8")
 COLLECTOR = (ROOT / "ansible/roles/vps_service_foundation/files/ops_portal_collector.py").read_text(encoding="utf-8")
 FREE_TIER_COLLECTOR = (
@@ -106,9 +107,11 @@ require("NUTSNEWS_ALLOY_COLLECT_DOCKER_LOGS=" in COLLECTOR_UNIT, "Collector unit
 require("NUTSNEWS_ALLOY_ERROR_WINDOW=" in COLLECTOR_UNIT, "Collector unit must pass Alloy error window.")
 require("observability_state" in COLLECTOR, "Collector must expose observability state.")
 require("containerd.sock: connect: permission denied" in COLLECTOR, "Collector must count Alloy containerd permission errors.")
+require("failed to tail the file: open .*: permission denied" in COLLECTOR, "Collector must count Alloy file-tail permission errors.")
 require("collect_docker_logs" in COLLECTOR, "Collector must expose Docker log shipping state.")
 require("renderObservability" in APP_JS, "Portal JavaScript must render observability state.")
 require("alloy-errors-table" in APP_JS, "Portal JavaScript must render Alloy exporter error visibility.")
+require("Recent Alloy Permission Errors" in INDEX_HTML, "Portal must label Alloy permission errors generically.")
 
 reporting = STATUS["email_reporting"]
 for key in (

@@ -7,12 +7,12 @@ Wants=network-online.target
 [Service]
 Type=oneshot
 User=root
-Group=root
+Group={{ vps_service_foundation_backup_log_group }}
 EnvironmentFile={{ vps_service_foundation_backup_env_file }}
 Environment="HOME=/root"
 ExecStart={{ vps_service_foundation_backup_bin }} --mode verify-latest
 TimeoutStartSec=4h
-UMask=0077
+UMask=0027
 Nice=10
 IOSchedulingClass=best-effort
 IOSchedulingPriority=7

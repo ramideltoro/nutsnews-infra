@@ -34,6 +34,8 @@ for token in (
     "vps_service_foundation_grafana_alloy_docker_log_compose_projects:",
     "vps_service_foundation_grafana_alloy_ready_url: http://127.0.0.1:12345/-/ready",
     'vps_service_foundation_grafana_alloy_containerd_permission_error_pattern: "containerd\\\\.sock: connect: permission denied"',
+    'vps_service_foundation_grafana_alloy_file_permission_error_pattern: "failed to tail the file: open .*: permission denied"',
+    "vps_service_foundation_backup_log_group: adm",
 ):
     require(token in DEFAULTS, f"Grafana Alloy defaults missing {token}.")
 
@@ -112,6 +114,29 @@ require(
     "containerd socket permission errors" in TASKS and "journalctl" in TASKS,
     "Alloy journal validation for containerd socket permission errors is missing.",
 )
+require(
+    "file log permission errors" in TASKS and "vps_service_foundation_grafana_alloy_file_permission_error_pattern" in TASKS,
+    "Alloy journal validation for file log permission errors is missing.",
+)
+require(
+    "Allow observability agent to read encrypted VPS backup logs" in TASKS,
+    "Existing backup logs must be reconciled for Alloy read access.",
+)
+BACKUP_SERVICE = Path("ansible/roles/vps_service_foundation/templates/nutsnews-restic-backup.service.j2").read_text(
+    encoding="utf-8"
+)
+VERIFY_SERVICE = Path("ansible/roles/vps_service_foundation/templates/nutsnews-restic-verify.service.j2").read_text(
+    encoding="utf-8"
+)
+for service_name, service_text in (
+    ("backup", BACKUP_SERVICE),
+    ("verify", VERIFY_SERVICE),
+):
+    require(
+        "Group={{ vps_service_foundation_backup_log_group }}" in service_text,
+        f"{service_name} service must write logs with the observability log group.",
+    )
+    require("UMask=0027" in service_text, f"{service_name} service must preserve group-read logs.")
 require("User=root" not in ALLOY_DROPIN, "Alloy drop-in must not run Alloy as root.")
 require(CADDYFILE.count("format json") == 3, "Every Caddy access log block must emit JSON.")
 

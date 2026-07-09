@@ -69,6 +69,26 @@
       loop_control:
         label: "{{ item.path }}"
 
+    - name: Find existing encrypted VPS backup log files
+      ansible.builtin.find:
+        paths: "{{ vps_service_foundation_backup_log_dir }}"
+        patterns:
+          - "*.log"
+          - "*.jsonl"
+        file_type: file
+      register: vps_service_foundation_backup_log_files
+      changed_when: false
+
+    - name: Allow observability agent to read encrypted VPS backup logs
+      ansible.builtin.file:
+        path: "{{ item.path }}"
+        owner: root
+        group: "{{ vps_service_foundation_backup_log_group }}"
+        mode: "0640"
+      loop: "{{ vps_service_foundation_backup_log_files.files }}"
+      loop_control:
+        label: "{{ item.path }}"
+
     - name: Install Caddy Compose file
       ansible.builtin.copy:
         src: "{{ vps_service_foundation_source_compose_file }}"
@@ -786,6 +806,25 @@
           Grafana Alloy emitted recent containerd socket permission errors after apply.
           Keep cAdvisor/container metric collection disabled until the privilege boundary is reviewed.
         success_msg: Grafana Alloy has no recent containerd socket permission errors.
+      when: vps_service_foundation_grafana_alloy_enabled | bool
+
+    - name: Validate Grafana Alloy file log permission errors are absent
+      ansible.builtin.assert:
+        that:
+          - vps_service_foundation_alloy_recent_journal.rc == 0
+          - >-
+            {{
+              (
+                vps_service_foundation_alloy_recent_journal.stdout
+                | regex_findall(vps_service_foundation_grafana_alloy_file_permission_error_pattern)
+                | length
+              )
+              <= (vps_service_foundation_grafana_alloy_file_permission_error_threshold | int)
+            }}
+        fail_msg: >-
+          Grafana Alloy emitted recent file log permission errors after apply.
+          Keep operational logs group-readable by the managed observability log group.
+        success_msg: Grafana Alloy has no recent file log permission errors.
       when: vps_service_foundation_grafana_alloy_enabled | bool
 
     - name: Enable operations portal collector timer

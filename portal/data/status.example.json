@@ -152,7 +152,7 @@
         "available": true,
         "count": 0,
         "error": "",
-        "pattern": "containerd.sock: connect: permission denied",
+        "pattern": "containerd.sock: connect: permission denied | failed to tail the file: open .*: permission denied",
         "recent_lines": [],
         "window": "-30 min"
       },

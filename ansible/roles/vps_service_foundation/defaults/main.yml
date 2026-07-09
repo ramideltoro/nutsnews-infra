@@ -57,6 +57,8 @@ vps_service_foundation_grafana_alloy_ready_url: http://127.0.0.1:12345/-/ready
 vps_service_foundation_grafana_alloy_error_validation_since: "-30 min"
 vps_service_foundation_grafana_alloy_containerd_permission_error_pattern: "containerd\\.sock: connect: permission denied"
 vps_service_foundation_grafana_alloy_containerd_permission_error_threshold: 0
+vps_service_foundation_grafana_alloy_file_permission_error_pattern: "failed to tail the file: open .*: permission denied"
+vps_service_foundation_grafana_alloy_file_permission_error_threshold: 0
 vps_service_foundation_observability_textfile_bin: /usr/local/bin/nutsnews-observability-textfile
 vps_service_foundation_observability_textfile_service: nutsnews-observability-textfile.service
 vps_service_foundation_observability_textfile_timer: nutsnews-observability-textfile.timer
@@ -75,6 +77,7 @@ vps_service_foundation_data_dir: "{{ vps_service_foundation_root }}/data"
 vps_service_foundation_logs_dir: "{{ vps_service_foundation_root }}/logs"
 vps_service_foundation_backups_dir: "{{ vps_service_foundation_root }}/backups"
 vps_service_foundation_backup_log_dir: "{{ vps_service_foundation_logs_dir }}/backups"
+vps_service_foundation_backup_log_group: adm
 vps_service_foundation_backup_state_dir: "{{ vps_service_foundation_ops_dir }}/backups"
 vps_service_foundation_backup_cache_dir: /var/cache/nutsnews-restic
 vps_service_foundation_portal_assets_dir: "{{ vps_service_foundation_root }}/portal-assets"
@@ -946,7 +949,7 @@ vps_service_foundation_directories:
     mode: "0750"
   - path: "{{ vps_service_foundation_backup_log_dir }}"
     owner: root
-    group: adm
+    group: "{{ vps_service_foundation_backup_log_group }}"
     mode: "0750"
   - path: "{{ vps_service_foundation_backup_state_dir }}"
     owner: root
