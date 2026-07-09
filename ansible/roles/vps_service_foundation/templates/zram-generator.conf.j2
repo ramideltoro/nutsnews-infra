@@ -1,0 +1,11 @@
+# Managed by Ansible from ramideltoro/nutsnews-infra.
+# {{ vps_service_foundation_zram_notes }}
+#
+# Size is intentionally fixed and small: {{ vps_service_foundation_zram_size_mib }} MiB of
+# virtual compressed swap on {{ vps_service_foundation_zram_device }}. zram only consumes
+# resident memory for compressed pages that are actually swapped.
+[{{ vps_service_foundation_zram_device }}]
+zram-size = {{ vps_service_foundation_zram_size_mib }}
+compression-algorithm = {{ vps_service_foundation_zram_compression_algorithm }}
+swap-priority = {{ vps_service_foundation_zram_swap_priority }}
+options = discard

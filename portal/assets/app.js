@@ -545,16 +545,31 @@ function renderResources(data) {
   const resources = data.resources || {};
   const memory = resources.memory || {};
   const swap = resources.swap || {};
+  const oomEvidence = resources.oom_evidence || {};
   const disk = resources.disk || {};
   const nutsnewsDisk = resources.nutsnews_disk || {};
   const load = resources.load_average || {};
   const network = resources.network || {};
+  const swapEnabled = swap.status === "enabled" || (swap.available === true && Number(swap.total_bytes || 0) > 0);
+  const swapGaugeOptions = {
+    warn: 50,
+    danger: 75,
+    display: swapEnabled ? percent(swap.used_percent) : text(swap.status, "unavailable"),
+  };
+  if (!swapEnabled) {
+    swapGaugeOptions.state = "warn";
+  }
 
   $("resource-gauges").innerHTML = [
     gauge("CPU", resources.cpu_percent ?? 0, "Short sample"),
     gauge("RAM", memory.used_percent, `${bytes(memory.used_bytes)} of ${bytes(memory.total_bytes)}`),
     gauge("Root Disk", disk.used_percent, `${bytes(disk.free_bytes)} free`),
-    gauge("Swap", swap.used_percent, `${bytes(swap.used_bytes)} of ${bytes(swap.total_bytes)}`, { warn: 50, danger: 75 }),
+    gauge(
+      "Swap",
+      swapEnabled ? swap.used_percent : 0,
+      swapEnabled ? `${bytes(swap.used_bytes)} of ${bytes(swap.total_bytes)} (${text(swap.usage_state)})` : text(swap.detail),
+      swapGaugeOptions,
+    ),
     gauge("Root Inodes", disk.inode_used_percent, `${text(disk.inode_used)} of ${text(disk.inode_total)}`),
   ].join("");
 
@@ -566,6 +581,12 @@ function renderResources(data) {
     },
     { label: "Load Shape", value: `${text(load.one)}`, hint: `${text(load.five)} five-minute ${text(load.fifteen)} fifteen-minute` },
     { label: "NutsNews Disk", value: percent(nutsnewsDisk.used_percent), hint: text(nutsnewsDisk.path) },
+    { label: "Swap State", value: text(swap.usage_state || swap.status), hint: text(swap.detail) },
+    {
+      label: "Kernel OOM",
+      value: text(oomEvidence.status),
+      hint: `${text(oomEvidence.count)} match(es) in ${text(oomEvidence.window)}`,
+    },
     { label: "Host Received", value: bytes(network.rx_bytes), hint: "Interface counters since boot" },
     { label: "Host Sent", value: bytes(network.tx_bytes), hint: "Interface counters since boot" },
     { label: "Load Trend", value: "compact", hint: `${load.one ?? 0} ${load.five ?? 0} ${load.fifteen ?? 0}` },

@@ -10,7 +10,7 @@ This directory contains the first bootstrap baseline for `vps.nutsnews.com`. It 
 - `inventories/production/group_vars/nutsnews_vps.yml`: non-secret host defaults
 - `playbooks/bootstrap.yml`: baseline bootstrap entry point
 - `roles/vps_baseline/`: lightweight Ubuntu baseline role
-- `roles/vps_service_foundation/`: Docker, Compose, `/opt/nutsnews`, local Caddy, Ops Portal, email reporting, restic/rclone VPS backups, and optional Grafana Alloy observability
+- `roles/vps_service_foundation/`: Docker, Compose, `/opt/nutsnews`, local Caddy, zram fallback swap, Ops Portal, email reporting, restic/rclone VPS backups, and optional Grafana Alloy observability
 - `facts/`: ignored local output directory for generated server fact snapshots
 
 ## Validation
@@ -50,7 +50,7 @@ ansible-playbook playbooks/bootstrap.yml --check --diff \
 
 Then run the real bootstrap only after the check-mode output is reviewed.
 
-The service foundation role installs Docker Engine and Compose, creates the `/opt/nutsnews` layout, copies the Caddy Compose bundle, renders Caddy rate-limit config, and starts the local-only placeholder service during real apply mode. It skips Docker Compose mutation in Ansible check mode.
+The service foundation role installs Docker Engine and Compose, creates the `/opt/nutsnews` layout, configures a small `systemd-zram-generator` fallback swap device with low swappiness, copies the Caddy Compose bundle, renders Caddy rate-limit config, and starts the local-only placeholder service during real apply mode. It skips Docker Compose mutation in Ansible check mode.
 
 The same role installs restic and rclone, writes root-only backup config under `/etc/nutsnews`, installs `nutsnews-restic-backup.service`, `nutsnews-restic-backup.timer`, `nutsnews-restic-verify.service`, and `nutsnews-restic-verify.timer`, and enables the backup and verification timers only when backup secrets are supplied through the protected `production-vps` Environment. Backup logs under `/opt/nutsnews/logs/backups` are written `root:adm` with group-read mode so the non-root Alloy user can tail redacted operational logs through its existing `adm` membership.
 

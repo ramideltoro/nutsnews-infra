@@ -20,6 +20,7 @@ Use this runbook after the service foundation PR is merged and before applying t
 - Caddy managed by Compose at `/opt/nutsnews/apps/caddy/compose.yml`
 - Read-only operations portal and `/healthz` endpoint on `127.0.0.1:8080`
 - Better Stack-compatible infrastructure health endpoint at `https://vps.nutsnews.com/health`
+- Small Ansible-managed zram fallback swap on `/dev/zram0` with low swappiness
 - Local portal status collector managed by `nutsnews-ops-portal-collector.timer`
 - Caddy rate limiting for public health, API, auth-sensitive, admin-sensitive, ops-sensitive, and general public paths
 
@@ -45,6 +46,11 @@ curl -fsS http://127.0.0.1:8080/
 curl -fsS http://127.0.0.1:8080/data/status.json
 systemctl status nutsnews-infra-health.service
 systemctl status nutsnews-ops-portal-collector.timer
+free -h
+swapon --show
+cat /proc/sys/vm/swappiness
+sudo journalctl -k --since "-7 days" --no-pager | grep -Ei "out of memory|oom-killer|killed process" || true
+sudo /usr/local/bin/nutsnews-ops-portal-collector
 sudo docker logs nutsnews-caddy --since 10m | grep -E '"status":429|rate'
 ```
 

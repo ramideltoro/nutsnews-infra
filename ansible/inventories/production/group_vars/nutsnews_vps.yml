@@ -23,3 +23,9 @@ vps_baseline_journald_system_max_use: 1G
 vps_baseline_journald_max_retention_sec: 14day
 
 vps_baseline_facts_output_dir: "{{ playbook_dir }}/../facts"
+
+# Small zram fallback only. This is a resilience buffer for transient memory
+# spikes, not capacity planning, and Docker memory limits stay authoritative.
+vps_service_foundation_zram_enabled: true
+vps_service_foundation_zram_size_mib: 1536
+vps_service_foundation_zram_swappiness: 10
