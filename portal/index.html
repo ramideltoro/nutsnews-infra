@@ -195,6 +195,38 @@
         </div>
       </section>
 
+      <section class="section split" aria-labelledby="telemetry-title">
+        <div>
+          <div class="section__header">
+            <div>
+              <p class="eyebrow">Telemetry</p>
+              <h2 id="telemetry-title">Alloy Agent</h2>
+            </div>
+            <p id="alloy-state" class="inline-status"></p>
+          </div>
+          <div id="alloy-grid" class="metric-grid metric-grid--dense"></div>
+          <div id="alloy-textfile-stats" class="stat-row"></div>
+        </div>
+        <div>
+          <div class="section__header">
+            <div>
+              <p class="eyebrow">Exporter errors</p>
+              <h2 id="alloy-errors-title">Recent Containerd Permission Errors</h2>
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Recent line</th>
+                </tr>
+              </thead>
+              <tbody id="alloy-errors-table"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
       <section class="section split" aria-labelledby="services-title">
         <div>
           <div class="section__header">

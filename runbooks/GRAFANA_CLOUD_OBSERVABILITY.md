@@ -6,7 +6,8 @@ Use this runbook to enable Grafana Cloud observability for the NutsNews VPS thro
 
 - Optional Grafana Alloy installation on the VPS.
 - Linux host metrics from Alloy's Unix exporter.
-- Docker/container metrics and logs when Docker is present.
+- Host, systemd, journal/file, and textfile metrics without requiring Docker or containerd socket access.
+- Docker/cAdvisor container metrics and Docker log discovery are disabled by default until the socket privilege boundary is reviewed.
 - Journald, auth, Caddy, app/service, backup, reporting, and Ops Portal logs with redaction and rate controls.
 - Low-cardinality NutsNews status metrics derived from the read-only Ops Portal status JSON.
 - Grafana Cloud folders, dashboards, and quota guardrail alert rules managed by OpenTofu.
@@ -149,7 +150,14 @@ The OpenTofu module blocks apply when configured API checks exceed 70% of the cu
 - Log lines larger than 8 KB.
 - Rotated compressed logs and logs older than the Alloy file discovery window.
 - High-cardinality labels such as container IDs, image IDs, request IDs, user IDs, raw IP addresses, and full dynamic paths.
+- cAdvisor/Docker socket collection by default. The current safer model is host/systemd telemetry, Docker state through the root-run Ops Portal collector, and textfile metrics under `/var/lib/nutsnews/alloy/textfile`.
 - Traces, profiles, browser Synthetic Monitoring, and Grafana Cloud k6 execution until explicitly approved.
+
+## Container Metrics Strategy
+
+Alloy intentionally leaves `vps_service_foundation_grafana_alloy_collect_docker` set to `false` by default. This disables the cAdvisor exporter and Docker log discovery blocks that require Docker socket access and previously triggered repeated `containerd.sock: connect: permission denied` errors.
+
+Do not chmod `/run/containerd/containerd.sock`, make it world-readable, or run Alloy as root just to silence cAdvisor. If container-level metrics are required later, enable Docker collection only after the privilege boundary is reviewed and the least-privilege socket and mounts are documented. With the default disabled model, Docker status and restart counts remain visible through the Ops Portal collector, while Alloy continues to ship host, systemd, journal/file, and textfile telemetry.
 
 ## Apply Grafana Assets
 
@@ -170,7 +178,7 @@ If the backend secret is missing, stop and configure remote state before applyin
 2. Set `run_mode` to `check`.
 3. Set `enable_grafana_alloy` to `true`.
 4. Keep `confirm_apply` blank.
-5. Review the diff. Alloy should install from the Grafana apt repository, render `/etc/alloy/config.alloy`, render a root-only env file, create the textfile metrics timer, and validate the Alloy config.
+5. Review the diff. Alloy should install from the Grafana apt repository, render `/etc/alloy/config.alloy`, render a root-only env file, create the textfile metrics timer, validate the Alloy config, keep Docker/cAdvisor collection disabled by default, and verify no recent containerd socket permission errors remain after the service restart.
 6. Rerun with `run_mode=apply`, `confirm_apply=vps.nutsnews.com`, and `enable_grafana_alloy=true`.
 7. Approve the `production-vps` Environment gate.
 
@@ -192,8 +200,9 @@ Use Loki Explore:
 ```logql
 {service_namespace="nutsnews"}
 {service_namespace="nutsnews", log_source="auth"}
-{service_namespace="nutsnews", log_source="docker"}
 ```
+
+Docker log streams are present only when `vps_service_foundation_grafana_alloy_collect_docker` is explicitly enabled after review.
 
 Use Synthetic Monitoring metrics when checks are configured:
 
@@ -223,6 +232,17 @@ Expected dashboards are in the `NutsNews Observability` folder:
 - NutsNews Application Service Health
 - NutsNews Synthetic Uptime API Checks
 - NutsNews Grafana Cloud Usage Quota
+
+The Docker dashboard remains limited until Docker/cAdvisor collection is explicitly enabled. Use the Ops Portal for current Docker container state.
+
+After protected apply, also verify the deployed VPS state:
+
+```bash
+systemctl show alloy.service --property=ActiveState,SubState,User,SupplementaryGroups,DropInPaths --no-pager
+curl -fsS http://127.0.0.1:12345/-/ready
+sudo journalctl -u alloy.service --since "-30 min" --no-pager | grep -c "containerd.sock: connect: permission denied"
+sudo find /var/lib/nutsnews/alloy/textfile -maxdepth 1 -type f -name '*.prom' -printf '%s %p\n'
+```
 
 ## Follow-Up App Hooks
 

@@ -13,6 +13,7 @@ Use this runbook after the Ops Portal v1 PR is merged and before applying the se
 - Alert and daily report timers named `nutsnews-ops-alert-check.timer` and `nutsnews-ops-health-report.timer`
 - Backup status from `/opt/nutsnews/portal-assets/data/backup-status.json`
 - Free-tier usage and remaining quota status for local VPS resources, Docker storage, backup storage, Vercel, Sentry, Cloudflare, Better Stack, Supabase, Grafana Cloud, and GitHub Actions
+- Grafana Alloy service readiness, textfile metrics file visibility, and recent cAdvisor/containerd exporter permission-error counts
 - A Google OAuth gateway in front of every portal route and data endpoint
 - Caddy serving the protected portal publicly at `https://ops.nutsnews.com`
 - Caddy keeping host loopback access at `127.0.0.1:8080` for health checks and SSH tunnel fallback
@@ -40,6 +41,8 @@ The shorthand `https:///api/auth/callback/google` is not a valid runtime URL bec
 Email reporting is opt-in. SMTP host, credentials, sender, recipients, and cooldown values come from the protected `production-vps` GitHub Environment and are rendered into a root-only env file during protected apply. If email is disabled or incomplete, the reporter exits cleanly and the portal shows reporting as disabled or misconfigured.
 
 Free Tier Usage is read-only. The quota catalog lives in `vps_service_foundation_free_tier_quotas`; recheck official provider docs before changing those values. Local VPS, Docker, and backup entries come from live read-only collector data. Provider credentials are optional and only support read-only collection. The dashboard groups rows by service and labels each metric as `measured`, `missing credential`, `unavailable`, `unsupported`, or `unknown`. If a token, usage endpoint, or normalized snapshot is missing, malformed, or stale, the portal shows an honest unavailable state for that metric or provider instead of failing the whole dashboard.
+
+Alloy telemetry visibility is read-only. The collector checks `alloy.service`, the local readiness URL, `.prom` files under the configured textfile directory, and recent journal matches for `containerd.sock: connect: permission denied`. A nonzero recent match count raises a portal alert because it means the broken cAdvisor/container path has returned or the post-apply validation window needs investigation. The portal does not read Alloy secrets or expose any control that can restart or reconfigure Alloy.
 
 SSH hardening allows `nutsnews_ops` to create only local TCP forwards to `127.0.0.1:8080` or `localhost:8080` for portal access. Remote forwarding, gateway exposure, stream-local forwarding, tunnel devices, and broad forwarding stay disabled.
 

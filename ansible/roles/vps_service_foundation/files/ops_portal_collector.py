@@ -12,6 +12,8 @@ import shutil
 import socket
 import subprocess
 import time
+import urllib.error
+import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -72,6 +74,13 @@ DISK_SCAN_ROOTS = [
 ]
 DOCS_BASE_URL = os.environ.get("NUTSNEWS_DOCS_BASE_URL", "https://github.com/ramideltoro/nutsnews-docs")
 INFRA_REPO_URL = os.environ.get("NUTSNEWS_INFRA_REPO_URL", "https://github.com/ramideltoro/nutsnews-infra")
+ALLOY_ENABLED = os.environ.get("NUTSNEWS_ALLOY_ENABLED", "0").strip().lower() in {"1", "true", "yes", "on"}
+ALLOY_COLLECT_DOCKER = os.environ.get("NUTSNEWS_ALLOY_COLLECT_DOCKER", "0").strip().lower() in {"1", "true", "yes", "on"}
+ALLOY_SERVICE = os.environ.get("NUTSNEWS_ALLOY_SERVICE", "alloy.service").strip() or "alloy.service"
+ALLOY_READY_URL = os.environ.get("NUTSNEWS_ALLOY_READY_URL", "http://127.0.0.1:12345/-/ready").strip()
+ALLOY_ERROR_WINDOW = os.environ.get("NUTSNEWS_ALLOY_ERROR_WINDOW", "-30 min").strip() or "-30 min"
+ALLOY_TEXTFILE_DIR = Path(os.environ.get("NUTSNEWS_ALLOY_TEXTFILE_DIR", "/var/lib/nutsnews/alloy/textfile"))
+ALLOY_CONTAINERD_PERMISSION_ERROR = "containerd.sock: connect: permission denied"
 
 
 def utc_now() -> str:
@@ -620,6 +629,19 @@ def systemd_status(service: str) -> dict[str, str]:
     }
 
 
+def systemd_show(service: str, properties: list[str]) -> dict[str, str]:
+    result = run(["systemctl", "show", service, f"--property={','.join(properties)}", "--no-pager"], timeout=4)
+    values: dict[str, str] = {}
+    if not result["ok"]:
+        return values
+    for line in result["stdout"].splitlines():
+        if "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        values[key] = value.strip()
+    return values
+
+
 def systemd_timer_schedule(timer: str) -> dict[str, str]:
     result = run(
         [
@@ -652,6 +674,84 @@ def systemd_timer_schedule(timer: str) -> dict[str, str]:
         "last_report_timer_trigger_at": last_timer_trigger_at,
         "timer_result": values.get("Result", "unknown") or "unknown",
     }
+
+
+def local_http_probe(url: str) -> dict[str, Any]:
+    if not url:
+        return {"ok": False, "status": 0, "error": "ready URL is not configured"}
+    try:
+        with urllib.request.urlopen(url, timeout=3) as response:
+            status = int(response.status)
+            return {"ok": 200 <= status < 300, "status": status, "error": ""}
+    except urllib.error.HTTPError as error:
+        return {"ok": False, "status": int(error.code), "error": str(error)}
+    except (OSError, urllib.error.URLError) as error:
+        return {"ok": False, "status": 0, "error": str(error)}
+
+
+def alloy_textfile_files() -> list[dict[str, Any]]:
+    files = []
+    try:
+        paths = sorted(ALLOY_TEXTFILE_DIR.glob("*.prom"))
+    except OSError:
+        return files
+    for path in paths:
+        try:
+            stat = path.stat()
+        except OSError:
+            continue
+        files.append({"path": str(path), "size_bytes": stat.st_size})
+    return files
+
+
+def alloy_permission_error_state() -> dict[str, Any]:
+    journal = run(["journalctl", "-u", ALLOY_SERVICE, "--since", ALLOY_ERROR_WINDOW, "--no-pager"], timeout=8)
+    content = f"{journal['stdout']}\n{journal['stderr']}"
+    matches = [line for line in safe_lines(content, limit=200) if ALLOY_CONTAINERD_PERMISSION_ERROR in line]
+    return {
+        "available": journal["ok"],
+        "count": content.count(ALLOY_CONTAINERD_PERMISSION_ERROR),
+        "window": ALLOY_ERROR_WINDOW,
+        "pattern": ALLOY_CONTAINERD_PERMISSION_ERROR,
+        "recent_lines": matches[-5:],
+        "error": "" if journal["ok"] else journal["stderr"].strip(),
+    }
+
+
+def alloy_state() -> dict[str, Any]:
+    service = systemd_status(ALLOY_SERVICE)
+    unit = systemd_show(ALLOY_SERVICE, ["ActiveState", "SubState", "User", "SupplementaryGroups", "DropInPaths"])
+    ready = local_http_probe(ALLOY_READY_URL) if ALLOY_ENABLED else {"ok": False, "status": 0, "error": "Alloy disabled"}
+    permission_errors = alloy_permission_error_state() if ALLOY_ENABLED else {
+        "available": False,
+        "count": 0,
+        "window": ALLOY_ERROR_WINDOW,
+        "pattern": ALLOY_CONTAINERD_PERMISSION_ERROR,
+        "recent_lines": [],
+        "error": "Alloy disabled",
+    }
+
+    return {
+        "enabled": ALLOY_ENABLED,
+        "collect_docker": ALLOY_COLLECT_DOCKER,
+        "container_metrics_strategy": "docker_cadvisor_enabled" if ALLOY_COLLECT_DOCKER else "cadvisor_disabled",
+        "strategy_note": (
+            "Docker/cAdvisor collection is enabled and should use only the Docker socket privilege boundary."
+            if ALLOY_COLLECT_DOCKER
+            else "Docker/cAdvisor collection is intentionally disabled; host, systemd, journal/file, and textfile telemetry stay active."
+        ),
+        "service": service,
+        "unit": unit,
+        "ready": ready,
+        "ready_url": ALLOY_READY_URL,
+        "permission_errors": permission_errors,
+        "textfile_dir": str(ALLOY_TEXTFILE_DIR),
+        "textfile_files": alloy_textfile_files(),
+    }
+
+
+def observability_state() -> dict[str, Any]:
+    return {"alloy": alloy_state()}
 
 
 def docker_state() -> dict[str, Any]:
@@ -1293,8 +1393,10 @@ def alert_state(
     services: list[dict[str, str]],
     backups: dict[str, Any],
     free_tier: dict[str, Any],
+    observability: dict[str, Any] | None = None,
 ) -> list[dict[str, str]]:
     alerts = []
+    observability = observability or {}
     disk = resources.get("disk", {})
     memory = resources.get("memory", {})
     swap = resources.get("swap", {})
@@ -1360,6 +1462,15 @@ def alert_state(
             alerts.append({"level": "critical", "message": "The latest VPS restic backup snapshot is stale."})
 
     alerts.extend(free_tier_alerts(free_tier))
+
+    alloy = observability.get("alloy", {})
+    if isinstance(alloy, dict) and alloy.get("enabled"):
+        ready = alloy.get("ready", {})
+        if isinstance(ready, dict) and not ready.get("ok"):
+            alerts.append({"level": "critical", "message": "Grafana Alloy is enabled but its readiness endpoint is not healthy."})
+        permission_errors = alloy.get("permission_errors", {})
+        if isinstance(permission_errors, dict) and safe_int(permission_errors.get("count"), 0) > 0:
+            alerts.append({"level": "warning", "message": "Recent Grafana Alloy containerd socket permission errors detected."})
 
     if not alerts:
         alerts.append({"level": "ok", "message": "No local threshold alerts from the current snapshot."})
@@ -1531,6 +1642,7 @@ def collect() -> dict[str, Any]:
         external_free_tier_providers = []
     free_tier["providers"] = local_usage_providers(resources, docker, backups) + external_free_tier_providers
     free_tier["summary"] = summarize_free_tier_usage(free_tier)
+    observability = observability_state()
 
     return {
         "schema_version": 1,
@@ -1560,11 +1672,12 @@ def collect() -> dict[str, Any]:
         "logs": log_sections(),
         "security": security_state(),
         "backups": backups,
+        "observability": observability,
         "free_tier_usage": free_tier,
         "email_reporting": reporting,
         "alerts": {
             "email_configuration": reporting.get("status", "disabled"),
-            "items": alert_state(resources, docker, services, backups, free_tier),
+            "items": alert_state(resources, docker, services, backups, free_tier, observability),
         },
         "gitops": gitops_state(),
         "app": app,

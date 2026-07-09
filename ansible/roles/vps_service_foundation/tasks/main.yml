@@ -599,11 +599,20 @@
             name: "{{ vps_service_foundation_grafana_alloy_package }}"
             state: present
 
-        - name: Grant Alloy read-only log and Docker metadata access
+        - name: Set Alloy supplementary groups for journal logs and optional Docker telemetry
           ansible.builtin.user:
             name: "{{ vps_service_foundation_grafana_alloy_user }}"
-            groups: "{{ vps_service_foundation_grafana_alloy_groups }}"
-            append: true
+            groups: >-
+              {{
+                (
+                  vps_service_foundation_grafana_alloy_groups
+                  + (
+                    (vps_service_foundation_grafana_alloy_collect_docker | bool)
+                    | ternary(vps_service_foundation_grafana_alloy_docker_groups, [])
+                  )
+                ) | join(',')
+              }}
+            append: false
 
         - name: Create Alloy textfile collector directory
           ansible.builtin.file:
@@ -701,8 +710,62 @@
             state: started
             daemon_reload: true
 
-    - name: Apply pending Docker daemon changes
+    - name: Capture Grafana Alloy post-apply validation start
+      ansible.builtin.command:
+        argv:
+          - date
+          - --iso-8601=seconds
+      register: vps_service_foundation_alloy_validation_started_at
+      changed_when: false
+      when: vps_service_foundation_grafana_alloy_enabled | bool
+
+    - name: Apply pending service changes
       ansible.builtin.meta: flush_handlers
+
+    - name: Validate Grafana Alloy readiness endpoint
+      ansible.builtin.uri:
+        url: "{{ vps_service_foundation_grafana_alloy_ready_url }}"
+        method: GET
+        status_code: 200
+        return_content: false
+      register: vps_service_foundation_alloy_ready_check
+      retries: 6
+      delay: 5
+      until: vps_service_foundation_alloy_ready_check.status == 200
+      when: vps_service_foundation_grafana_alloy_enabled | bool
+
+    - name: Read recent Grafana Alloy journal for containerd socket permission errors
+      ansible.builtin.command:
+        argv:
+          - journalctl
+          - -u
+          - alloy.service
+          - --since
+          - "{{ vps_service_foundation_alloy_validation_started_at.stdout | default(vps_service_foundation_grafana_alloy_error_validation_since, true) }}"
+          - --no-pager
+      register: vps_service_foundation_alloy_recent_journal
+      changed_when: false
+      failed_when: false
+      when: vps_service_foundation_grafana_alloy_enabled | bool
+
+    - name: Validate Grafana Alloy containerd socket permission errors are absent
+      ansible.builtin.assert:
+        that:
+          - vps_service_foundation_alloy_recent_journal.rc == 0
+          - >-
+            {{
+              (
+                vps_service_foundation_alloy_recent_journal.stdout
+                | regex_findall(vps_service_foundation_grafana_alloy_containerd_permission_error_pattern)
+                | length
+              )
+              <= (vps_service_foundation_grafana_alloy_containerd_permission_error_threshold | int)
+            }}
+        fail_msg: >-
+          Grafana Alloy emitted recent containerd socket permission errors after apply.
+          Keep cAdvisor/Docker socket collection disabled until the privilege boundary is reviewed.
+        success_msg: Grafana Alloy has no recent containerd socket permission errors.
+      when: vps_service_foundation_grafana_alloy_enabled | bool
 
     - name: Enable operations portal collector timer
       ansible.builtin.systemd_service:

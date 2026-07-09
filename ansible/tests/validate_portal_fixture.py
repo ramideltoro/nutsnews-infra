@@ -90,6 +90,19 @@ require(host.get("public_ipv6") not in ("", "unknown", None), "Fixture public IP
 require("NUTSNEWS_PUBLIC_IPV4={{ vps_service_foundation_public_ipv4 }}" in COLLECTOR_UNIT, "Collector unit must pass IPv4.")
 require("NUTSNEWS_PUBLIC_IPV6={{ vps_service_foundation_public_ipv6 }}" in COLLECTOR_UNIT, "Collector unit must pass IPv6.")
 
+alloy = STATUS.get("observability", {}).get("alloy", {})
+require(alloy.get("enabled") is True, "Fixture must show Alloy enabled for portal visibility.")
+require(alloy.get("collect_docker") is False, "Fixture must show Docker/cAdvisor collection disabled by default.")
+require(alloy.get("container_metrics_strategy") == "cadvisor_disabled", "Fixture must document disabled cAdvisor strategy.")
+require(alloy.get("permission_errors", {}).get("count") == 0, "Fixture must show zero recent Alloy permission errors.")
+require("NUTSNEWS_ALLOY_ENABLED=" in COLLECTOR_UNIT, "Collector unit must pass Alloy enabled state.")
+require("NUTSNEWS_ALLOY_COLLECT_DOCKER=" in COLLECTOR_UNIT, "Collector unit must pass Alloy Docker collection state.")
+require("NUTSNEWS_ALLOY_ERROR_WINDOW=" in COLLECTOR_UNIT, "Collector unit must pass Alloy error window.")
+require("observability_state" in COLLECTOR, "Collector must expose observability state.")
+require("containerd.sock: connect: permission denied" in COLLECTOR, "Collector must count Alloy containerd permission errors.")
+require("renderObservability" in APP_JS, "Portal JavaScript must render observability state.")
+require("alloy-errors-table" in APP_JS, "Portal JavaScript must render Alloy exporter error visibility.")
+
 reporting = STATUS["email_reporting"]
 for key in (
     "enabled",

@@ -663,6 +663,44 @@ function renderNetwork(data) {
   renderTable("network-interface-table", rows, "No interface counter data found.", 3);
 }
 
+function renderObservability(data) {
+  const alloy = data.observability?.alloy || {};
+  const service = alloy.service || {};
+  const unit = alloy.unit || {};
+  const ready = alloy.ready || {};
+  const permissionErrors = alloy.permission_errors || {};
+  const textfiles = alloy.textfile_files || [];
+  const textfileBytes = textfiles.reduce((total, file) => total + (Number(file.size_bytes) || 0), 0);
+  const enabledLabel = alloy.enabled ? "enabled" : "disabled";
+  const readyLabel = ready.ok ? "ready" : "not ready";
+  const dockerLabel = alloy.collect_docker ? "enabled" : "disabled";
+  const supplementaryGroups = text(unit.SupplementaryGroups, "none");
+
+  $("alloy-state").innerHTML = `${pill(enabledLabel)} ${pill(readyLabel)} ${pill(alloy.container_metrics_strategy || "unknown")}`;
+  renderMetrics("alloy-grid", [
+    { label: "Service", value: text(service.active), hint: `${text(service.enabled)} / ${text(service.name)}` },
+    { label: "Ready", value: readyLabel, hint: `${text(ready.status, "0")} at ${text(alloy.ready_url)}` },
+    { label: "Container Metrics", value: dockerLabel, hint: text(alloy.strategy_note) },
+    { label: "User", value: text(unit.User, "alloy"), hint: `groups ${supplementaryGroups}` },
+    { label: "Permission Errors", value: text(permissionErrors.count, "0"), hint: `since ${text(permissionErrors.window)}` },
+    { label: "Textfile Dir", value: text(textfiles.length, "0"), hint: text(alloy.textfile_dir) },
+  ]);
+  renderStats("alloy-textfile-stats", [
+    { label: "Textfiles", value: text(textfiles.length, "0"), hint: `${bytes(textfileBytes)} total` },
+    { label: "Error Scan", value: permissionErrors.available ? "available" : "unavailable", hint: text(permissionErrors.pattern) },
+    { label: "Drop-ins", value: text(unit.DropInPaths, "none"), hint: "systemd unit metadata" },
+  ]);
+
+  const rows = (permissionErrors.recent_lines || []).map(
+    (line) => `
+      <tr>
+        <td>${escapeHtml(line)}</td>
+      </tr>
+    `,
+  );
+  renderTable("alloy-errors-table", rows, "No recent containerd socket permission errors.", 1);
+}
+
 function renderDocker(data) {
   const containers = data.docker?.containers || [];
   const rows = containers.map(
@@ -862,6 +900,7 @@ function render(data) {
   renderProcessVisibility(data);
   renderDisk(data);
   renderNetwork(data);
+  renderObservability(data);
   renderDocker(data);
   renderServices(data);
   renderLogs(data);
