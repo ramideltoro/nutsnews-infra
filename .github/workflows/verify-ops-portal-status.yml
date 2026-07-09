@@ -57,6 +57,128 @@ jobs:
           ssh-keygen -y -f "$HOME/.ssh/nutsnews_vps" > /dev/null
           ssh-keygen -F 65.75.202.112 -f "$HOME/.ssh/known_hosts" > /dev/null
 
+      - name: Inspect VPS collector runtime state
+        shell: bash
+        env:
+          VPS_HOST: 65.75.202.112
+          VPS_USER: nutsnews_ops
+        run: |
+          set -euo pipefail
+
+          ssh_args=(
+            -i "$HOME/.ssh/nutsnews_vps"
+            -o UserKnownHostsFile="$HOME/.ssh/known_hosts"
+            -o StrictHostKeyChecking=yes
+            -o IdentitiesOnly=yes
+            -o BatchMode=yes
+            -o LogLevel=ERROR
+          )
+          target="${VPS_USER}@${VPS_HOST}"
+
+          ssh "${ssh_args[@]}" "$target" "sudo -n /usr/bin/python3 -s" <<'PY'
+          import json
+          import os
+          import re
+          import shlex
+          import subprocess
+          import urllib.parse
+          from pathlib import Path
+
+          def run(args):
+              completed = subprocess.run(args, check=False, text=True, capture_output=True)
+              return {
+                  "returncode": completed.returncode,
+                  "stdout": completed.stdout.strip(),
+                  "stderr": completed.stderr.strip(),
+              }
+
+          def mask_value(name, value):
+              if not value:
+                  return "empty"
+              if name.endswith("_URL"):
+                  parsed = urllib.parse.urlparse(value)
+                  query_keys = sorted(urllib.parse.parse_qs(parsed.query).keys())
+                  query = "&".join(f"{key}=***" for key in query_keys)
+                  suffix = f"?{query}" if query else ""
+                  return f"{parsed.scheme}://{parsed.netloc}{parsed.path}{suffix}"
+              if name.endswith("_JSON"):
+                  try:
+                      parsed = json.loads(value)
+                  except json.JSONDecodeError:
+                      return "present(invalid-json)"
+                  if isinstance(parsed, dict):
+                      return f"present(json-object keys={sorted(str(key) for key in parsed.keys())})"
+                  return f"present(json-{type(parsed).__name__})"
+              return f"present(len={len(value)})"
+
+          def parse_env(path):
+              keys = {}
+              errors = []
+              try:
+                  lines = path.read_text(encoding="utf-8").splitlines()
+              except FileNotFoundError:
+                  return keys, ["missing"]
+              for line_number, raw in enumerate(lines, start=1):
+                  line = raw.strip()
+                  if not line or line.startswith("#") or "=" not in line:
+                      continue
+                  try:
+                      parts = shlex.split(line, comments=False, posix=True)
+                  except ValueError:
+                      errors.append(f"line {line_number} parse error")
+                      continue
+                  if not parts or "=" not in parts[0]:
+                      continue
+                  key, value = parts[0].split("=", 1)
+                  if key.startswith("NUTSNEWS_"):
+                      keys[key] = mask_value(key, value)
+              return keys, errors
+
+          def scrub(line):
+              line = re.sub(r"Bearer\s+[A-Za-z0-9._~+/-]+", "Bearer <redacted>", line)
+              line = re.sub(r"https://[^\s]+", "https://<redacted-url>", line)
+              return line[:240]
+
+          env_path = Path("/etc/nutsnews/free-tier-usage.env")
+          keys, errors = parse_env(env_path)
+          stat = env_path.stat() if env_path.exists() else None
+          interesting_keys = [
+              "NUTSNEWS_FREE_TIER_QUOTAS_JSON",
+              "NUTSNEWS_FREE_TIER_USAGE_JSON",
+              "NUTSNEWS_VERCEL_API_TOKEN",
+              "NUTSNEWS_VERCEL_USAGE_API_URL",
+          ]
+          journal = run([
+              "journalctl",
+              "-u",
+              "nutsnews-ops-portal-collector.service",
+              "-n",
+              "20",
+              "--no-pager",
+              "--output",
+              "short-iso",
+          ])
+          payload = {
+              "free_tier_env_file": {
+                  "present": env_path.exists(),
+                  "mode": oct(stat.st_mode & 0o777) if stat else "missing",
+                  "keys": {key: keys.get(key, "missing") for key in interesting_keys},
+                  "parse_errors": errors,
+              },
+              "systemd": {
+                  "collector_service_active": run(["systemctl", "is-active", "nutsnews-ops-portal-collector.service"])["stdout"],
+                  "collector_service_enabled": run(["systemctl", "is-enabled", "nutsnews-ops-portal-collector.service"])["stdout"],
+                  "collector_timer_active": run(["systemctl", "is-active", "nutsnews-ops-portal-collector.timer"])["stdout"],
+                  "collector_timer_enabled": run(["systemctl", "is-enabled", "nutsnews-ops-portal-collector.timer"])["stdout"],
+              },
+              "collector_journal": {
+                  "returncode": journal["returncode"],
+                  "recent_lines": [scrub(line) for line in journal["stdout"].splitlines()[-8:]],
+              },
+          }
+          print(json.dumps(payload, indent=2, sort_keys=True))
+          PY
+
       - name: Inspect Vercel usage API response shape
         shell: bash
         env:
@@ -332,3 +454,77 @@ jobs:
 
           echo
           echo "Ops Portal Vercel free-tier status is not using cached placeholder usage."
+
+      - name: Validate Vercel metric display semantics
+        shell: bash
+        env:
+          VPS_HOST: 65.75.202.112
+          VPS_USER: nutsnews_ops
+          PORTAL_STATUS_FILE: /opt/nutsnews/portal-assets/data/status.json
+        run: |
+          set -euo pipefail
+
+          ssh_args=(
+            -i "$HOME/.ssh/nutsnews_vps"
+            -o UserKnownHostsFile="$HOME/.ssh/known_hosts"
+            -o StrictHostKeyChecking=yes
+            -o IdentitiesOnly=yes
+            -o BatchMode=yes
+            -o LogLevel=ERROR
+          )
+          target="${VPS_USER}@${VPS_HOST}"
+
+          ssh "${ssh_args[@]}" "$target" "/usr/bin/python3 -s" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+
+          data = json.loads(Path("/opt/nutsnews/portal-assets/data/status.json").read_text(encoding="utf-8"))
+          providers = data.get("free_tier_usage", {}).get("providers", [])
+          providers = providers if isinstance(providers, list) else []
+          vercel = next((item for item in providers if item.get("key") == "vercel"), None)
+          if not vercel:
+              print(json.dumps({"vercel_semantics": "missing"}, indent=2, sort_keys=True))
+              raise SystemExit(3)
+
+          failures = []
+          rows = []
+          for metric in vercel.get("metrics", []):
+              key = metric.get("key", "unknown")
+              status = str(metric.get("measurement_status") or "unknown").lower()
+              detail = str(metric.get("measurement_detail") or "")
+              usage = metric.get("usage")
+              usage_display = str(metric.get("usage_display") or "unknown").lower()
+              percent_display = str(metric.get("percent_used_display") or "unknown").lower()
+              row = {
+                  "key": key,
+                  "usage": usage,
+                  "usage_display": metric.get("usage_display"),
+                  "percent_used_display": metric.get("percent_used_display"),
+                  "measurement_status": status,
+                  "has_detail": bool(detail),
+              }
+              rows.append(row)
+              if usage is None and usage_display.startswith("0"):
+                  failures.append(f"{key} has null usage but zero-like usage_display")
+              if usage is None and percent_display.startswith("0"):
+                  failures.append(f"{key} has null usage but zero-like percent_used_display")
+              if status in {"missing credential", "unavailable", "unsupported"}:
+                  if not detail:
+                      failures.append(f"{key} has {status} without measurement_detail")
+                  if usage_display != status:
+                      failures.append(f"{key} display is {usage_display}, expected {status}")
+              if usage_display == "unknown" and status != "unknown":
+                  failures.append(f"{key} renders generic unknown despite {status} status")
+
+          payload = {
+              "vercel_semantics": "failed" if failures else "ok",
+              "source_status": vercel.get("source_status"),
+              "source_detail": vercel.get("source_detail"),
+              "rows": rows,
+              "failures": failures,
+          }
+          print(json.dumps(payload, indent=2, sort_keys=True))
+          if failures:
+              raise SystemExit(2)
+          PY
