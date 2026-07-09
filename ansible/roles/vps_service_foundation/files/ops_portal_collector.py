@@ -87,6 +87,12 @@ ALLOY_READY_URL = os.environ.get("NUTSNEWS_ALLOY_READY_URL", "http://127.0.0.1:1
 ALLOY_ERROR_WINDOW = os.environ.get("NUTSNEWS_ALLOY_ERROR_WINDOW", "-30 min").strip() or "-30 min"
 ALLOY_TEXTFILE_DIR = Path(os.environ.get("NUTSNEWS_ALLOY_TEXTFILE_DIR", "/var/lib/nutsnews/alloy/textfile"))
 ALLOY_CONTAINERD_PERMISSION_ERROR = "containerd.sock: connect: permission denied"
+ALLOY_FILE_PERMISSION_ERROR = r"failed to tail the file: open .*: permission denied"
+ALLOY_PERMISSION_ERROR_PATTERNS = [
+    ALLOY_CONTAINERD_PERMISSION_ERROR,
+    ALLOY_FILE_PERMISSION_ERROR,
+]
+ALLOY_FILE_PERMISSION_ERROR_RE = re.compile(ALLOY_FILE_PERMISSION_ERROR)
 
 
 def utc_now() -> str:
@@ -713,12 +719,16 @@ def alloy_textfile_files() -> list[dict[str, Any]]:
 def alloy_permission_error_state() -> dict[str, Any]:
     journal = run(["journalctl", "-u", ALLOY_SERVICE, "--since", ALLOY_ERROR_WINDOW, "--no-pager"], timeout=8)
     content = f"{journal['stdout']}\n{journal['stderr']}"
-    matches = [line for line in safe_lines(content, limit=200) if ALLOY_CONTAINERD_PERMISSION_ERROR in line]
+    matches = [
+        line
+        for line in safe_lines(content, limit=200)
+        if ALLOY_CONTAINERD_PERMISSION_ERROR in line or ALLOY_FILE_PERMISSION_ERROR_RE.search(line)
+    ]
     return {
         "available": journal["ok"],
-        "count": content.count(ALLOY_CONTAINERD_PERMISSION_ERROR),
+        "count": content.count(ALLOY_CONTAINERD_PERMISSION_ERROR) + len(ALLOY_FILE_PERMISSION_ERROR_RE.findall(content)),
         "window": ALLOY_ERROR_WINDOW,
-        "pattern": ALLOY_CONTAINERD_PERMISSION_ERROR,
+        "pattern": " | ".join(ALLOY_PERMISSION_ERROR_PATTERNS),
         "recent_lines": matches[-5:],
         "error": "" if journal["ok"] else journal["stderr"].strip(),
     }
@@ -1485,7 +1495,7 @@ def alert_state(
             alerts.append({"level": "critical", "message": "Grafana Alloy is enabled but its readiness endpoint is not healthy."})
         permission_errors = alloy.get("permission_errors", {})
         if isinstance(permission_errors, dict) and safe_int(permission_errors.get("count"), 0) > 0:
-            alerts.append({"level": "warning", "message": "Recent Grafana Alloy containerd socket permission errors detected."})
+            alerts.append({"level": "warning", "message": "Recent Grafana Alloy permission errors detected."})
 
     if not alerts:
         alerts.append({"level": "ok", "message": "No local threshold alerts from the current snapshot."})
