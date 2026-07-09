@@ -39,6 +39,7 @@ Environment="NUTSNEWS_DISK_SCAN_CACHE_SECONDS={{ vps_service_foundation_disk_sca
 Environment="NUTSNEWS_DISK_SCAN_ROOTS={{ vps_service_foundation_disk_scan_roots | join(',') }}"
 Environment="NUTSNEWS_ALLOY_ENABLED={{ vps_service_foundation_grafana_alloy_enabled | ternary('1', '0') }}"
 Environment="NUTSNEWS_ALLOY_COLLECT_DOCKER={{ vps_service_foundation_grafana_alloy_collect_docker | ternary('1', '0') }}"
+Environment="NUTSNEWS_ALLOY_COLLECT_DOCKER_LOGS={{ vps_service_foundation_grafana_alloy_collect_docker_logs | ternary('1', '0') }}"
 Environment="NUTSNEWS_ALLOY_SERVICE=alloy.service"
 Environment="NUTSNEWS_ALLOY_READY_URL={{ vps_service_foundation_grafana_alloy_ready_url }}"
 Environment="NUTSNEWS_ALLOY_ERROR_WINDOW={{ vps_service_foundation_grafana_alloy_error_validation_since }}"

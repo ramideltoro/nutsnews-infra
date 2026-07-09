@@ -93,13 +93,20 @@ require("NUTSNEWS_PUBLIC_IPV6={{ vps_service_foundation_public_ipv6 }}" in COLLE
 alloy = STATUS.get("observability", {}).get("alloy", {})
 require(alloy.get("enabled") is True, "Fixture must show Alloy enabled for portal visibility.")
 require(alloy.get("collect_docker") is False, "Fixture must show Docker/cAdvisor collection disabled by default.")
+require(alloy.get("collect_docker_logs") is True, "Fixture must show Docker log collection enabled by default.")
 require(alloy.get("container_metrics_strategy") == "cadvisor_disabled", "Fixture must document disabled cAdvisor strategy.")
+require(
+    alloy.get("log_shipping_strategy") == "docker_api_logs_enabled",
+    "Fixture must document enabled Docker API log shipping.",
+)
 require(alloy.get("permission_errors", {}).get("count") == 0, "Fixture must show zero recent Alloy permission errors.")
 require("NUTSNEWS_ALLOY_ENABLED=" in COLLECTOR_UNIT, "Collector unit must pass Alloy enabled state.")
 require("NUTSNEWS_ALLOY_COLLECT_DOCKER=" in COLLECTOR_UNIT, "Collector unit must pass Alloy Docker collection state.")
+require("NUTSNEWS_ALLOY_COLLECT_DOCKER_LOGS=" in COLLECTOR_UNIT, "Collector unit must pass Alloy Docker log state.")
 require("NUTSNEWS_ALLOY_ERROR_WINDOW=" in COLLECTOR_UNIT, "Collector unit must pass Alloy error window.")
 require("observability_state" in COLLECTOR, "Collector must expose observability state.")
 require("containerd.sock: connect: permission denied" in COLLECTOR, "Collector must count Alloy containerd permission errors.")
+require("collect_docker_logs" in COLLECTOR, "Collector must expose Docker log shipping state.")
 require("renderObservability" in APP_JS, "Portal JavaScript must render observability state.")
 require("alloy-errors-table" in APP_JS, "Portal JavaScript must render Alloy exporter error visibility.")
 

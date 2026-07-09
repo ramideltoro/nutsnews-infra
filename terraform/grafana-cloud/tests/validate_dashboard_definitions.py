@@ -10,6 +10,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 TEMPLATE = (ROOT / "dashboards/nutsnews-dashboard.json.tftpl").read_text(encoding="utf-8")
 LOCALS = (ROOT / "locals.tf").read_text(encoding="utf-8")
+ALERTS = (ROOT / "alerts.tf").read_text(encoding="utf-8")
 
 
 def require(condition: bool, message: str) -> None:
@@ -87,6 +88,31 @@ require(
 )
 require('legendFormat = target.legend' in LOCALS, "Explicit panel targets must use their configured legends.")
 require('refId        = ["A", "B", "C", "D", "E", "F"][target_index]' in LOCALS, "Explicit panel targets must get stable refIds.")
+
+for token in (
+    'uid         = "nutsnews-logs-overview"',
+    "Log volume by source",
+    "Log volume by service",
+    "Log volume by level",
+    "Systemd journal by unit",
+    "Docker logs by container",
+    "Caddy status classes",
+    "Dropped log guardrails",
+    'source=\\"docker\\",container=\\"nutsnews-caddy\\"',
+    'loki_write_dropped_entries_total',
+    'loki_write_batch_retries_total',
+    'high_error_log_volume',
+):
+    require(token in LOCALS, f"Logs dashboard or alert locals missing {token}.")
+
+require(
+    'resource "grafana_rule_group" "log_pipeline"' in ALERTS,
+    "Grafana log pipeline alert rule group is missing.",
+)
+require(
+    "local.datasource_types[rule.value.datasource]" in ALERTS,
+    "Log pipeline alert rules must choose the datasource type from the existing datasource map.",
+)
 
 for stale_query in re.findall(r"node_[a-zA-Z0-9_]+\\{\\$\\{local\\.base_metric_filter\\}", LOCALS):
     require(

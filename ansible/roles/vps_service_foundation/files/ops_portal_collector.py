@@ -76,6 +76,12 @@ DOCS_BASE_URL = os.environ.get("NUTSNEWS_DOCS_BASE_URL", "https://github.com/ram
 INFRA_REPO_URL = os.environ.get("NUTSNEWS_INFRA_REPO_URL", "https://github.com/ramideltoro/nutsnews-infra")
 ALLOY_ENABLED = os.environ.get("NUTSNEWS_ALLOY_ENABLED", "0").strip().lower() in {"1", "true", "yes", "on"}
 ALLOY_COLLECT_DOCKER = os.environ.get("NUTSNEWS_ALLOY_COLLECT_DOCKER", "0").strip().lower() in {"1", "true", "yes", "on"}
+ALLOY_COLLECT_DOCKER_LOGS = os.environ.get("NUTSNEWS_ALLOY_COLLECT_DOCKER_LOGS", "0").strip().lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}
 ALLOY_SERVICE = os.environ.get("NUTSNEWS_ALLOY_SERVICE", "alloy.service").strip() or "alloy.service"
 ALLOY_READY_URL = os.environ.get("NUTSNEWS_ALLOY_READY_URL", "http://127.0.0.1:12345/-/ready").strip()
 ALLOY_ERROR_WINDOW = os.environ.get("NUTSNEWS_ALLOY_ERROR_WINDOW", "-30 min").strip() or "-30 min"
@@ -734,11 +740,18 @@ def alloy_state() -> dict[str, Any]:
     return {
         "enabled": ALLOY_ENABLED,
         "collect_docker": ALLOY_COLLECT_DOCKER,
+        "collect_docker_logs": ALLOY_COLLECT_DOCKER_LOGS,
         "container_metrics_strategy": "docker_cadvisor_enabled" if ALLOY_COLLECT_DOCKER else "cadvisor_disabled",
+        "log_shipping_strategy": "docker_api_logs_enabled" if ALLOY_COLLECT_DOCKER_LOGS else "docker_logs_disabled",
         "strategy_note": (
             "Docker/cAdvisor collection is enabled and should use only the Docker socket privilege boundary."
             if ALLOY_COLLECT_DOCKER
-            else "Docker/cAdvisor collection is intentionally disabled; host, systemd, journal/file, and textfile telemetry stay active."
+            else "Docker/cAdvisor collection is intentionally disabled; host, systemd, journal/file, Docker log, and textfile telemetry stay active."
+        ),
+        "log_strategy_note": (
+            "Docker container logs are collected through the Docker API socket with Alloy running as a non-root docker group member."
+            if ALLOY_COLLECT_DOCKER_LOGS
+            else "Docker container logs are not collected by Alloy."
         ),
         "service": service,
         "unit": unit,

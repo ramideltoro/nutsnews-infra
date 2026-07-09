@@ -7,7 +7,9 @@ prometheus.remote_write "grafana_cloud" {
   external_labels = {
     service_namespace      = "nutsnews",
     deployment_environment = sys.env("NUTSNEWS_ALLOY_ENVIRONMENT"),
+    env                    = sys.env("NUTSNEWS_ALLOY_ENVIRONMENT"),
     instance               = sys.env("NUTSNEWS_ALLOY_HOSTNAME"),
+    host                   = sys.env("NUTSNEWS_ALLOY_HOSTNAME"),
   }
 
   endpoint {
@@ -25,7 +27,9 @@ loki.write "grafana_cloud" {
   external_labels = {
     service_namespace      = "nutsnews",
     deployment_environment = sys.env("NUTSNEWS_ALLOY_ENVIRONMENT"),
+    env                    = sys.env("NUTSNEWS_ALLOY_ENVIRONMENT"),
     instance               = sys.env("NUTSNEWS_ALLOY_HOSTNAME"),
+    host                   = sys.env("NUTSNEWS_ALLOY_HOSTNAME"),
   }
 
   endpoint {
@@ -72,7 +76,7 @@ prometheus.scrape "host" {
 
 {% if vps_service_foundation_grafana_alloy_collect_docker | bool %}
 prometheus.exporter.cadvisor "containers" {
-  docker_host = "unix:///var/run/docker.sock"
+  docker_host = "{{ vps_service_foundation_grafana_alloy_docker_socket }}"
   docker_only = true
 
   store_container_labels      = false
@@ -132,7 +136,7 @@ loki.relabel "journal_labels" {
 
   rule {
     source_labels = ["__journal_syslog_identifier"]
-    target_label  = "syslog_identifier"
+    target_label  = "service"
   }
 }
 
@@ -144,6 +148,8 @@ loki.source.journal "priority_{{ priority }}" {
   labels = {
     job        = "systemd-journal",
     log_source = "journal",
+    service    = "systemd",
+    source     = "journal",
   }
   forward_to = [loki.process.journal.receiver]
 }
@@ -162,6 +168,10 @@ loki.process "journal" {
     burst = {{ vps_service_foundation_grafana_alloy_journal_log_burst }}
     drop  = true
   }
+
+  stage.label_keep {
+    values = ["env", "host", "instance", "deployment_environment", "service_namespace", "job", "source", "log_source", "service", "unit", "level"]
+  }
 }
 
 loki.source.file "nutsnews_files" {
@@ -171,12 +181,16 @@ loki.source.file "nutsnews_files" {
       __path_exclude__   = "/var/log/*.gz",
       job                = "auth-log",
       log_source         = "auth",
+      service            = "auth",
+      source             = "auth",
     },
     {
       __path__           = "{{ vps_service_foundation_logs_dir }}/{backups,caddy,health,ops-portal}/*.{log,jsonl}",
       __path_exclude__   = "{{ vps_service_foundation_logs_dir }}/**/*.{gz,zip,bak,old}",
       job                = "nutsnews-service-logs",
       log_source         = "nutsnews-service",
+      service            = "nutsnews-service",
+      source             = "nutsnews-service",
     },
   ]
   tail_from_end = true
@@ -191,6 +205,44 @@ loki.source.file "nutsnews_files" {
 
 loki.process "files" {
   forward_to = [loki.write.grafana_cloud.receiver]
+
+  stage.json {
+    expressions = {
+      timestamp   = "timestamp",
+      level       = "level",
+      message     = "message",
+      msg         = "msg",
+      log_service = "service",
+      component   = "component",
+      request_id  = "request_id",
+      method      = "method",
+      status      = "status",
+      path        = "path",
+      duration_ms = "duration_ms",
+    }
+    drop_malformed = false
+  }
+
+  stage.labels {
+    values = {
+      level = "",
+    }
+  }
+
+  stage.structured_metadata {
+    values = {
+      timestamp   = "",
+      message     = "",
+      msg         = "",
+      log_service = "",
+      component   = "",
+      request_id  = "",
+      method      = "",
+      status      = "",
+      path        = "",
+      duration_ms = "",
+    }
+  }
 
   stage.replace {
     expression = "(?i)(?:password|passwd|token|secret|authorization|credential|api[_-]?key)=([^\\s,]+)"
@@ -213,8 +265,14 @@ loki.process "files" {
   }
 
   stage.drop {
+    source               = "level"
     expression          = "(?i)\\b(debug|trace)\\b"
     drop_counter_reason = "debug_or_trace"
+  }
+
+  stage.drop {
+    expression          = "(?i)\\b(debug|trace)\\b"
+    drop_counter_reason = "debug_or_trace_line"
   }
 
   stage.drop {
@@ -227,16 +285,35 @@ loki.process "files" {
     burst = {{ vps_service_foundation_grafana_alloy_file_log_burst }}
     drop  = true
   }
+
+  stage.label_keep {
+    values = ["env", "host", "instance", "deployment_environment", "service_namespace", "job", "source", "log_source", "service", "level"]
+  }
 }
 
-{% if vps_service_foundation_grafana_alloy_collect_docker | bool %}
+{% if vps_service_foundation_grafana_alloy_collect_docker_logs | bool %}
 discovery.docker "containers" {
-  host             = "unix:///var/run/docker.sock"
+  host             = "{{ vps_service_foundation_grafana_alloy_docker_socket }}"
   refresh_interval = "60s"
+
+  filter {
+    name = "label"
+    values = [
+{% for compose_project in vps_service_foundation_grafana_alloy_docker_log_compose_projects %}
+      "com.docker.compose.project={{ compose_project }}",
+{% endfor %}
+    ]
+  }
 }
 
 discovery.relabel "docker_logs" {
   targets = discovery.docker.containers.targets
+
+  rule {
+    source_labels = ["__meta_docker_container_label_com_docker_compose_project"]
+    regex         = "^({{ vps_service_foundation_grafana_alloy_docker_log_compose_projects | join('|') }})$"
+    action        = "keep"
+  }
 
   rule {
     source_labels = ["__meta_docker_container_name"]
@@ -256,6 +333,11 @@ discovery.relabel "docker_logs" {
   }
 
   rule {
+    source_labels = ["__meta_docker_container_label_com_docker_compose_service"]
+    target_label  = "service"
+  }
+
+  rule {
     target_label = "job"
     replacement  = "docker"
   }
@@ -266,23 +348,86 @@ discovery.relabel "docker_logs" {
   }
 
   rule {
+    target_label = "source"
+    replacement  = "docker"
+  }
+
+  rule {
     action = "labeldrop"
     regex  = "^(__meta_docker_container_id|__meta_docker_container_label_com_docker_compose_config_hash|__meta_docker_network_id|__meta_docker_port_.*)$"
   }
 }
 
 loki.source.docker "containers" {
-  host       = "unix:///var/run/docker.sock"
-  targets    = discovery.relabel.docker_logs.output
-  labels     = {log_source = "docker"}
-  forward_to = [loki.process.docker.receiver]
+  host             = "{{ vps_service_foundation_grafana_alloy_docker_socket }}"
+  targets          = discovery.relabel.docker_logs.output
+  labels           = {log_source = "docker", source = "docker"}
+  refresh_interval = "60s"
+  forward_to       = [loki.process.docker.receiver]
 }
 
 loki.process "docker" {
   forward_to = [loki.write.grafana_cloud.receiver]
 
+  stage.json {
+    expressions = {
+      timestamp            = "timestamp",
+      ts                   = "ts",
+      level                = "level",
+      message              = "message",
+      msg                  = "msg",
+      log_service          = "service",
+      component            = "component",
+      request_id           = "request_id",
+      method               = "method",
+      request_method       = "request.method",
+      status               = "status",
+      path                 = "path",
+      uri                  = "request.uri",
+      duration_ms          = "duration_ms",
+      duration             = "duration",
+      caddy_logger         = "logger",
+      caddy_request_host   = "request.host",
+      caddy_request_proto  = "request.proto",
+    }
+    drop_malformed = false
+  }
+
+  stage.labels {
+    values = {
+      level = "",
+    }
+  }
+
+  stage.structured_metadata {
+    values = {
+      timestamp            = "",
+      ts                   = "",
+      message              = "",
+      msg                  = "",
+      log_service          = "",
+      component            = "",
+      request_id           = "",
+      method               = "",
+      request_method       = "",
+      status               = "",
+      path                 = "",
+      uri                  = "",
+      duration_ms          = "",
+      duration             = "",
+      caddy_logger         = "",
+      caddy_request_host   = "",
+      caddy_request_proto  = "",
+    }
+  }
+
   stage.replace {
     expression = "(?i)(?:password|passwd|token|secret|authorization|credential|api[_-]?key)=([^\\s,]+)"
+    replace    = "[redacted]"
+  }
+
+  stage.replace {
+    expression = "(?i)(?:password|passwd|token|secret|authorization|credential|api[_-]?key)\\s*:\\s*([^,\\s]+)"
     replace    = "[redacted]"
   }
 
@@ -292,8 +437,14 @@ loki.process "docker" {
   }
 
   stage.drop {
+    source               = "level"
     expression          = "(?i)\\b(debug|trace)\\b"
     drop_counter_reason = "docker_debug_or_trace"
+  }
+
+  stage.drop {
+    expression          = "(?i)\\b(debug|trace)\\b"
+    drop_counter_reason = "docker_debug_or_trace_line"
   }
 
   stage.drop {
@@ -308,7 +459,7 @@ loki.process "docker" {
   }
 
   stage.label_keep {
-    values = ["container", "compose_project", "compose_service", "job", "log_source", "service_namespace", "deployment_environment", "instance"]
+    values = ["env", "host", "instance", "deployment_environment", "service_namespace", "container", "compose_project", "compose_service", "job", "source", "log_source", "service", "level"]
   }
 }
 {% endif %}

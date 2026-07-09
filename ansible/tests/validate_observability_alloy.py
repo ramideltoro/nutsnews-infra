@@ -14,6 +14,7 @@ ALLOY_CONFIG = Path("ansible/roles/vps_service_foundation/templates/grafana-allo
 ALLOY_DROPIN = Path("ansible/roles/vps_service_foundation/templates/grafana-alloy.service-dropin.conf.j2").read_text(
     encoding="utf-8"
 )
+CADDYFILE = Path("compose/caddy/Caddyfile").read_text(encoding="utf-8")
 
 
 def require(condition: bool, message: str) -> None:
@@ -28,6 +29,9 @@ for token in (
     "vps_service_foundation_grafana_alloy_apt_repo_suite: stable",
     "vps_service_foundation_grafana_alloy_package: alloy",
     "vps_service_foundation_grafana_alloy_collect_docker: false",
+    "vps_service_foundation_grafana_alloy_collect_docker_logs: true",
+    "vps_service_foundation_grafana_alloy_docker_socket: unix:///var/run/docker.sock",
+    "vps_service_foundation_grafana_alloy_docker_log_compose_projects:",
     "vps_service_foundation_grafana_alloy_ready_url: http://127.0.0.1:12345/-/ready",
     'vps_service_foundation_grafana_alloy_containerd_permission_error_pattern: "containerd\\\\.sock: connect: permission denied"',
 ):
@@ -59,12 +63,49 @@ require("update_cache:" not in install_block, "Alloy install must rely on the ex
 require("prometheus.exporter.cadvisor" in ALLOY_CONFIG, "Alloy cAdvisor exporter block is missing.")
 require(
     "{% if vps_service_foundation_grafana_alloy_collect_docker | bool %}" in ALLOY_CONFIG,
-    "Alloy Docker/cAdvisor blocks must stay gated by the Docker collection flag.",
+    "Alloy cAdvisor blocks must stay gated by the container metrics collection flag.",
+)
+require(
+    "{% if vps_service_foundation_grafana_alloy_collect_docker_logs | bool %}" in ALLOY_CONFIG,
+    "Alloy Docker log blocks must be gated by the Docker log collection flag.",
+)
+require(
+    ALLOY_CONFIG.find("prometheus.exporter.cadvisor") < ALLOY_CONFIG.find(
+        "{% if vps_service_foundation_grafana_alloy_collect_docker_logs | bool %}"
+    ),
+    "cAdvisor must not move under the Docker log collection gate.",
+)
+for token in (
+    'env                    = sys.env("NUTSNEWS_ALLOY_ENVIRONMENT")',
+    'host                   = sys.env("NUTSNEWS_ALLOY_HOSTNAME")',
+    'source     = "journal"',
+    'source             = "auth"',
+    'source             = "nutsnews-service"',
+    'target_label = "source"',
+    'stage.json',
+    'stage.structured_metadata',
+    'stage.label_keep',
+    'drop_counter_reason = "debug_or_trace_line"',
+    'drop_counter_reason = "docker_debug_or_trace_line"',
+    'drop_counter_reason = "docker_line_too_large"',
+    'max_streams = 500',
+):
+    require(token in ALLOY_CONFIG, f"Structured Alloy log guardrail missing {token}.")
+for project in ("nutsnews-service-foundation", "nutsnews-app"):
+    require(project in DEFAULTS, f"Alloy Docker log discovery defaults must include {project}.")
+require(
+    "status               = \"status\"" in ALLOY_CONFIG and "uri                  = \"request.uri\"" in ALLOY_CONFIG,
+    "Docker/Caddy JSON parsing must extract status and URI as structured metadata.",
 )
 require("append: false" in TASKS, "Alloy supplementary groups must be reconciled to avoid stale Docker access.")
+require("Ensure Alloy Docker telemetry group exists" in TASKS, "Alloy Docker telemetry group must be explicit.")
 require(
     "vps_service_foundation_grafana_alloy_docker_groups" in TASKS,
-    "Alloy Docker group membership must be added only when Docker collection is enabled.",
+    "Alloy Docker group membership must be added only when Docker telemetry is enabled.",
+)
+require(
+    "vps_service_foundation_grafana_alloy_collect_docker_logs | bool" in TASKS,
+    "Alloy Docker group membership must account for Docker log collection.",
 )
 require("Validate Grafana Alloy readiness endpoint" in TASKS, "Alloy readiness validation is missing.")
 require(
@@ -72,5 +113,6 @@ require(
     "Alloy journal validation for containerd socket permission errors is missing.",
 )
 require("User=root" not in ALLOY_DROPIN, "Alloy drop-in must not run Alloy as root.")
+require(CADDYFILE.count("format json") == 3, "Every Caddy access log block must emit JSON.")
 
 print("Grafana Alloy guardrails passed.")

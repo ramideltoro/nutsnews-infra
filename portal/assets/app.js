@@ -674,13 +674,15 @@ function renderObservability(data) {
   const enabledLabel = alloy.enabled ? "enabled" : "disabled";
   const readyLabel = ready.ok ? "ready" : "not ready";
   const dockerLabel = alloy.collect_docker ? "enabled" : "disabled";
+  const dockerLogsLabel = alloy.collect_docker_logs ? "enabled" : "disabled";
   const supplementaryGroups = text(unit.SupplementaryGroups, "none");
 
-  $("alloy-state").innerHTML = `${pill(enabledLabel)} ${pill(readyLabel)} ${pill(alloy.container_metrics_strategy || "unknown")}`;
+  $("alloy-state").innerHTML = `${pill(enabledLabel)} ${pill(readyLabel)} ${pill(alloy.container_metrics_strategy || "unknown")} ${pill(alloy.log_shipping_strategy || "unknown")}`;
   renderMetrics("alloy-grid", [
     { label: "Service", value: text(service.active), hint: `${text(service.enabled)} / ${text(service.name)}` },
     { label: "Ready", value: readyLabel, hint: `${text(ready.status, "0")} at ${text(alloy.ready_url)}` },
     { label: "Container Metrics", value: dockerLabel, hint: text(alloy.strategy_note) },
+    { label: "Container Logs", value: dockerLogsLabel, hint: text(alloy.log_strategy_note) },
     { label: "User", value: text(unit.User, "alloy"), hint: `groups ${supplementaryGroups}` },
     { label: "Permission Errors", value: text(permissionErrors.count, "0"), hint: `since ${text(permissionErrors.window)}` },
     { label: "Textfile Dir", value: text(textfiles.length, "0"), hint: text(alloy.textfile_dir) },

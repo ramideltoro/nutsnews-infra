@@ -7,8 +7,9 @@ Use this runbook to enable Grafana Cloud observability for the NutsNews VPS thro
 - Optional Grafana Alloy installation on the VPS.
 - Linux host metrics from Alloy's Unix exporter.
 - Host, systemd, journal/file, and textfile metrics without requiring Docker or containerd socket access.
-- Docker/cAdvisor container metrics and Docker log discovery are disabled by default until the socket privilege boundary is reviewed.
-- Journald, auth, Caddy, app/service, backup, reporting, and Ops Portal logs with redaction and rate controls.
+- Docker/cAdvisor container metrics are disabled by default.
+- Docker log discovery for the NutsNews Compose projects through the Docker API socket.
+- Journald, auth, Caddy JSON access/error logs, app/service, backup, reporting, and Ops Portal logs with redaction and rate controls.
 - Low-cardinality NutsNews status metrics derived from the read-only Ops Portal status JSON.
 - Grafana Cloud folders, dashboards, and quota guardrail alert rules managed by OpenTofu.
 - Optional low-frequency Synthetic Monitoring HTTP checks when targets and probe IDs are supplied outside Git.
@@ -127,7 +128,7 @@ Store every value below in `ramideltoro/nutsnews-infra` -> Settings -> Environme
 The current committed assumptions are:
 
 - Metrics: 10,000 active series per month.
-- Logs: 50 GB ingested per month.
+- Logs: 50 GB ingested per month with 14-day retention.
 - Synthetic Monitoring API tests: 100,000 executions per month.
 - Synthetic Monitoring browser tests: 10,000 executions per month.
 - k6: 500 virtual user hours per month.
@@ -150,14 +151,16 @@ The OpenTofu module blocks apply when configured API checks exceed 70% of the cu
 - Log lines larger than 8 KB.
 - Rotated compressed logs and logs older than the Alloy file discovery window.
 - High-cardinality labels such as container IDs, image IDs, request IDs, user IDs, raw IP addresses, and full dynamic paths.
-- cAdvisor/Docker socket collection by default. The current safer model is host/systemd telemetry, Docker state through the root-run Ops Portal collector, and textfile metrics under `/var/lib/nutsnews/alloy/textfile`.
+- cAdvisor/container metric collection by default. The current safer metrics model is host/systemd telemetry, Docker state through the root-run Ops Portal collector, and textfile metrics under `/var/lib/nutsnews/alloy/textfile`.
 - Traces, profiles, browser Synthetic Monitoring, and Grafana Cloud k6 execution until explicitly approved.
 
 ## Container Metrics Strategy
 
-Alloy intentionally leaves `vps_service_foundation_grafana_alloy_collect_docker` set to `false` by default. This disables the cAdvisor exporter and Docker log discovery blocks that require Docker socket access and previously triggered repeated `containerd.sock: connect: permission denied` errors.
+Alloy intentionally leaves `vps_service_foundation_grafana_alloy_collect_docker` set to `false` by default. This disables the cAdvisor exporter that previously triggered repeated `containerd.sock: connect: permission denied` errors.
 
-Do not chmod `/run/containerd/containerd.sock`, make it world-readable, or run Alloy as root just to silence cAdvisor. If container-level metrics are required later, enable Docker collection only after the privilege boundary is reviewed and the least-privilege socket and mounts are documented. With the default disabled model, Docker status and restart counts remain visible through the Ops Portal collector, while Alloy continues to ship host, systemd, journal/file, and textfile telemetry.
+Container logs are collected separately with `vps_service_foundation_grafana_alloy_collect_docker_logs` set to `true`. That grants the non-root `alloy` user membership in the `docker` group so Alloy can read the Docker API socket at `/var/run/docker.sock` for containers labeled with the `nutsnews-service-foundation` or `nutsnews-app` Compose project. This is a reviewed Docker API privilege boundary, not a cAdvisor/containerd metrics path.
+
+Do not chmod `/run/containerd/containerd.sock`, make it world-readable, or run Alloy as root just to silence cAdvisor. If container-level metrics are required later, enable cAdvisor only after the privilege boundary is reviewed and the least-privilege socket and mounts are documented. With the default disabled metrics model, Docker status and restart counts remain visible through the Ops Portal collector, while Alloy ships host, systemd, journal/file, Docker log, and textfile telemetry.
 
 ## Apply Grafana Assets
 
@@ -178,7 +181,7 @@ If the backend secret is missing, stop and configure remote state before applyin
 2. Set `run_mode` to `check`.
 3. Set `enable_grafana_alloy` to `true`.
 4. Keep `confirm_apply` blank.
-5. Review the diff. Alloy should install from the Grafana apt repository, render `/etc/alloy/config.alloy`, render a root-only env file, create the textfile metrics timer, validate the Alloy config, keep Docker/cAdvisor collection disabled by default, and verify no recent containerd socket permission errors remain after the service restart.
+5. Review the diff. Alloy should install from the Grafana apt repository, render `/etc/alloy/config.alloy`, render a root-only env file, create the textfile metrics timer, validate the Alloy config, keep cAdvisor/container metrics disabled by default, enable NutsNews Docker log discovery, and verify no recent containerd socket permission errors remain after the service restart.
 6. Rerun with `run_mode=apply`, `confirm_apply=vps.nutsnews.com`, and `enable_grafana_alloy=true`.
 7. Approve the `production-vps` Environment gate.
 
@@ -198,11 +201,14 @@ nutsnews_backup_last_success{service_namespace="nutsnews"}
 Use Loki Explore:
 
 ```logql
-{service_namespace="nutsnews"}
-{service_namespace="nutsnews", log_source="auth"}
+{service_namespace="nutsnews", source="journal"}
+{service_namespace="nutsnews", source="auth"}
+{service_namespace="nutsnews", source="docker", compose_project=~"nutsnews-service-foundation|nutsnews-app"}
+{service_namespace="nutsnews", source="docker", container="nutsnews-caddy"} | json
+{service_namespace="nutsnews"} |~ "(?i)(error|critical|panic|failed|denied)"
 ```
 
-Docker log streams are present only when `vps_service_foundation_grafana_alloy_collect_docker` is explicitly enabled after review.
+Container log streams are present when `vps_service_foundation_grafana_alloy_collect_docker_logs` is enabled. Container metrics stay disabled until `vps_service_foundation_grafana_alloy_collect_docker` is explicitly enabled after a separate review.
 
 Use Synthetic Monitoring metrics when checks are configured:
 
@@ -220,6 +226,7 @@ grafanacloud_logs_instance_limits
 Expected dashboards are in the `NutsNews Observability` folder:
 
 - NutsNews VPS Overview
+- NutsNews Logs Overview
 - NutsNews CPU Load Processes
 - NutsNews Memory Swap
 - NutsNews Disk Filesystem IO
@@ -233,7 +240,7 @@ Expected dashboards are in the `NutsNews Observability` folder:
 - NutsNews Synthetic Uptime API Checks
 - NutsNews Grafana Cloud Usage Quota
 
-The Docker dashboard remains limited until Docker/cAdvisor collection is explicitly enabled. Use the Ops Portal for current Docker container state.
+The Docker dashboard keeps resource panels from cAdvisor for a future metrics review, but Docker log panels work through the Docker API log collector. Use the Ops Portal for current Docker container state.
 
 After protected apply, also verify the deployed VPS state:
 

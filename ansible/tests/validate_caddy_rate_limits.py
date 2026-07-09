@@ -51,6 +51,7 @@ for token in ("rate_limit {", "zone {{ zone.name }}", "log_key", "ipv6_prefix"):
 
 require(CADDYFILE.count("import /etc/nutsnews/caddy/rate-limits") == 3, "Every Caddy server block must import rate limits.")
 require(CADDYFILE.count("output stdout") == 3, "Every Caddy server block must log to stdout.")
+require(CADDYFILE.count("format json") == 3, "Every Caddy server block must emit JSON logs for Loki parsing.")
 require("github.com/mholt/caddy-ratelimit@${CADDY_RATELIMIT_VERSION}" in DOCKERFILE, "Caddy module must be pinned by build arg.")
 require("CADDY_RATELIMIT_VERSION=16aecbb" in DOCKERFILE, "Caddy rate-limit module pin changed unexpectedly.")
 require("CADDY_VERSION=2.10.0" in DOCKERFILE, "Caddy base version changed unexpectedly.")

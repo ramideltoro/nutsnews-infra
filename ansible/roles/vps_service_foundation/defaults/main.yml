@@ -41,6 +41,11 @@ vps_service_foundation_grafana_alloy_logs_url: ""
 vps_service_foundation_grafana_alloy_logs_username: ""
 vps_service_foundation_grafana_alloy_access_policy_token: ""
 vps_service_foundation_grafana_alloy_collect_docker: false
+vps_service_foundation_grafana_alloy_collect_docker_logs: true
+vps_service_foundation_grafana_alloy_docker_socket: unix:///var/run/docker.sock
+vps_service_foundation_grafana_alloy_docker_log_compose_projects:
+  - nutsnews-service-foundation
+  - nutsnews-app
 vps_service_foundation_grafana_alloy_docker_log_rate: 3
 vps_service_foundation_grafana_alloy_docker_log_burst: 30
 vps_service_foundation_grafana_alloy_journal_log_rate: 2
