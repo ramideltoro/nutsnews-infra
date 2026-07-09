@@ -110,15 +110,15 @@
       ansible.builtin.assert:
         that:
           - >-
-            {{
-              ('/dev/' ~ vps_service_foundation_zram_device)
-              in (vps_service_foundation_zram_swapon_show.stdout | default(''))
-            }}
+            (vps_service_foundation_zram_swapon_show.stdout | default(''))
+            is search('(^|\n)(/dev/)?' ~ vps_service_foundation_zram_device ~ '([ \t]|$)')
           - >-
-            {{
-              (vps_service_foundation_zram_swapon_show.stdout | default(''))
-              is search('partition|zram')
-            }}
+            (vps_service_foundation_zram_swapon_show.stdout | default(''))
+            is search(
+              '(^|\n)(/dev/)?' ~ vps_service_foundation_zram_device
+              ~ '[ \t]+[0-9]+[ \t]+[0-9]+[ \t]+(partition|zram)[ \t]+'
+              ~ (vps_service_foundation_zram_swap_priority | string) ~ '([ \t]|\n|$)'
+            )
           - vps_service_foundation_zram_live_swappiness.stdout | int == vps_service_foundation_zram_swappiness | int
         fail_msg: >-
           zram fallback did not become active with the configured swappiness.
