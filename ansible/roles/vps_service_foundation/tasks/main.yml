@@ -1,6 +1,11 @@
-- name: Install Docker Engine, Compose, and backup packages
+- name: Install service foundation packages
   ansible.builtin.apt:
-    name: "{{ vps_service_foundation_docker_packages + vps_service_foundation_backup_packages }}"
+    name: >-
+      {{
+        vps_service_foundation_docker_packages
+        + vps_service_foundation_backup_packages
+        + ((vps_service_foundation_zram_enabled | bool) | ternary(vps_service_foundation_zram_packages, []))
+      }}
     state: present
     update_cache: true
     cache_valid_time: 3600
@@ -13,6 +18,113 @@
       configuration, or newly created /opt/nutsnews directories are skipped
       until apply mode creates them.
   when: ansible_check_mode
+
+- name: Manage zram fallback configuration
+  when: vps_service_foundation_zram_enabled | bool
+  block:
+    - name: Validate zram fallback settings
+      ansible.builtin.assert:
+        that:
+          - vps_service_foundation_zram_device is match('^zram[0-9]+$')
+          - vps_service_foundation_zram_size_mib | int >= 1024
+          - vps_service_foundation_zram_size_mib | int <= 2048
+          - vps_service_foundation_zram_swappiness | int >= 1
+          - vps_service_foundation_zram_swappiness | int <= 30
+          - vps_service_foundation_zram_swap_priority | int >= -1
+          - vps_service_foundation_zram_swap_priority | int <= 32767
+          - vps_service_foundation_zram_compression_algorithm | trim | length > 0
+        fail_msg: >-
+          zram fallback settings must stay small and conservative: 1-2 GiB,
+          low swappiness, valid zram device name, and a known compression algorithm.
+        success_msg: zram fallback settings are conservative and valid.
+
+    - name: Install zram generator configuration
+      ansible.builtin.template:
+        src: zram-generator.conf.j2
+        dest: "{{ vps_service_foundation_zram_config_file }}"
+        owner: root
+        group: root
+        mode: "0644"
+      register: vps_service_foundation_zram_config_install
+
+    - name: Configure low host swappiness for zram fallback
+      ansible.posix.sysctl:
+        name: vm.swappiness
+        value: "{{ vps_service_foundation_zram_swappiness }}"
+        state: present
+        reload: true
+        sysctl_file: "{{ vps_service_foundation_zram_sysctl_file }}"
+      register: vps_service_foundation_zram_swappiness_config
+
+    - name: Read active swap devices before zram start
+      ansible.builtin.command:
+        argv:
+          - swapon
+          - --show=NAME
+          - --noheadings
+      register: vps_service_foundation_zram_active_swap_before
+      changed_when: false
+      when: not ansible_check_mode
+
+    - name: Reload systemd units after zram generator changes
+      ansible.builtin.systemd_service:
+        daemon_reload: true
+      changed_when: false
+      when: not ansible_check_mode
+
+    - name: Start zram fallback swap device
+      ansible.builtin.command:
+        argv:
+          - systemctl
+          - start
+          - "/dev/{{ vps_service_foundation_zram_device }}"
+      changed_when: true
+      when:
+        - not ansible_check_mode
+        - >-
+          (
+            '/dev/' ~ vps_service_foundation_zram_device
+          ) not in (vps_service_foundation_zram_active_swap_before.stdout_lines | default([]))
+
+    - name: Validate zram fallback swap is active
+      ansible.builtin.command:
+        argv:
+          - swapon
+          - --show=NAME,SIZE,USED,TYPE,PRIO
+          - --bytes
+          - --noheadings
+      register: vps_service_foundation_zram_swapon_show
+      changed_when: false
+      when: not ansible_check_mode
+
+    - name: Validate zram fallback swappiness is active
+      ansible.builtin.command:
+        argv:
+          - cat
+          - /proc/sys/vm/swappiness
+      register: vps_service_foundation_zram_live_swappiness
+      changed_when: false
+      when: not ansible_check_mode
+
+    - name: Assert zram fallback runtime state
+      ansible.builtin.assert:
+        that:
+          - >-
+            {{
+              ('/dev/' ~ vps_service_foundation_zram_device)
+              in (vps_service_foundation_zram_swapon_show.stdout | default(''))
+            }}
+          - >-
+            {{
+              (vps_service_foundation_zram_swapon_show.stdout | default(''))
+              is search('partition|zram')
+            }}
+          - vps_service_foundation_zram_live_swappiness.stdout | int == vps_service_foundation_zram_swappiness | int
+        fail_msg: >-
+          zram fallback did not become active with the configured swappiness.
+          Check systemd-zram-generator status before applying further changes.
+        success_msg: zram fallback swap is active with the configured swappiness.
+      when: not ansible_check_mode
 
 - name: Manage Docker service and service foundation runtime
   when: not ansible_check_mode

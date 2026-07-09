@@ -269,11 +269,32 @@ def free_tier_lines(free_tier: dict[str, Any]) -> list[str]:
     return lines
 
 
+def swap_summary_line(swap: dict[str, Any]) -> str:
+    status = str(swap.get("status") or "unavailable")
+    if status == "enabled":
+        return (
+            "- Swap: "
+            f"{swap.get('used_percent', 'unknown')}% used "
+            f"({bytes_label(swap.get('used_bytes'))} of {bytes_label(swap.get('total_bytes'))}), "
+            f"state={swap.get('usage_state', 'unknown')}"
+        )
+    return f"- Swap: {status} ({swap.get('detail', 'no detail')})"
+
+
+def oom_summary_line(oom_evidence: dict[str, Any]) -> str:
+    status = str(oom_evidence.get("status") or "unavailable")
+    count = oom_evidence.get("count")
+    count_label = "unknown" if count is None else str(count)
+    return f"- Kernel OOM evidence: {status}, {count_label} match(es) in {oom_evidence.get('window', 'unknown')}"
+
+
 def health_report_body(status: dict[str, Any]) -> str:
     host = status.get("host", {})
     resources = status.get("resources", {})
     memory = resources.get("memory", {})
+    swap = resources.get("swap", {})
     disk = resources.get("disk", {})
+    oom_evidence = resources.get("oom_evidence", {})
     alerts = relevant_alerts(status)
     processes = status.get("processes", {})
     disk_usage = status.get("disk_usage", {})
@@ -292,7 +313,9 @@ def health_report_body(status: dict[str, Any]) -> str:
         f"- CPU sample: {resources.get('cpu_percent', 'unknown')}%",
         f"- Load average: {resources.get('load_average', {})}",
         f"- Memory: {memory.get('used_percent', 0)}% used ({bytes_label(memory.get('used_bytes', 0))})",
+        swap_summary_line(swap),
         f"- Root disk: {disk.get('used_percent', 0)}% used ({bytes_label(disk.get('used_bytes', 0))})",
+        oom_summary_line(oom_evidence),
         "",
         "Current warnings and critical alerts",
     ]

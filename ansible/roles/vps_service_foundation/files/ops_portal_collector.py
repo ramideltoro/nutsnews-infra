@@ -72,6 +72,11 @@ DISK_SCAN_ROOTS = [
     for item in os.environ.get("NUTSNEWS_DISK_SCAN_ROOTS", "/opt/nutsnews,/var/log,/var/lib/docker,/home").split(",")
     if item.strip()
 ]
+SWAP_USAGE_CACHE_FILE = Path(
+    os.environ.get("NUTSNEWS_SWAP_USAGE_CACHE_FILE", "/opt/nutsnews/portal-assets/data/swap-usage-cache.json")
+)
+OOM_EVIDENCE_WINDOW = os.environ.get("NUTSNEWS_OOM_EVIDENCE_WINDOW", "-7 days").strip() or "-7 days"
+OOM_EVIDENCE_RE = re.compile(r"(?i)(out of memory|oom-killer|killed process)")
 DOCS_BASE_URL = os.environ.get("NUTSNEWS_DOCS_BASE_URL", "https://github.com/ramideltoro/nutsnews-docs")
 INFRA_REPO_URL = os.environ.get("NUTSNEWS_INFRA_REPO_URL", "https://github.com/ramideltoro/nutsnews-infra")
 ALLOY_ENABLED = os.environ.get("NUTSNEWS_ALLOY_ENABLED", "0").strip().lower() in {"1", "true", "yes", "on"}
@@ -291,9 +296,24 @@ def read_json(path: Path, default: Any) -> Any:
         return default
 
 
+def write_public_json(path: Path, data: dict[str, Any], mode: int = 0o644) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_file = path.with_name(f"{path.name}.{os.getpid()}.tmp")
+    tmp_file.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    tmp_file.replace(path)
+    path.chmod(mode)
+
+
 def safe_int(value: Any, default: int = 0) -> int:
     try:
         return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def safe_float(value: Any, default: float = 0.0) -> float:
+    try:
+        return float(value)
     except (TypeError, ValueError):
         return default
 
@@ -405,6 +425,178 @@ def percent(used: int, total: int) -> float:
     if total <= 0:
         return 0.0
     return round((used / total) * 100, 1)
+
+
+def percent_or_none(used: int | None, total: int | None) -> float | None:
+    if used is None or total is None or total <= 0:
+        return None
+    return round((used / total) * 100, 1)
+
+
+def swap_thresholds() -> dict[str, float | int]:
+    return {
+        "non_trivial_bytes": safe_int(os.environ.get("NUTSNEWS_SWAP_NON_TRIVIAL_BYTES"), 64 * 1024 * 1024),
+        "warning_percent": safe_float(os.environ.get("NUTSNEWS_SWAP_WARNING_PERCENT"), 25.0),
+        "critical_percent": safe_float(os.environ.get("NUTSNEWS_SWAP_CRITICAL_PERCENT"), 50.0),
+        "sustained_seconds": safe_int(os.environ.get("NUTSNEWS_SWAP_SUSTAINED_SECONDS"), 900),
+    }
+
+
+def swap_usage_history(used_bytes: int, total_bytes: int, thresholds: dict[str, float | int]) -> dict[str, Any]:
+    now = int(time.time())
+    sustained_seconds = max(safe_int(thresholds.get("sustained_seconds"), 900), 60)
+    keep_seconds = max(sustained_seconds * 4, 3600)
+    non_trivial_bytes = safe_int(thresholds.get("non_trivial_bytes"), 64 * 1024 * 1024)
+    cache = read_json(SWAP_USAGE_CACHE_FILE, {})
+    raw_samples = cache.get("samples", []) if isinstance(cache, dict) else []
+    samples = []
+    if isinstance(raw_samples, list):
+        for sample in raw_samples:
+            if not isinstance(sample, dict):
+                continue
+            epoch = safe_int(sample.get("epoch"), -1)
+            if epoch >= now - keep_seconds:
+                samples.append(
+                    {
+                        "epoch": epoch,
+                        "sampled_at": sample.get("sampled_at", "unknown"),
+                        "used_bytes": safe_int(sample.get("used_bytes"), 0),
+                        "total_bytes": safe_int(sample.get("total_bytes"), 0),
+                    }
+                )
+
+    samples.append(
+        {
+            "epoch": now,
+            "sampled_at": utc_now(),
+            "used_bytes": used_bytes,
+            "total_bytes": total_bytes,
+        }
+    )
+    samples = sorted(samples, key=lambda item: item["epoch"])[-120:]
+    sustained_samples = [sample for sample in samples if sample["epoch"] >= now - sustained_seconds]
+    oldest_sustained_age = None
+    sustained_non_trivial = False
+    if sustained_samples:
+        oldest_sustained_age = now - sustained_samples[0]["epoch"]
+        sustained_non_trivial = (
+            oldest_sustained_age >= sustained_seconds
+            and len(sustained_samples) >= 2
+            and all(sample["used_bytes"] >= non_trivial_bytes for sample in sustained_samples)
+        )
+
+    state = {
+        "cache_file": str(SWAP_USAGE_CACHE_FILE),
+        "sample_count": len(samples),
+        "sustained_window_seconds": sustained_seconds,
+        "oldest_sustained_sample_age_seconds": oldest_sustained_age,
+        "sustained_non_trivial": sustained_non_trivial,
+        "write_error": "",
+    }
+
+    try:
+        write_public_json(
+            SWAP_USAGE_CACHE_FILE,
+            {"schema_version": 1, "updated_at": utc_now(), "samples": samples},
+        )
+    except OSError as error:
+        state["write_error"] = f"Could not update swap usage cache: {error}"
+
+    return state
+
+
+def swap_state(mem: dict[str, int]) -> dict[str, Any]:
+    if "SwapTotal" not in mem or "SwapFree" not in mem:
+        return {
+            "available": False,
+            "status": "unavailable",
+            "usage_state": "unavailable",
+            "warning": False,
+            "total_bytes": None,
+            "used_bytes": None,
+            "free_bytes": None,
+            "used_percent": None,
+            "detail": "Swap totals are unavailable from /proc/meminfo.",
+        }
+
+    total = mem.get("SwapTotal", 0)
+    free = mem.get("SwapFree", 0)
+    used = max(total - free, 0)
+    if total <= 0:
+        return {
+            "available": False,
+            "status": "disabled",
+            "usage_state": "disabled",
+            "warning": False,
+            "total_bytes": 0,
+            "used_bytes": 0,
+            "free_bytes": 0,
+            "used_percent": None,
+            "detail": "No swap device is configured on the host.",
+        }
+
+    thresholds = swap_thresholds()
+    used_percent = percent_or_none(used, total)
+    history = swap_usage_history(used, total, thresholds)
+    non_trivial_bytes = safe_int(thresholds.get("non_trivial_bytes"), 64 * 1024 * 1024)
+    warning_percent = safe_float(thresholds.get("warning_percent"), 25.0)
+    critical_percent = safe_float(thresholds.get("critical_percent"), 50.0)
+
+    if used <= 0:
+        usage_state = "unused"
+    elif used_percent is not None and used_percent >= critical_percent:
+        usage_state = "critical"
+    elif history.get("sustained_non_trivial") or (used_percent is not None and used_percent >= warning_percent):
+        usage_state = "warning"
+    elif used >= non_trivial_bytes:
+        usage_state = "non_trivial"
+    else:
+        usage_state = "minor"
+
+    warning = usage_state in {"non_trivial", "warning", "critical"}
+    return {
+        "available": True,
+        "status": "enabled",
+        "usage_state": usage_state,
+        "warning": warning,
+        "total_bytes": total,
+        "used_bytes": used,
+        "free_bytes": free,
+        "used_percent": used_percent,
+        "thresholds": thresholds,
+        "history": history,
+        "detail": (
+            "Swap usage is sustained or non-trivial; inspect top memory processes and recent deploy activity."
+            if warning
+            else "Swap is available as a zram fallback and current usage is low."
+        ),
+    }
+
+
+def oom_evidence_state() -> dict[str, Any]:
+    journal = run(["journalctl", "-k", "--since", OOM_EVIDENCE_WINDOW, "--no-pager"], timeout=10)
+    content = f"{journal['stdout']}\n{journal['stderr']}"
+    if not journal["ok"]:
+        return {
+            "available": False,
+            "status": "unavailable",
+            "count": None,
+            "window": OOM_EVIDENCE_WINDOW,
+            "pattern": OOM_EVIDENCE_RE.pattern,
+            "recent_lines": [],
+            "error": journal["stderr"].strip() or "Could not read kernel journal.",
+        }
+
+    matches = [line for line in safe_lines(content, limit=300) if OOM_EVIDENCE_RE.search(line)]
+    return {
+        "available": True,
+        "status": "recent" if matches else "clear",
+        "count": len(matches),
+        "window": OOM_EVIDENCE_WINDOW,
+        "pattern": "out of memory|oom-killer|killed process",
+        "recent_lines": matches[-8:],
+        "error": "",
+    }
 
 
 def disk_usage(path: Path) -> dict[str, Any]:
@@ -1229,6 +1421,7 @@ def local_usage_providers(
     disk = resources.get("disk", {})
     memory = resources.get("memory", {})
     swap = resources.get("swap", {})
+    swap_available = swap.get("status") == "enabled"
     root_total_gib = gib(disk.get("total_bytes"))
 
     providers = [
@@ -1263,8 +1456,8 @@ def local_usage_providers(
                 local_usage_metric(
                     "swap_gib",
                     "Swap",
-                    gib(swap.get("used_bytes")),
-                    gib(swap.get("total_bytes")),
+                    gib(swap.get("used_bytes")) if swap_available else None,
+                    gib(swap.get("total_bytes")) if swap_available else None,
                     "GiB",
                     "current",
                 ),
@@ -1366,9 +1559,6 @@ def resource_state() -> dict[str, Any]:
     memory_total = mem.get("MemTotal", 0)
     memory_available = mem.get("MemAvailable", 0)
     memory_used = max(memory_total - memory_available, 0)
-    swap_total = mem.get("SwapTotal", 0)
-    swap_free = mem.get("SwapFree", 0)
-    swap_used = max(swap_total - swap_free, 0)
 
     return {
         "cpu_percent": cpu_percent(),
@@ -1379,12 +1569,8 @@ def resource_state() -> dict[str, Any]:
             "available_bytes": memory_available,
             "used_percent": percent(memory_used, memory_total),
         },
-        "swap": {
-            "total_bytes": swap_total,
-            "used_bytes": swap_used,
-            "free_bytes": swap_free,
-            "used_percent": percent(swap_used, swap_total),
-        },
+        "swap": swap_state(mem),
+        "oom_evidence": oom_evidence_state(),
         "disk": disk_usage(Path("/")),
         "nutsnews_disk": disk_usage(ROOT_DIR),
         "network": network_usage(),
@@ -1432,8 +1618,16 @@ def alert_state(
         alerts.append({"level": "warning", "message": "Root inode usage is above 85 percent."})
     if memory.get("used_percent", 0) >= 90:
         alerts.append({"level": "warning", "message": "Memory usage is above 90 percent."})
-    if swap.get("used_percent", 0) >= 50:
-        alerts.append({"level": "warning", "message": "Swap usage is above 50 percent."})
+    swap_usage_state = str(swap.get("usage_state") or "unknown")
+    if swap_usage_state == "critical":
+        alerts.append({"level": "critical", "message": "Swap usage is above the critical threshold."})
+    elif swap.get("warning"):
+        alerts.append({"level": "warning", "message": "Swap usage is sustained or non-trivial."})
+
+    oom_evidence = resources.get("oom_evidence", {})
+    oom_count = oom_evidence.get("count") if isinstance(oom_evidence, dict) else None
+    if isinstance(oom_count, int) and oom_count > 0:
+        alerts.append({"level": "critical", "message": "Recent kernel OOM evidence was found."})
 
     unhealthy = [
         container["name"]

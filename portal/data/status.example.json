@@ -336,20 +336,20 @@
             "health": "healthy",
             "key": "swap_gib",
             "label": "Swap",
-            "limit": 2,
-            "limit_display": "2 GiB",
-            "percent_remaining": 90.0,
-            "percent_remaining_display": "90.0%",
-            "percent_used": 10.0,
-            "percent_used_display": "10.0%",
+            "limit": 1.5,
+            "limit_display": "1.5 GiB",
+            "percent_remaining": 100.0,
+            "percent_remaining_display": "100.0%",
+            "percent_used": 0.0,
+            "percent_used_display": "0.0%",
             "period": "current",
-            "remaining": 1.8,
-            "remaining_display": "1.8 GiB",
+            "remaining": 1.5,
+            "remaining_display": "1.5 GiB",
             "risk_label": "safe",
             "risk_status": "safe",
             "unit": "GiB",
-            "usage": 0.2,
-            "usage_display": "0.2 GiB",
+            "usage": 0,
+            "usage_display": "0 GiB",
             "reset_at": "not applicable"
           }
         ],
@@ -361,7 +361,7 @@
         "platform": "VPS Host",
         "quota": "4 GiB",
         "quota_last_verified": "2026-07-08",
-        "quota_source": "Live local collector from kernel and filesystem data.",
+        "quota_source": "Live local collector from kernel, filesystem, Docker, and backup status data.",
         "remaining": "2.2 GiB",
         "risk_label": "safe",
         "risk_status": "safe",
@@ -1072,6 +1072,15 @@
       "rx_bytes": 0,
       "tx_bytes": 0
     },
+    "oom_evidence": {
+      "available": true,
+      "count": 0,
+      "error": "",
+      "pattern": "out of memory|oom-killer|killed process",
+      "recent_lines": [],
+      "status": "clear",
+      "window": "-7 days"
+    },
     "nutsnews_disk": {
       "available": true,
       "free_bytes": 75161927680,
@@ -1084,10 +1093,29 @@
       "used_percent": 12.5
     },
     "swap": {
-      "free_bytes": 0,
-      "total_bytes": 0,
+      "available": true,
+      "detail": "Swap is available as a zram fallback and current usage is low.",
+      "free_bytes": 1610612736,
+      "history": {
+        "cache_file": "/opt/nutsnews/portal-assets/data/swap-usage-cache.json",
+        "oldest_sustained_sample_age_seconds": 0,
+        "sample_count": 1,
+        "sustained_non_trivial": false,
+        "sustained_window_seconds": 900,
+        "write_error": ""
+      },
+      "status": "enabled",
+      "thresholds": {
+        "critical_percent": 50.0,
+        "non_trivial_bytes": 67108864,
+        "sustained_seconds": 900,
+        "warning_percent": 25.0
+      },
+      "total_bytes": 1610612736,
       "used_bytes": 0,
-      "used_percent": 0
+      "used_percent": 0.0,
+      "usage_state": "unused",
+      "warning": false
     }
   },
   "runbooks": [

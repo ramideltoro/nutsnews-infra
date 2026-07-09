@@ -9,6 +9,21 @@ vps_service_foundation_backup_packages:
   - restic
   - rclone
 
+vps_service_foundation_zram_enabled: true
+vps_service_foundation_zram_packages:
+  - systemd-zram-generator
+vps_service_foundation_zram_device: zram0
+vps_service_foundation_zram_config_file: /etc/systemd/zram-generator.conf
+vps_service_foundation_zram_sysctl_file: /etc/sysctl.d/90-nutsnews-zram.conf
+vps_service_foundation_zram_size_mib: 1536
+vps_service_foundation_zram_compression_algorithm: lz4
+vps_service_foundation_zram_swap_priority: 100
+vps_service_foundation_zram_swappiness: 10
+vps_service_foundation_zram_notes: >-
+  Small compressed-memory swap fallback for transient deploy, package-upgrade,
+  backup-verification, or app spikes. This is not capacity planning and does
+  not replace Docker/container memory limits.
+
 vps_service_foundation_grafana_alloy_enabled: false
 vps_service_foundation_grafana_alloy_install_repo: true
 vps_service_foundation_grafana_alloy_apt_key_url: https://apt.grafana.com/gpg-full.key
@@ -799,6 +814,8 @@ vps_service_foundation_backup_paths:
   - /etc/ssh/sshd_config
   - /etc/ssh/sshd_config.d/20-nutsnews-baseline.conf
   - /etc/ssh/sshd_config.d/99-nutsnews-portal-forwarding.conf
+  - /etc/systemd/zram-generator.conf
+  - /etc/sysctl.d/90-nutsnews-zram.conf
   - "/etc/sudoers.d/90-{{ vps_service_foundation_admin_user }}"
   - /etc/apt/apt.conf.d/20auto-upgrades
   - /etc/apt/apt.conf.d/50unattended-upgrades
@@ -813,6 +830,7 @@ vps_service_foundation_backup_excludes:
   - /opt/nutsnews/portal-assets/data/status.json
   - /opt/nutsnews/portal-assets/data/status.tmp
   - /opt/nutsnews/portal-assets/data/disk-usage-cache.json
+  - /opt/nutsnews/portal-assets/data/swap-usage-cache.json
   - /opt/nutsnews/portal-assets/data/reporting-status.json
   - /opt/nutsnews/portal-assets/data/backup-status.json
   - /opt/nutsnews/ops/email-alert-state.json
@@ -823,6 +841,12 @@ vps_service_foundation_disk_scan_roots:
   - /var/log
   - /var/lib/docker
   - /home
+vps_service_foundation_swap_usage_cache_file: "{{ vps_service_foundation_portal_data_dir }}/swap-usage-cache.json"
+vps_service_foundation_swap_non_trivial_bytes: 67108864
+vps_service_foundation_swap_warning_percent: 25
+vps_service_foundation_swap_critical_percent: 50
+vps_service_foundation_swap_sustained_seconds: 900
+vps_service_foundation_oom_evidence_window: "-7 days"
 vps_service_foundation_alert_service: nutsnews-ops-alert-check.service
 vps_service_foundation_alert_timer: nutsnews-ops-alert-check.timer
 vps_service_foundation_report_service: nutsnews-ops-health-report.service

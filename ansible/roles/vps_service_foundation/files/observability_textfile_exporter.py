@@ -189,7 +189,9 @@ def collect() -> list[str]:
         [
             sample("nutsnews_resource_cpu_percent", number(resources.get("cpu_percent"))),
             sample("nutsnews_resource_memory_used_percent", number(nested(resources, "memory", "used_percent"))),
-            sample("nutsnews_resource_swap_used_percent", number(nested(resources, "swap", "used_percent"))),
+            sample("nutsnews_resource_swap_available", bool_value(nested(resources, "swap", "available"))),
+            sample("nutsnews_resource_swap_used_percent", number(nested(resources, "swap", "used_percent"), -1)),
+            sample("nutsnews_kernel_oom_recent_total", number(nested(resources, "oom_evidence", "count"), -1)),
             sample("nutsnews_resource_root_disk_used_percent", number(nested(resources, "disk", "used_percent"))),
             sample("nutsnews_resource_root_inode_used_percent", number(nested(resources, "disk", "inode_used_percent"))),
             sample("nutsnews_resource_nutsnews_disk_used_percent", number(nested(resources, "nutsnews_disk", "used_percent"))),
