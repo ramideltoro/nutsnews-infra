@@ -739,6 +739,7 @@ vps_service_foundation_infra_health_required_services:
   - "{{ vps_service_foundation_collector_timer }}"
   - "{{ vps_service_foundation_alert_timer }}"
   - "{{ vps_service_foundation_report_timer }}"
+  - "{{ vps_service_foundation_backup_verify_timer }}"
 vps_service_foundation_infra_health_required_containers:
   - nutsnews-caddy
 vps_service_foundation_collector_log_dir: "{{ vps_service_foundation_logs_dir }}/ops-portal"
@@ -758,14 +759,18 @@ vps_service_foundation_backup_status_file: "{{ vps_service_foundation_portal_dat
 vps_service_foundation_backup_service: nutsnews-restic-backup.service
 vps_service_foundation_backup_timer: nutsnews-restic-backup.timer
 vps_service_foundation_backup_verify_service: nutsnews-restic-verify.service
+vps_service_foundation_backup_verify_timer: nutsnews-restic-verify.timer
 vps_service_foundation_backup_on_calendar: "*-*-* 03:25:00"
 vps_service_foundation_backup_randomized_delay_seconds: 30min
+vps_service_foundation_backup_verify_on_calendar: "Sun *-*-* 05:15:00"
+vps_service_foundation_backup_verify_randomized_delay_seconds: 6h
 vps_service_foundation_backup_enabled: false
 vps_service_foundation_backup_repository: rclone:nutsnews-onedrive:nutsnews-backups/vps
 vps_service_foundation_backup_rclone_remote: nutsnews-onedrive
 vps_service_foundation_backup_rclone_config: ""
 vps_service_foundation_backup_restic_password: ""
 vps_service_foundation_backup_stale_after_hours: 30
+vps_service_foundation_backup_verify_stale_after_hours: 192
 vps_service_foundation_backup_check_read_data_subset: 5%
 vps_service_foundation_backup_keep_daily: 14
 vps_service_foundation_backup_keep_weekly: 8

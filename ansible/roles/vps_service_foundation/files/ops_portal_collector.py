@@ -84,6 +84,17 @@ def parse_timestamp(value: Any) -> datetime | None:
     raw = value.strip()
     if raw.endswith("Z"):
         raw = raw[:-1] + "+00:00"
+    if "." in raw:
+        prefix, suffix = raw.split(".", 1)
+        fraction = suffix
+        tz = ""
+        for marker in ("+", "-"):
+            if marker in suffix:
+                fraction, tz = suffix.split(marker, 1)
+                tz = marker + tz
+                break
+        if len(fraction) > 6:
+            raw = f"{prefix}.{fraction[:6]}{tz}"
     try:
         parsed = datetime.fromisoformat(raw)
     except ValueError:
@@ -98,6 +109,117 @@ def age_seconds(value: Any) -> int | None:
     if not parsed:
         return None
     return max(int((datetime.now(timezone.utc) - parsed).total_seconds()), 0)
+
+
+def snapshot_id_candidates(snapshot: Any) -> list[str]:
+    if not isinstance(snapshot, dict):
+        return []
+    candidates = []
+    for key in ("id", "short_id"):
+        value = str(snapshot.get(key, "")).strip()
+        if value:
+            candidates.append(value)
+    return list(dict.fromkeys(candidates))
+
+
+def snapshot_id_matches(checked_id: Any, snapshot: Any) -> bool:
+    checked = str(checked_id or "").strip()
+    if not checked:
+        return False
+    for candidate in snapshot_id_candidates(snapshot):
+        if checked == candidate:
+            return True
+        if len(checked) >= 8 and candidate.startswith(checked):
+            return True
+        if len(candidate) >= 8 and checked.startswith(candidate):
+            return True
+    return False
+
+
+def snapshot_time_matches(checked_time: Any, latest_time: Any) -> bool:
+    checked = str(checked_time or "").strip()
+    latest = str(latest_time or "").strip()
+    if not checked or not latest:
+        return False
+    if checked == latest:
+        return True
+    checked_parsed = parse_timestamp(checked)
+    latest_parsed = parse_timestamp(latest)
+    if not checked_parsed or not latest_parsed:
+        return False
+    return int(checked_parsed.timestamp()) == int(latest_parsed.timestamp())
+
+
+def checked_snapshot_is_older(last_check: dict[str, Any], latest_snapshot: dict[str, Any]) -> bool:
+    checked_time = parse_timestamp(last_check.get("latest_snapshot_time"))
+    latest_time = parse_timestamp(latest_snapshot.get("time"))
+    if not checked_time or not latest_time:
+        return False
+    return checked_time < latest_time
+
+
+def backup_verification_status(backups: dict[str, Any]) -> dict[str, Any]:
+    latest_snapshot = backups.get("latest_snapshot")
+    latest = latest_snapshot if isinstance(latest_snapshot, dict) else {}
+    last_check_value = backups.get("last_check")
+    last_check = last_check_value if isinstance(last_check_value, dict) else {}
+    threshold_seconds = safe_int(backups.get("verify_stale_after_seconds"), 691200)
+    finished_at = last_check.get("finished_at")
+    finished_at_age = age_seconds(finished_at)
+    check_status = str(last_check.get("status", "never")).lower()
+    checked_latest = bool(latest) and (
+        snapshot_id_matches(last_check.get("latest_snapshot_id"), latest)
+        or snapshot_time_matches(last_check.get("latest_snapshot_time"), latest.get("time"))
+    )
+    stale = isinstance(finished_at_age, int) and finished_at_age > threshold_seconds
+    latest_id = latest.get("short_id") or latest.get("id", "")
+    result = {
+        "status": "unknown",
+        "latest_snapshot_verified": False,
+        "checked_latest_snapshot": checked_latest,
+        "checked_snapshot_is_older": checked_snapshot_is_older(last_check, latest) if latest else False,
+        "stale": False,
+        "age_seconds": finished_at_age,
+        "stale_after_seconds": threshold_seconds,
+        "stale_after_hours": round(threshold_seconds / 3600, 2),
+        "latest_snapshot_id": latest_id,
+        "latest_snapshot_time": latest.get("time", ""),
+        "checked_snapshot_id": last_check.get("latest_snapshot_id", ""),
+        "checked_snapshot_time": last_check.get("latest_snapshot_time", ""),
+        "last_checked_at": finished_at or "never",
+        "detail": "Backup verification status is unknown.",
+    }
+
+    if not backups.get("enabled"):
+        result.update({"status": "disabled", "detail": "Backups are disabled."})
+    elif not backups.get("configured"):
+        result.update({"status": "misconfigured", "detail": "Backups are enabled but restic/rclone configuration is incomplete."})
+    elif check_status == "running":
+        result.update({"status": "running", "detail": "Backup verification is currently running."})
+    elif check_status == "failed":
+        result.update({"status": "failed", "detail": last_check.get("error") or "The latest backup verification failed."})
+    elif not latest:
+        result.update({"status": "latest_unverified", "detail": "No latest restic snapshot is available to verify."})
+    elif check_status != "success":
+        result.update({"status": "latest_unverified", "detail": "The latest restic snapshot has not been verified yet."})
+    elif not checked_latest:
+        result.update(
+            {
+                "status": "latest_unverified",
+                "detail": "The last successful verification checked an older snapshot than the latest backup.",
+            }
+        )
+    elif stale:
+        result.update({"status": "stale", "stale": True, "detail": "The latest snapshot was verified, but the verification is stale."})
+    else:
+        result.update(
+            {
+                "status": "success",
+                "latest_snapshot_verified": True,
+                "detail": "The latest restic snapshot has a recent successful verification.",
+            }
+        )
+    return result
 
 
 def run(argv: list[str], timeout: int = 8) -> dict[str, Any]:
@@ -713,9 +835,21 @@ def backup_state() -> dict[str, Any]:
         "retention": {},
         "stale_after_hours": 30,
         "stale_after_seconds": 108000,
+        "verify_stale_after_hours": 192,
+        "verify_stale_after_seconds": 691200,
         "missing_configuration": [],
-        "backup_paths": [],
-        "missing_paths": [],
+        "backup_path_count": 0,
+        "protected_path_count": 0,
+        "missing_path_count": 0,
+        "backup_paths_redacted": True,
+        "backup_paths_source": "Root-only Ansible-managed path list.",
+        "exclude_source": "Root-only Ansible-managed exclude list.",
+        "services": {
+            "backup_service": "nutsnews-restic-backup.service",
+            "backup_timer": "nutsnews-restic-backup.timer",
+            "verify_service": "nutsnews-restic-verify.service",
+            "verify_timer": "nutsnews-restic-verify.timer",
+        },
         "security_model": "restic encrypts snapshots locally before rclone transports ciphertext to OneDrive.",
         "snapshot_reminder": "Encrypted restic snapshots go to OneDrive through the dedicated nutsnews-onedrive rclone remote.",
     }
@@ -724,13 +858,38 @@ def backup_state() -> dict[str, Any]:
         data = {}
 
     combined = {**default, **data}
+    raw_backup_paths = combined.get("backup_paths")
+    raw_missing_paths = combined.get("missing_paths")
+    if isinstance(raw_backup_paths, list) and not combined.get("backup_path_count"):
+        combined["backup_path_count"] = len(raw_backup_paths)
+        combined["protected_path_count"] = len(raw_backup_paths)
+    if isinstance(raw_missing_paths, list) and not combined.get("missing_path_count"):
+        combined["missing_path_count"] = len(raw_missing_paths)
+    for key in ("backup_paths", "missing_paths", "backup_paths_file", "exclude_file"):
+        combined.pop(key, None)
+    latest_snapshot = combined.get("latest_snapshot")
+    if isinstance(latest_snapshot, dict):
+        raw_snapshot_paths = latest_snapshot.pop("paths", None)
+        if raw_snapshot_paths is not None and "path_count" not in latest_snapshot:
+            latest_snapshot["path_count"] = len(raw_snapshot_paths) if isinstance(raw_snapshot_paths, list) else 0
     combined["directory"] = str(BACKUPS_DIR)
     combined["size_bytes"] = size_bytes
     combined["latest"] = latest
     combined["status_file"] = str(BACKUP_STATUS_FILE)
-    combined.update(systemd_timer_schedule("nutsnews-restic-backup.timer"))
-    combined["backup_service"] = systemd_status("nutsnews-restic-backup.service")
-    combined["verify_service"] = systemd_status("nutsnews-restic-verify.service")
+    services = combined.get("services", {}) if isinstance(combined.get("services"), dict) else {}
+    backup_timer = str(services.get("backup_timer") or "nutsnews-restic-backup.timer")
+    backup_service = str(services.get("backup_service") or "nutsnews-restic-backup.service")
+    verify_timer = str(services.get("verify_timer") or "nutsnews-restic-verify.timer")
+    verify_service = str(services.get("verify_service") or "nutsnews-restic-verify.service")
+    combined.update(systemd_timer_schedule(backup_timer))
+    combined["backup_service"] = systemd_status(backup_service)
+    combined["verify_service"] = systemd_status(verify_service)
+    combined["verify_timer_state"] = systemd_timer_schedule(verify_timer)
+    combined["verify_timer"] = verify_timer
+    combined["verify_timer_active"] = combined["verify_timer_state"].get("timer_active", "unknown")
+    combined["verify_timer_sub_state"] = combined["verify_timer_state"].get("timer_sub_state", "unknown")
+    combined["verify_next_run_at"] = combined["verify_timer_state"].get("next_run_at", "unknown")
+    combined["verify_last_timer_trigger_at"] = combined["verify_timer_state"].get("last_timer_trigger_at", "never")
 
     snapshot = combined.get("latest_snapshot")
     if isinstance(snapshot, dict) and combined.get("latest_snapshot_age_seconds") is None:
@@ -741,6 +900,9 @@ def backup_state() -> dict[str, Any]:
             if safe_int(combined.get("latest_snapshot_age_seconds")) <= safe_int(combined.get("stale_after_seconds"), 108000)
             else "stale"
         )
+    combined["latest_snapshot_verification"] = backup_verification_status(combined)
+    combined["verification_status"] = combined["latest_snapshot_verification"].get("status", "unknown")
+    combined["latest_snapshot_verified"] = combined["latest_snapshot_verification"].get("latest_snapshot_verified", False)
     return combined
 
 
@@ -1170,7 +1332,10 @@ def alert_state(
 
         backup_status = str(backups.get("last_backup", {}).get("status", "")).lower()
         prune_status = str(backups.get("last_prune", {}).get("status", "")).lower()
-        check_status = str(backups.get("last_check", {}).get("status", "")).lower()
+        verification = backups.get("latest_snapshot_verification", {})
+        if not isinstance(verification, dict):
+            verification = backup_verification_status(backups)
+        verification_status = str(verification.get("status", "")).lower()
         latest_status = str(backups.get("latest_status", "")).lower()
         latest_age = backups.get("latest_snapshot_age_seconds")
         stale_after = safe_int(backups.get("stale_after_seconds"), 108000)
@@ -1179,10 +1344,16 @@ def alert_state(
             alerts.append({"level": "critical", "message": "The latest VPS restic backup failed."})
         if prune_status == "failed":
             alerts.append({"level": "warning", "message": "The latest VPS restic prune failed after backup."})
-        if check_status == "failed":
+        if verification_status == "failed":
             alerts.append({"level": "warning", "message": "The latest VPS backup verification failed."})
+        elif verification_status == "stale":
+            alerts.append({"level": "warning", "message": "VPS backup verification is stale."})
+        elif verification_status == "latest_unverified":
+            alerts.append({"level": "warning", "message": "The latest VPS restic snapshot has not been verified."})
         if backups.get("timer_active") not in ("active", "activating"):
             alerts.append({"level": "warning", "message": "The VPS backup timer is not active."})
+        if backups.get("verify_timer_active") not in ("active", "activating"):
+            alerts.append({"level": "warning", "message": "The VPS backup verification timer is not active."})
         if not backups.get("latest_snapshot"):
             alerts.append({"level": "warning", "message": "No VPS restic backup snapshot is available yet."})
         elif latest_status == "stale" or (isinstance(latest_age, int) and latest_age > stale_after):
@@ -1346,6 +1517,7 @@ def collect() -> dict[str, Any]:
             "nutsnews-ops-health-report.timer",
             "nutsnews-restic-backup.timer",
             "nutsnews-restic-backup.service",
+            "nutsnews-restic-verify.timer",
             "nutsnews-restic-verify.service",
         ]
     ]

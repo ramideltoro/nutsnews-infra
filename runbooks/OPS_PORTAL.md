@@ -193,9 +193,9 @@ The workflow has no dispatch inputs and does not accept remote commands. If emai
 
 ## Backups In The Portal
 
-The portal shows encrypted VPS backup status from the local restic runner: enabled/configured state, repository path, latest snapshot freshness, last backup, last prune, last verify, next timer run, and protected path count.
+The portal shows encrypted VPS backup status from the local restic runner: enabled/configured state, repository path, latest snapshot freshness, whether the latest snapshot has been verified, last backup, last prune, next backup run, next verify run, and protected path count. Raw backup path lists stay in root-only config and are not copied into public status JSON.
 
-Backup failures, stale snapshots, prune failures, verification failures, and inactive backup timers are emitted as warning or critical alerts. The existing email alert timer sends those alerts when email reporting is enabled.
+Backup failures, stale snapshots, prune failures, verification failures, stale verification, latest-snapshot-unverified state, and inactive backup or verify timers are emitted as warning or critical alerts. The existing email alert timer sends those alerts when email reporting is enabled.
 
 Manual backup workflows stay narrow:
 
@@ -214,6 +214,7 @@ systemctl status nutsnews-ops-portal-collector.timer
 systemctl status nutsnews-ops-alert-check.timer
 systemctl status nutsnews-ops-health-report.timer
 systemctl status nutsnews-restic-backup.timer
+systemctl status nutsnews-restic-verify.timer
 sudo docker compose -f /opt/nutsnews/apps/caddy/compose.yml ps
 ```
 

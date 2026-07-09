@@ -219,14 +219,19 @@ def backup_lines(backups: dict[str, Any]) -> list[str]:
     last_backup = backups.get("last_backup") or {}
     last_prune = backups.get("last_prune") or {}
     last_check = backups.get("last_check") or {}
+    verification = backups.get("latest_snapshot_verification") or {}
+    if not isinstance(verification, dict):
+        verification = {}
 
     return [
         f"- Enabled/configured: {backups.get('enabled', False)} / {backups.get('configured', False)}",
         f"- Latest status: {backups.get('latest_status', 'unknown')}",
         f"- Latest snapshot: {latest.get('short_id') or latest.get('id') or 'none'} at {latest.get('time', 'never')}",
+        f"- Latest verification: {verification.get('status', backups.get('verification_status', 'unknown'))} ({verification.get('detail', 'no detail')})",
         f"- Last backup: {last_backup.get('status', 'unknown')} at {last_backup.get('finished_at', 'never')}",
         f"- Last prune: {last_prune.get('status', 'unknown')} at {last_prune.get('finished_at', 'never')}",
         f"- Last verify: {last_check.get('status', 'unknown')} at {last_check.get('finished_at', 'never')}",
+        f"- Next verify: {backups.get('verify_next_run_at', 'unknown')}",
     ]
 
 

@@ -13,8 +13,9 @@ Long-form setup notes live in `ramideltoro/nutsnews-docs` as `NUTSNEWS_VPS_BACKU
 - Backup service and timer:
   - `nutsnews-restic-backup.service`
   - `nutsnews-restic-backup.timer`
-- Manual verification service:
+- Verification service and timer:
   - `nutsnews-restic-verify.service`
+  - `nutsnews-restic-verify.timer`
 - Portal status at `/opt/nutsnews/portal-assets/data/backup-status.json`
 - Manual GitHub Actions workflows:
   - `Run VPS Backup`
@@ -36,6 +37,7 @@ Optional overrides:
 | --- | --- |
 | `NUTSNEWS_BACKUP_REPOSITORY` | `rclone:nutsnews-onedrive:nutsnews-backups/vps` |
 | `NUTSNEWS_BACKUP_STALE_AFTER_HOURS` | `30` |
+| `NUTSNEWS_BACKUP_VERIFY_STALE_AFTER_HOURS` | `192` |
 | `NUTSNEWS_BACKUP_CHECK_READ_DATA_SUBSET` | `5%` |
 | `NUTSNEWS_BACKUP_KEEP_DAILY` | `14` |
 | `NUTSNEWS_BACKUP_KEEP_WEEKLY` | `8` |
@@ -74,17 +76,20 @@ Copy the full config text into the GitHub Environment secret `NUTSNEWS_BACKUP_RC
 3. Run `Protected Ansible Apply` in `apply` mode with `confirm_apply=vps.nutsnews.com`.
 4. Run `Run VPS Backup`.
 5. Run `Verify VPS Backup`.
-6. Open the Ops Portal and confirm backups show fresh status.
+6. Confirm `nutsnews-restic-verify.timer` is enabled for the weekly scheduled check.
+7. Open the Ops Portal and confirm the latest snapshot shows recent successful verification.
 
 ## Manual VPS Checks
 
 ```bash
-systemctl list-timers nutsnews-restic-backup.timer
+systemctl list-timers nutsnews-restic-backup.timer nutsnews-restic-verify.timer
 systemctl status nutsnews-restic-backup.service --no-pager
 systemctl status nutsnews-restic-verify.service --no-pager
 sudo journalctl -u nutsnews-restic-backup.service -n 120 --no-pager
 sudo cat /opt/nutsnews/portal-assets/data/backup-status.json
 ```
+
+The scheduled verify timer is conservative by default: weekly, randomized by several hours, and stale after 192 hours. It verifies the latest snapshot with the same lock-protected runner as the manual workflow, so backup and verification jobs do not run restic against each other.
 
 ## Rollback
 

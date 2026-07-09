@@ -119,6 +119,19 @@ def expand_backup_paths(paths: list[str]) -> tuple[list[str], list[str]]:
     return deduped, missing
 
 
+def current_backup_path_status() -> tuple[list[str], dict[str, Any]]:
+    raw_paths = read_list(PATHS_FILE)
+    selected_paths, missing_paths = expand_backup_paths(raw_paths)
+    return selected_paths, {
+        "backup_path_count": len(selected_paths),
+        "protected_path_count": len(selected_paths),
+        "missing_path_count": len(missing_paths),
+        "backup_paths_redacted": True,
+        "backup_paths_source": "Root-only Ansible-managed path list.",
+        "exclude_source": "Root-only Ansible-managed exclude list.",
+    }
+
+
 def restic_env() -> dict[str, str]:
     env = os.environ.copy()
     env.setdefault("GOMAXPROCS", "1")
@@ -187,10 +200,10 @@ def base_status() -> dict[str, Any]:
     is_configured, missing = configured() if enabled else (False, [])
     repository = env_text("RESTIC_REPOSITORY", "rclone:nutsnews-onedrive:nutsnews-backups/vps")
     stale_hours = env_int("NUTSNEWS_BACKUP_STALE_AFTER_HOURS", 30)
-    raw_paths = read_list(PATHS_FILE)
-    selected_paths, missing_paths = expand_backup_paths(raw_paths)
+    verify_stale_hours = env_int("NUTSNEWS_BACKUP_VERIFY_STALE_AFTER_HOURS", 192)
+    _, path_status = current_backup_path_status()
 
-    return {
+    status = {
         "schema_version": 1,
         "updated_at": utc_now(),
         "enabled": enabled,
@@ -203,12 +216,10 @@ def base_status() -> dict[str, Any]:
         "encryption": "restic",
         "encrypted_before_transport": True,
         "status_file": str(STATUS_FILE),
-        "backup_paths_file": str(PATHS_FILE),
-        "exclude_file": str(EXCLUDES_FILE),
-        "backup_paths": selected_paths,
-        "missing_paths": missing_paths,
         "stale_after_hours": stale_hours,
         "stale_after_seconds": stale_hours * 3600,
+        "verify_stale_after_hours": verify_stale_hours,
+        "verify_stale_after_seconds": verify_stale_hours * 3600,
         "retention": {
             "keep_daily": env_int("NUTSNEWS_BACKUP_KEEP_DAILY", 14),
             "keep_weekly": env_int("NUTSNEWS_BACKUP_KEEP_WEEKLY", 8),
@@ -220,10 +231,13 @@ def base_status() -> dict[str, Any]:
             "backup_service": env_text("NUTSNEWS_BACKUP_SERVICE", "nutsnews-restic-backup.service"),
             "backup_timer": env_text("NUTSNEWS_BACKUP_TIMER", "nutsnews-restic-backup.timer"),
             "verify_service": env_text("NUTSNEWS_BACKUP_VERIFY_SERVICE", "nutsnews-restic-verify.service"),
+            "verify_timer": env_text("NUTSNEWS_BACKUP_VERIFY_TIMER", "nutsnews-restic-verify.timer"),
         },
         "security_model": "restic encrypts snapshots locally before rclone transports ciphertext to OneDrive.",
         "raw_onedrive_backups": False,
     }
+    status.update(path_status)
+    return status
 
 
 def load_status() -> dict[str, Any]:
@@ -233,7 +247,170 @@ def load_status() -> dict[str, Any]:
     return {**previous, **base_status()}
 
 
+def parse_timestamp(value: Any) -> datetime | None:
+    if not isinstance(value, str) or not value.strip():
+        return None
+    raw = value.strip()
+    if raw.endswith("Z"):
+        raw = raw[:-1] + "+00:00"
+    if "." in raw:
+        prefix, suffix = raw.split(".", 1)
+        fraction = suffix
+        tz = ""
+        for marker in ("+", "-"):
+            if marker in suffix:
+                fraction, tz = suffix.split(marker, 1)
+                tz = marker + tz
+                break
+        if len(fraction) > 6:
+            raw = f"{prefix}.{fraction[:6]}{tz}"
+    try:
+        parsed = datetime.fromisoformat(raw)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed
+
+
+def snapshot_id_candidates(snapshot: Any) -> list[str]:
+    if not isinstance(snapshot, dict):
+        return []
+    candidates = []
+    for key in ("id", "short_id"):
+        value = str(snapshot.get(key, "")).strip()
+        if value:
+            candidates.append(value)
+    return list(dict.fromkeys(candidates))
+
+
+def snapshot_id_matches(checked_id: Any, snapshot: Any) -> bool:
+    checked = str(checked_id or "").strip()
+    if not checked:
+        return False
+    for candidate in snapshot_id_candidates(snapshot):
+        if checked == candidate:
+            return True
+        if len(checked) >= 8 and candidate.startswith(checked):
+            return True
+        if len(candidate) >= 8 and checked.startswith(candidate):
+            return True
+    return False
+
+
+def snapshot_time_matches(checked_time: Any, latest_time: Any) -> bool:
+    checked = str(checked_time or "").strip()
+    latest = str(latest_time or "").strip()
+    if not checked or not latest:
+        return False
+    if checked == latest:
+        return True
+    checked_parsed = parse_timestamp(checked)
+    latest_parsed = parse_timestamp(latest)
+    if not checked_parsed or not latest_parsed:
+        return False
+    return int(checked_parsed.timestamp()) == int(latest_parsed.timestamp())
+
+
+def checked_snapshot_is_older(last_check: dict[str, Any], latest_snapshot: dict[str, Any]) -> bool:
+    checked_time = parse_timestamp(last_check.get("latest_snapshot_time"))
+    latest_time = parse_timestamp(latest_snapshot.get("time"))
+    if not checked_time or not latest_time:
+        return False
+    return checked_time < latest_time
+
+
+def verification_status(data: dict[str, Any]) -> dict[str, Any]:
+    latest_snapshot = data.get("latest_snapshot")
+    latest = latest_snapshot if isinstance(latest_snapshot, dict) else {}
+    last_check_value = data.get("last_check")
+    last_check = last_check_value if isinstance(last_check_value, dict) else {}
+    try:
+        threshold_seconds = int(data.get("verify_stale_after_seconds", 0))
+    except (TypeError, ValueError):
+        threshold_seconds = 0
+    if threshold_seconds <= 0:
+        threshold_seconds = env_int("NUTSNEWS_BACKUP_VERIFY_STALE_AFTER_HOURS", 192) * 3600
+    finished_at = last_check.get("finished_at")
+    finished_at_age = None
+    parsed_finished_at = parse_timestamp(finished_at)
+    if parsed_finished_at:
+        finished_at_age = max(int((datetime.now(timezone.utc) - parsed_finished_at).total_seconds()), 0)
+
+    check_status = str(last_check.get("status", "never")).lower()
+    latest_id = latest.get("short_id") or latest.get("id", "")
+    checked_latest = bool(latest) and (
+        snapshot_id_matches(last_check.get("latest_snapshot_id"), latest)
+        or snapshot_time_matches(last_check.get("latest_snapshot_time"), latest.get("time"))
+    )
+    stale = isinstance(finished_at_age, int) and finished_at_age > threshold_seconds
+
+    result = {
+        "status": "unknown",
+        "latest_snapshot_verified": False,
+        "checked_latest_snapshot": checked_latest,
+        "checked_snapshot_is_older": checked_snapshot_is_older(last_check, latest) if latest else False,
+        "stale": False,
+        "age_seconds": finished_at_age,
+        "stale_after_seconds": threshold_seconds,
+        "stale_after_hours": round(threshold_seconds / 3600, 2),
+        "latest_snapshot_id": latest_id,
+        "latest_snapshot_time": latest.get("time", ""),
+        "checked_snapshot_id": last_check.get("latest_snapshot_id", ""),
+        "checked_snapshot_time": last_check.get("latest_snapshot_time", ""),
+        "last_checked_at": finished_at or "never",
+        "detail": "Backup verification status is unknown.",
+    }
+
+    if not data.get("enabled"):
+        result.update({"status": "disabled", "detail": "Backups are disabled."})
+    elif not data.get("configured"):
+        result.update({"status": "misconfigured", "detail": "Backups are enabled but restic/rclone configuration is incomplete."})
+    elif check_status == "running":
+        result.update({"status": "running", "detail": "Backup verification is currently running."})
+    elif check_status == "failed":
+        result.update({"status": "failed", "detail": last_check.get("error") or "The latest backup verification failed."})
+    elif not latest:
+        result.update({"status": "latest_unverified", "detail": "No latest restic snapshot is available to verify."})
+    elif check_status != "success":
+        result.update({"status": "latest_unverified", "detail": "The latest restic snapshot has not been verified yet."})
+    elif not checked_latest:
+        result.update(
+            {
+                "status": "latest_unverified",
+                "detail": "The last successful verification checked an older snapshot than the latest backup.",
+            }
+        )
+    elif stale:
+        result.update({"status": "stale", "stale": True, "detail": "The latest snapshot was verified, but the verification is stale."})
+    else:
+        result.update(
+            {
+                "status": "success",
+                "latest_snapshot_verified": True,
+                "detail": "The latest restic snapshot has a recent successful verification.",
+            }
+        )
+
+    return result
+
+
+def sanitize_public_status(data: dict[str, Any]) -> dict[str, Any]:
+    for key in ("backup_paths", "missing_paths", "backup_paths_file", "exclude_file"):
+        data.pop(key, None)
+    latest_snapshot = data.get("latest_snapshot")
+    if isinstance(latest_snapshot, dict):
+        paths = latest_snapshot.pop("paths", None)
+        if paths is not None and "path_count" not in latest_snapshot:
+            latest_snapshot["path_count"] = len(paths) if isinstance(paths, list) else 0
+    data["latest_snapshot_verification"] = verification_status(data)
+    data["verification_status"] = data["latest_snapshot_verification"]["status"]
+    data["latest_snapshot_verified"] = data["latest_snapshot_verification"]["latest_snapshot_verified"]
+    return data
+
+
 def save_status(data: dict[str, Any]) -> None:
+    data = sanitize_public_status(data)
     write_json(STATUS_FILE, data, mode=0o644)
 
 
@@ -329,7 +506,7 @@ def latest_snapshot_status(env: dict[str, str], status: dict[str, Any]) -> dict[
             "short_id": snapshot.get("short_id", ""),
             "time": snapshot.get("time", ""),
             "hostname": snapshot.get("hostname", ""),
-            "paths": snapshot.get("paths", []),
+            "path_count": len(snapshot.get("paths", [])) if isinstance(snapshot.get("paths"), list) else 0,
         }
         status["latest_snapshot_age_seconds"] = snapshot_age_seconds(snapshot)
         age = status.get("latest_snapshot_age_seconds")
@@ -376,7 +553,9 @@ def handle_backup() -> int:
         return disabled_status("backup")
     if not status["configured"]:
         return unconfigured_status("backup")
-    if not status["backup_paths"]:
+    selected_paths, path_status = current_backup_path_status()
+    status.update(path_status)
+    if not selected_paths:
         status["last_backup"] = {
             "status": "failed",
             "started_at": utc_now(),
@@ -399,7 +578,7 @@ def handle_backup() -> int:
         return 1
 
     runtime_paths = STATE_DIR / "last-backup-paths.txt"
-    runtime_paths.write_text("\n".join(status["backup_paths"]) + "\n", encoding="utf-8")
+    runtime_paths.write_text("\n".join(selected_paths) + "\n", encoding="utf-8")
     runtime_paths.chmod(0o600)
 
     backup_args = [

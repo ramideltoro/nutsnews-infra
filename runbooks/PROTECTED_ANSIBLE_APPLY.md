@@ -49,13 +49,14 @@ Optional backup tuning secrets:
 | --- | --- |
 | `NUTSNEWS_BACKUP_REPOSITORY` | `rclone:nutsnews-onedrive:nutsnews-backups/vps` |
 | `NUTSNEWS_BACKUP_STALE_AFTER_HOURS` | `30` |
+| `NUTSNEWS_BACKUP_VERIFY_STALE_AFTER_HOURS` | `192` |
 | `NUTSNEWS_BACKUP_CHECK_READ_DATA_SUBSET` | `5%` |
 | `NUTSNEWS_BACKUP_KEEP_DAILY` | `14` |
 | `NUTSNEWS_BACKUP_KEEP_WEEKLY` | `8` |
 | `NUTSNEWS_BACKUP_KEEP_MONTHLY` | `12` |
 | `NUTSNEWS_BACKUP_KEEP_YEARLY` | `2` |
 
-The protected workflow rejects enabled backups unless the restic password and rclone config are present. It also rejects backup repositories that do not use the dedicated `nutsnews-onedrive` rclone remote.
+The protected workflow rejects enabled backups unless the restic password and rclone config are present. It also rejects backup repositories that do not use the dedicated `nutsnews-onedrive` rclone remote. When backups are enabled, Ansible enables both the backup timer and the weekly latest-snapshot verification timer.
 
 ## Run Check Mode
 

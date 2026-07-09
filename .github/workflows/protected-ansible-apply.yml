@@ -457,6 +457,10 @@ jobs:
                   "NUTSNEWS_BACKUP_STALE_AFTER_HOURS",
                   30,
               ),
+              "vps_service_foundation_backup_verify_stale_after_hours": env_int(
+                  "NUTSNEWS_BACKUP_VERIFY_STALE_AFTER_HOURS",
+                  192,
+              ),
               "vps_service_foundation_backup_check_read_data_subset": os.environ.get(
                   "NUTSNEWS_BACKUP_CHECK_READ_DATA_SUBSET",
                   "5%",

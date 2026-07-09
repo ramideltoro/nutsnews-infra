@@ -519,6 +519,14 @@
         group: root
         mode: "0644"
 
+    - name: Install encrypted VPS backup verification timer
+      ansible.builtin.template:
+        src: nutsnews-restic-verify.timer.j2
+        dest: "/etc/systemd/system/{{ vps_service_foundation_backup_verify_timer }}"
+        owner: root
+        group: root
+        mode: "0644"
+
     - name: Manage Grafana Alloy observability agent
       when: vps_service_foundation_grafana_alloy_enabled | bool
       block:
@@ -732,6 +740,13 @@
     - name: Manage encrypted VPS backup timer
       ansible.builtin.systemd_service:
         name: "{{ vps_service_foundation_backup_timer }}"
+        enabled: "{{ vps_service_foundation_backup_enabled | bool }}"
+        state: "{{ (vps_service_foundation_backup_enabled | bool) | ternary('started', 'stopped') }}"
+        daemon_reload: true
+
+    - name: Manage encrypted VPS backup verification timer
+      ansible.builtin.systemd_service:
+        name: "{{ vps_service_foundation_backup_verify_timer }}"
         enabled: "{{ vps_service_foundation_backup_enabled | bool }}"
         state: "{{ (vps_service_foundation_backup_enabled | bool) | ternary('started', 'stopped') }}"
         daemon_reload: true

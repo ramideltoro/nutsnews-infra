@@ -1,0 +1,13 @@
+[Unit]
+Description=Verify the latest NutsNews encrypted VPS backup on a schedule
+Documentation={{ vps_service_foundation_docs_base_url }}/blob/main/NUTSNEWS_VPS_BACKUPS.md
+Documentation={{ vps_service_foundation_docs_base_url }}/blob/main/NUTSNEWS_VPS_RESTORE.md
+
+[Timer]
+OnCalendar={{ vps_service_foundation_backup_verify_on_calendar }}
+RandomizedDelaySec={{ vps_service_foundation_backup_verify_randomized_delay_seconds }}
+Persistent=true
+Unit={{ vps_service_foundation_backup_verify_service }}
+
+[Install]
+WantedBy=timers.target
