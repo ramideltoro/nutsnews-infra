@@ -113,6 +113,10 @@ require(
     "local.datasource_types[rule.value.datasource]" in ALERTS,
     "Log pipeline alert rules must choose the datasource type from the existing datasource map.",
 )
+require(
+    'query_type     = rule.value.datasource == "loki" ? "range" : null' in ALERTS,
+    "Loki log pipeline alert queries must declare query_type=range to avoid non-converging provider drift.",
+)
 
 for stale_query in re.findall(r"node_[a-zA-Z0-9_]+\\{\\$\\{local\\.base_metric_filter\\}", LOCALS):
     require(

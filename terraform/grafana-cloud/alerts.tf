@@ -168,6 +168,7 @@ resource "grafana_rule_group" "log_pipeline" {
       data {
         ref_id         = "A"
         datasource_uid = local.datasource_uids[rule.value.datasource]
+        query_type     = rule.value.datasource == "loki" ? "range" : null
 
         relative_time_range {
           from = 1800
