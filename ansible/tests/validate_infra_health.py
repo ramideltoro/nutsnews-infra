@@ -61,7 +61,10 @@ for token in (
     "Validate infrastructure health network boundary",
     "Install NutsNews infrastructure health service",
     "Enable NutsNews infrastructure health service",
+    "Inspect infrastructure health listener after unit changes",
     "Restart NutsNews infrastructure health service after unit changes",
+    "Read infrastructure health listener after reconciliation",
+    "Assert infrastructure health listener is narrow",
     "Allow Caddy Docker network to reach infrastructure health service",
     "Wait for local infrastructure health endpoint",
 ):
@@ -73,6 +76,10 @@ require("vps_service_foundation_infra_health_host == '172.17.0.1'" in TASKS, "An
 require("vps_service_foundation_infra_health_ufw_allow_from == '172.18.0.0/16'" in TASKS, "Ansible must keep the Caddy UFW source narrow.")
 require("register: vps_service_foundation_infra_health_service_install" in TASKS, "Health unit installation must record changes.")
 require("vps_service_foundation_infra_health_service_install.changed" in TASKS, "Health service must restart after unit changes.")
+require("register: vps_service_foundation_infra_health_listener" in TASKS, "Health listener must be inspected after unit changes.")
+require("vps_service_foundation_infra_health_listener.stdout is not search('172\\\\.17\\\\.0\\\\.1:18080')" in TASKS, "A stale health listener must trigger a restart.")
+require("register: vps_service_foundation_infra_health_listener_after_reconciliation" in TASKS, "Health listener must be read after reconciliation.")
+require("vps_service_foundation_infra_health_listener_after_reconciliation.stdout is not search('0\\\\.0\\\\.0\\\\.0:18080')" in TASKS, "Ansible must reject a wildcard health listener.")
 
 require("handle /health" in CADDY, "Caddy must expose /health.")
 require("reverse_proxy host.docker.internal:18080" in CADDY, "Caddy must proxy /health to the host health service.")

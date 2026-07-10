@@ -105,9 +105,9 @@ Expected `/health` success output:
 
 The public `/health` endpoint is intended for Better Stack and other HTTP status-code monitors. Caddy proxies `/health` to the local `nutsnews-infra-health.service`, which listens only on the Docker host-gateway address `172.17.0.1:18080` and returns:
 
-When the Ansible-managed systemd unit changes, protected apply restarts this
-service so a new listener configuration takes effect. Do not restart it
-manually to force a configuration change.
+When the Ansible-managed systemd unit changes, or listener inspection finds a
+stale bind, protected apply restarts this service and asserts the narrow
+listener is active. Do not restart it manually to force a configuration change.
 
 - HTTP `200` only when all required checks pass
 - HTTP `503` when any required check fails
