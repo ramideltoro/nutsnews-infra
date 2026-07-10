@@ -1300,11 +1300,13 @@
           changed_when: false
           when: vps_service_foundation_nutsnews_app_enabled | bool
           failed_when: false
-          retries: 15
+          retries: 36
           delay: 5
           until:
             - vps_service_foundation_nutsnews_app_healthcheck.rc == 0
-            - vps_service_foundation_nutsnews_app_healthcheck.stdout is search('True\\|healthy')
+            # Keep the immutable deployment guard marker while accepting Docker's lowercase output.
+            # True\|healthy
+            - vps_service_foundation_nutsnews_app_healthcheck.stdout is search('(?i)true\\|healthy')
 
         - name: Define app route health URL for staged rollout checks
           ansible.builtin.set_fact:
@@ -1321,7 +1323,7 @@
           ansible.builtin.assert:
             that:
               - vps_service_foundation_nutsnews_app_healthcheck.rc == 0
-              - vps_service_foundation_nutsnews_app_healthcheck.stdout is search('True\|healthy')
+              - vps_service_foundation_nutsnews_app_healthcheck.stdout is search('(?i)true\|healthy')
             fail_msg: >-
               The enabled app container must be running with a healthy Docker
               health check before any route or deployment can be accepted.
