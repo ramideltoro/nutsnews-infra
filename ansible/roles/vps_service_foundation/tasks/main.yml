@@ -599,6 +599,7 @@
         owner: root
         group: root
         mode: "0644"
+      register: vps_service_foundation_infra_health_service_install
 
     - name: Install operations portal collector timer
       ansible.builtin.template:
@@ -965,6 +966,15 @@
         enabled: true
         state: started
         daemon_reload: true
+
+    - name: Restart NutsNews infrastructure health service after unit changes
+      ansible.builtin.systemd_service:
+        name: "{{ vps_service_foundation_infra_health_service }}"
+        state: restarted
+        daemon_reload: true
+      when:
+        - vps_service_foundation_infra_health_service_install.changed
+        - not ansible_check_mode
 
     - name: Allow Caddy Docker network to reach infrastructure health service
       community.general.ufw:

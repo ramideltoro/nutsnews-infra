@@ -61,6 +61,7 @@ for token in (
     "Validate infrastructure health network boundary",
     "Install NutsNews infrastructure health service",
     "Enable NutsNews infrastructure health service",
+    "Restart NutsNews infrastructure health service after unit changes",
     "Allow Caddy Docker network to reach infrastructure health service",
     "Wait for local infrastructure health endpoint",
 ):
@@ -70,6 +71,8 @@ require("community.general.ufw" in TASKS, "Ansible must manage the health servic
 require("vps_service_foundation_infra_health_port | string" in TASKS, "UFW rule must use the configured health port.")
 require("vps_service_foundation_infra_health_host == '172.17.0.1'" in TASKS, "Ansible must reject a broad health bind.")
 require("vps_service_foundation_infra_health_ufw_allow_from == '172.18.0.0/16'" in TASKS, "Ansible must keep the Caddy UFW source narrow.")
+require("register: vps_service_foundation_infra_health_service_install" in TASKS, "Health unit installation must record changes.")
+require("vps_service_foundation_infra_health_service_install.changed" in TASKS, "Health service must restart after unit changes.")
 
 require("handle /health" in CADDY, "Caddy must expose /health.")
 require("reverse_proxy host.docker.internal:18080" in CADDY, "Caddy must proxy /health to the host health service.")
