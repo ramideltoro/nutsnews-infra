@@ -1984,6 +1984,10 @@ def collect() -> dict[str, Any]:
         "gitops": gitops_state(),
         "app": app,
         "app_links": [
+            {
+                "name": "Dual-target web deployment",
+                "url": f"{DOCS_BASE_URL}/blob/main/NUTSNEWS_DUAL_TARGET_WEB_DEPLOYMENT.md",
+            },
             {"name": "NutsNews app layer setup", "url": f"{DOCS_BASE_URL}/blob/main/NUTSNEWS_VPS_SERVICE_FOUNDATION.md#nutsnews-app-layer"},
             {"name": "Ops Portal app state", "url": f"{DOCS_BASE_URL}/blob/main/NUTSNEWS_OPERATIONS_PORTAL_V1.md#app-layer"},
             {

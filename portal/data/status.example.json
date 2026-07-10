@@ -968,6 +968,10 @@
   },
   "app_links": [
     {
+      "name": "Dual-target web deployment",
+      "url": "https://github.com/ramideltoro/nutsnews-docs/blob/main/NUTSNEWS_DUAL_TARGET_WEB_DEPLOYMENT.md"
+    },
+    {
       "name": "NutsNews app layer setup",
       "url": "https://github.com/ramideltoro/nutsnews-docs/blob/main/NUTSNEWS_VPS_SERVICE_FOUNDATION.md#nutsnews-app-layer"
     },
