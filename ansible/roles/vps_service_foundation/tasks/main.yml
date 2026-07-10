@@ -967,14 +967,47 @@
         state: started
         daemon_reload: true
 
+    - name: Inspect infrastructure health listener after unit changes
+      ansible.builtin.command:
+        argv:
+          - ss
+          - -ltnH
+          - "sport = :{{ vps_service_foundation_infra_health_port }}"
+      register: vps_service_foundation_infra_health_listener
+      changed_when: false
+      when: not ansible_check_mode
+
     - name: Restart NutsNews infrastructure health service after unit changes
       ansible.builtin.systemd_service:
         name: "{{ vps_service_foundation_infra_health_service }}"
         state: restarted
         daemon_reload: true
       when:
-        - vps_service_foundation_infra_health_service_install.changed
+        - >-
+          vps_service_foundation_infra_health_service_install.changed or
+          vps_service_foundation_infra_health_listener.stdout is not search('172\\.17\\.0\\.1:18080')
         - not ansible_check_mode
+
+    - name: Read infrastructure health listener after reconciliation
+      ansible.builtin.command:
+        argv:
+          - ss
+          - -ltnH
+          - "sport = :{{ vps_service_foundation_infra_health_port }}"
+      register: vps_service_foundation_infra_health_listener_after_reconciliation
+      changed_when: false
+      when: not ansible_check_mode
+
+    - name: Assert infrastructure health listener is narrow
+      ansible.builtin.assert:
+        that:
+          - vps_service_foundation_infra_health_listener_after_reconciliation.stdout is search('172\\.17\\.0\\.1:18080')
+          - vps_service_foundation_infra_health_listener_after_reconciliation.stdout is not search('0\\.0\\.0\\.0:18080')
+        fail_msg: >-
+          The infrastructure health service must listen only on
+          172.17.0.1:18080 after protected apply.
+        success_msg: Infrastructure health listener is limited to the Docker host gateway.
+      when: not ansible_check_mode
 
     - name: Allow Caddy Docker network to reach infrastructure health service
       community.general.ufw:
