@@ -1,8 +1,8 @@
 # Reviewed, non-secret NutsNews application release state for the production VPS.
 # Promotion changes update this file through a pull request before Protected
 # Ansible Apply. Application secrets remain in NUTSNEWS_APP_ENVS_JSON.
-vps_service_foundation_nutsnews_app_enabled: false
-vps_service_foundation_nutsnews_app_staged_route_enabled: false
+vps_service_foundation_nutsnews_app_enabled: true
+vps_service_foundation_nutsnews_app_staged_route_enabled: true
 vps_service_foundation_nutsnews_app_public_route_enabled: false
 vps_service_foundation_nutsnews_app_image_repo: ghcr.io/ramideltoro/nutsnews
 vps_service_foundation_nutsnews_app_image_digest: "sha256:26d525541c33d12fdd026b2d69f176e25d60c4e876094aa1a357aec3098580b6"
