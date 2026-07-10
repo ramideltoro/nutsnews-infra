@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate the repo-managed, disabled-by-default app release manifest."""
+"""Validate the repo-managed app release manifest and route promotion."""
 
 from pathlib import Path
 import re
@@ -30,7 +30,9 @@ assert HOST_VARS.is_file(), f"Missing reviewed app release manifest: {HOST_VARS}
 app_enabled = value("vps_service_foundation_nutsnews_app_enabled") == "true"
 staged_enabled = value("vps_service_foundation_nutsnews_app_staged_route_enabled") == "true"
 public_enabled = value("vps_service_foundation_nutsnews_app_public_route_enabled") == "true"
-assert not public_enabled
+assert app_enabled, "Production VPS app must stay enabled for public promotion."
+assert staged_enabled, "Public promotion requires the staged health route to stay enabled."
+assert public_enabled, "Issue #93 promotion must enable the reviewed vps.nutsnews.com public route."
 assert not staged_enabled or app_enabled
 assert value("vps_service_foundation_nutsnews_app_image_repo") == "ghcr.io/ramideltoro/nutsnews"
 assert re.fullmatch(
