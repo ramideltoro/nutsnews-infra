@@ -661,6 +661,7 @@ vps_service_foundation_caddy_data_dir: "{{ vps_service_foundation_data_dir }}/ca
 vps_service_foundation_caddy_logs_dir: "{{ vps_service_foundation_logs_dir }}/caddy"
 vps_service_foundation_caddy_compose_file: "{{ vps_service_foundation_caddy_app_dir }}/compose.yml"
 vps_service_foundation_caddy_route_file: "{{ vps_service_foundation_caddy_config_dir }}/app.routes"
+vps_service_foundation_caddy_public_route_file: "{{ vps_service_foundation_caddy_config_dir }}/app.public.routes"
 vps_service_foundation_caddy_dockerfile: "{{ vps_service_foundation_caddy_app_dir }}/Dockerfile"
 vps_service_foundation_caddy_rate_limit_file: "{{ vps_service_foundation_caddy_config_dir }}/rate-limits"
 vps_service_foundation_caddy_rate_limits_enabled: true
@@ -716,10 +717,21 @@ vps_service_foundation_nutsnews_app_container_name: nutsnews-app
 vps_service_foundation_nutsnews_app_container_port: 3000
 vps_service_foundation_nutsnews_app_health_path: /healthz
 vps_service_foundation_nutsnews_app_image_repo: ghcr.io/ramideltoro/nutsnews
-vps_service_foundation_nutsnews_app_image_tag: latest
-vps_service_foundation_nutsnews_app_image: "{{ vps_service_foundation_nutsnews_app_image_repo }}:{{ vps_service_foundation_nutsnews_app_image_tag }}"
-vps_service_foundation_nutsnews_app_route_enabled: false
+vps_service_foundation_nutsnews_app_image_digest: ""
+vps_service_foundation_nutsnews_app_image: >-
+  {{
+    (vps_service_foundation_nutsnews_app_image_repo ~ '@' ~ vps_service_foundation_nutsnews_app_image_digest)
+    if (vps_service_foundation_nutsnews_app_image_digest | length > 0)
+    else ''
+  }}
+vps_service_foundation_nutsnews_app_source_commit: ""
+vps_service_foundation_nutsnews_app_build_id: ""
+vps_service_foundation_nutsnews_app_deployment_target: production-vps
+vps_service_foundation_nutsnews_app_last_known_good_digest: ""
+vps_service_foundation_nutsnews_app_staged_route_enabled: false
 vps_service_foundation_nutsnews_app_route_path: /app-stage
+vps_service_foundation_nutsnews_app_public_route_enabled: false
+vps_service_foundation_nutsnews_app_public_domain: vps.nutsnews.com
 vps_service_foundation_nutsnews_app_enabled: false
 vps_service_foundation_nutsnews_app_apply_marker_file: "{{ vps_service_foundation_ops_dir }}/last-app-apply.json"
 vps_service_foundation_nutsnews_app_envs: {}

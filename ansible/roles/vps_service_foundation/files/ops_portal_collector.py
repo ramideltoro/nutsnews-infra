@@ -52,14 +52,30 @@ BACKUP_STATUS_FILE = Path(
     os.environ.get("NUTSNEWS_BACKUP_STATUS_FILE", "/opt/nutsnews/portal-assets/data/backup-status.json")
 )
 APP_ENABLED = os.environ.get("NUTSNEWS_APP_ENABLED", "0").strip().lower() in {"1", "true", "yes", "on"}
-APP_ROUTE_ENABLED = os.environ.get("NUTSNEWS_APP_ROUTE_ENABLED", "0").strip().lower() in {"1", "true", "yes", "on"}
+APP_STAGED_ROUTE_ENABLED = os.environ.get("NUTSNEWS_APP_STAGED_ROUTE_ENABLED", "0").strip().lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}
+APP_PUBLIC_ROUTE_ENABLED = os.environ.get("NUTSNEWS_APP_PUBLIC_ROUTE_ENABLED", "0").strip().lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}
 APP_CONTAINER_NAME = os.environ.get("NUTSNEWS_APP_CONTAINER_NAME", "nutsnews-app").strip()
 APP_CONTAINER_PORT = int(os.environ.get("NUTSNEWS_APP_CONTAINER_PORT", "3000") or 0)
 APP_IMAGE = os.environ.get("NUTSNEWS_APP_IMAGE", "").strip()
 APP_IMAGE_REPO = os.environ.get("NUTSNEWS_APP_IMAGE_REPO", "").strip()
-APP_IMAGE_TAG = os.environ.get("NUTSNEWS_APP_IMAGE_TAG", "").strip()
+APP_IMAGE_DIGEST = os.environ.get("NUTSNEWS_APP_IMAGE_DIGEST", "").strip()
+APP_SOURCE_COMMIT = os.environ.get("NUTSNEWS_APP_SOURCE_COMMIT", "").strip()
+APP_BUILD_ID = os.environ.get("NUTSNEWS_APP_BUILD_ID", "").strip()
+APP_DEPLOYMENT_TARGET = os.environ.get("NUTSNEWS_APP_DEPLOYMENT_TARGET", "production-vps").strip()
+APP_LAST_KNOWN_GOOD_DIGEST = os.environ.get("NUTSNEWS_APP_LAST_KNOWN_GOOD_DIGEST", "").strip()
 APP_HEALTH_PATH = os.environ.get("NUTSNEWS_APP_HEALTH_PATH", "/healthz").strip() or "/healthz"
 APP_ROUTE_PATH = os.environ.get("NUTSNEWS_APP_ROUTE_PATH", "/app-stage").strip() or "/app-stage"
+APP_PUBLIC_DOMAIN = os.environ.get("NUTSNEWS_APP_PUBLIC_DOMAIN", "vps.nutsnews.com").strip() or "vps.nutsnews.com"
 APP_ENV_FILE = Path(os.environ.get("NUTSNEWS_APP_ENV_FILE", "/etc/nutsnews/nutsnews-app.env")).resolve()
 APP_SECRET_ENV_KEYS = [item.strip() for item in os.environ.get("NUTSNEWS_APP_SECRET_ENV_KEYS", "").split(",") if item.strip()]
 APP_REQUIRED_SECRET_KEYS = [item.strip() for item in os.environ.get("NUTSNEWS_APP_REQUIRED_SECRET_KEYS", "").split(",") if item.strip()]
@@ -318,8 +334,8 @@ def safe_float(value: Any, default: float = 0.0) -> float:
         return default
 
 
-def app_health_url() -> str:
-    if not APP_ENABLED or not APP_ROUTE_ENABLED:
+def app_staged_health_url() -> str:
+    if not APP_ENABLED or not APP_STAGED_ROUTE_ENABLED:
         return ""
     route_path = APP_ROUTE_PATH.strip()
     if not route_path.startswith("/"):
@@ -329,6 +345,13 @@ def app_health_url() -> str:
     if not health_path.startswith("/"):
         health_path = f"/{health_path}"
     return f"http://127.0.0.1:8080{route_path}{health_path}"
+
+
+def app_public_health_url() -> str:
+    if not APP_ENABLED or not APP_PUBLIC_ROUTE_ENABLED:
+        return ""
+    health_path = APP_HEALTH_PATH if APP_HEALTH_PATH.startswith("/") else f"/{APP_HEALTH_PATH}"
+    return f"https://{APP_PUBLIC_DOMAIN}{health_path}"
 
 
 def read_env_keys(path: Path) -> list[str]:
@@ -992,6 +1015,11 @@ def docker_state() -> dict[str, Any]:
                     "health": "unknown",
                     "restart_count": 0,
                     "compose_project": item.get("Label", ""),
+                    "configured_image": "",
+                    "image_id": "",
+                    "repo_digests": [],
+                    "source_commit": "",
+                    "build_id": "",
                 }
             )
 
@@ -1010,6 +1038,28 @@ def docker_state() -> dict[str, Any]:
                 container["restart_count"] = detail.get("RestartCount", 0)
                 container["health"] = state.get("Health", {}).get("Status", "none")
                 container["compose_project"] = labels.get("com.docker.compose.project", "")
+                container["configured_image"] = detail.get("Config", {}).get("Image", "")
+                container["image_id"] = detail.get("Image", "")
+                container["source_commit"] = labels.get("org.opencontainers.image.revision", "")
+                container["build_id"] = labels.get("io.nutsnews.build.id", "") or labels.get(
+                    "org.opencontainers.image.version",
+                    "",
+                )
+
+            image_ids = sorted({container["image_id"] for container in containers if container["image_id"]})
+            if image_ids:
+                image_inspect = run(["docker", "image", "inspect", *image_ids], timeout=10)
+                if image_inspect["ok"]:
+                    try:
+                        inspected_images = json.loads(image_inspect["stdout"])
+                    except json.JSONDecodeError:
+                        inspected_images = []
+                    images_by_id = {item.get("Id", ""): item for item in inspected_images}
+                    for container in containers:
+                        image_detail = images_by_id.get(container["image_id"], {})
+                        repo_digests = image_detail.get("RepoDigests", [])
+                        if isinstance(repo_digests, list):
+                            container["repo_digests"] = [str(item) for item in repo_digests]
 
     compose = run(["docker", "compose", "ls", "--format", "json"], timeout=8)
     compose_projects: list[dict[str, Any]] = []
@@ -1717,48 +1767,71 @@ def app_state(docker: dict[str, Any]) -> dict[str, Any]:
     compose_project = container.get("compose_project", "")
 
     if APP_ENABLED:
-        if container_state == "running":
-            if container_health in ("healthy", "none"):
-                deployment_state = "running"
-            else:
-                deployment_state = "started"
+        if container_state == "running" and container_health == "healthy":
+            deployment_state = "running"
+        elif container_state == "running":
+            deployment_state = "started"
         else:
             deployment_state = "not_running"
     else:
         deployment_state = "disabled"
 
-    app_image_repo = APP_IMAGE_REPO or APP_IMAGE
-    app_image_tag = APP_IMAGE_TAG
-    if APP_IMAGE and ":" in APP_IMAGE and not APP_IMAGE_TAG:
-        app_image_repo = APP_IMAGE.rsplit(":", 1)[0]
-        app_image_tag = APP_IMAGE.rsplit(":", 1)[1]
-    if not app_image_tag:
-        app_image_tag = "latest"
+    repo_digests = container.get("repo_digests", [])
+    actual_repo_digest = ""
+    if isinstance(repo_digests, list):
+        actual_repo_digest = next(
+            (item for item in repo_digests if item.startswith(f"{APP_IMAGE_REPO}@sha256:")),
+            "",
+        )
 
-    if APP_ROUTE_ENABLED and APP_ENABLED and deployment_state == "running":
-        route_state = "staged"
-    elif APP_ROUTE_ENABLED and APP_ENABLED:
-        route_state = "pending"
-    else:
-        route_state = "disabled"
+    staged_health_url = app_staged_health_url()
+    public_health_url = app_public_health_url()
+    staged_probe = (
+        local_http_probe(staged_health_url)
+        if staged_health_url
+        else {"ok": False, "status": 0, "error": "staged route disabled"}
+    )
+    public_probe = (
+        local_http_probe(public_health_url)
+        if public_health_url
+        else {"ok": False, "status": 0, "error": "public route disabled"}
+    )
 
-    if not APP_ROUTE_ENABLED:
-        route_health_status = "disabled"
-    elif container_state != "running":
-        route_health_status = "not_running"
-    elif container_health in ("healthy", "none"):
-        route_health_status = "ready"
-    else:
-        route_health_status = "not_ready"
+    actual_source_commit = str(container.get("source_commit", ""))
+    actual_build_id = str(container.get("build_id", ""))
+    expected_reference = APP_IMAGE if APP_IMAGE_DIGEST else ""
+    last_deployment_result = str(marker.get("deployment_result") or marker.get("status") or "not_deployed")
 
     return {
         "enabled": APP_ENABLED,
-        "route_enabled": APP_ROUTE_ENABLED,
-        "route_path": APP_ROUTE_PATH,
         "health_path": APP_HEALTH_PATH,
-        "image": APP_IMAGE,
-        "image_repo": app_image_repo,
-        "image_tag": app_image_tag,
+        "staged_route_enabled": APP_STAGED_ROUTE_ENABLED,
+        "public_route_enabled": APP_PUBLIC_ROUTE_ENABLED,
+        "route_path": APP_ROUTE_PATH,
+        "public_domain": APP_PUBLIC_DOMAIN,
+        "expected": {
+            "image_repository": APP_IMAGE_REPO,
+            "image_digest": APP_IMAGE_DIGEST,
+            "image_reference": expected_reference,
+            "source_commit": APP_SOURCE_COMMIT,
+            "build_id": APP_BUILD_ID,
+            "deployment_target": APP_DEPLOYMENT_TARGET,
+            "last_known_good_digest": APP_LAST_KNOWN_GOOD_DIGEST,
+        },
+        "actual": {
+            "configured_image": str(container.get("configured_image", "")),
+            "running_repo_digest": actual_repo_digest,
+            "image_id": str(container.get("image_id", "")),
+            "source_commit": actual_source_commit,
+            "build_id": actual_build_id,
+            "matches_expected_digest": bool(
+                APP_IMAGE_DIGEST and actual_repo_digest == f"{APP_IMAGE_REPO}@{APP_IMAGE_DIGEST}"
+            ),
+            "matches_expected_source": bool(
+                APP_SOURCE_COMMIT and actual_source_commit == APP_SOURCE_COMMIT
+            ),
+            "matches_expected_build": bool(APP_BUILD_ID and actual_build_id == APP_BUILD_ID),
+        },
         "container_name": APP_CONTAINER_NAME,
         "container_port": APP_CONTAINER_PORT,
         "secrets": {
@@ -1773,15 +1846,25 @@ def app_state(docker: dict[str, Any]) -> dict[str, Any]:
         "deploy_status": {
             "status": "enabled" if APP_ENABLED else "disabled",
             "deployment_state": deployment_state,
+            "last_deployment_result": last_deployment_result,
             "container_state": container_state,
             "container_health": container_health,
             "container_ports": container_ports,
             "compose_project": compose_project,
         },
-        "routing": {
-            "status": route_state,
-            "health_url": app_health_url() if APP_ROUTE_ENABLED else "",
-            "health_status": route_health_status,
+        "routes": {
+            "staged": {
+                "enabled": APP_STAGED_ROUTE_ENABLED,
+                "path": APP_ROUTE_PATH,
+                "health_url": staged_health_url,
+                "health": staged_probe,
+            },
+            "public": {
+                "enabled": APP_PUBLIC_ROUTE_ENABLED,
+                "domain": APP_PUBLIC_DOMAIN,
+                "health_url": public_health_url,
+                "health": public_probe,
+            },
         },
         "marker": marker,
     }

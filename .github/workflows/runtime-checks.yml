@@ -38,7 +38,9 @@ jobs:
             compose/caddy/Caddyfile
             compose/nutsnews/compose.yml
             ansible/roles/vps_service_foundation/templates/nutsnews-app.routes.j2
+            ansible/roles/vps_service_foundation/templates/nutsnews-app.public.routes.j2
             ansible/roles/vps_service_foundation/templates/nutsnews-app.env.j2
+            ansible/inventories/production/host_vars/vps.nutsnews.com.yml
             compose/health/index.html
             portal/index.html
             portal/assets/app.js
@@ -70,6 +72,7 @@ jobs:
           fi
 
           export NUTSNEWS_OPS_PORTAL_AUTH_ENV_FILE="$RUNNER_TEMP/ops-portal-auth.env"
+          export NUTSNEWS_APP_IMAGE="ghcr.io/ramideltoro/nutsnews@sha256:$(printf '0%.0s' {1..64})"
           cat > "$NUTSNEWS_OPS_PORTAL_AUTH_ENV_FILE" <<'EOF'
           GOOGLE_CLIENT_ID=dummy
           GOOGLE_CLIENT_SECRET=dummy
@@ -81,6 +84,8 @@ jobs:
           for file in "${compose_files[@]}"; do
             docker compose -f "$file" config --quiet
           done
+
+          python3 ansible/tests/validate_app_deployment.py
 
   hadolint:
     name: Hadolint

@@ -160,7 +160,8 @@ def collect() -> list[str]:
     lines.extend(
         [
             sample("nutsnews_app_enabled", bool_value(app.get("enabled"))),
-            sample("nutsnews_app_route_enabled", bool_value(app.get("route_enabled"))),
+            sample("nutsnews_app_staged_route_enabled", bool_value(app.get("staged_route_enabled"))),
+            sample("nutsnews_app_public_route_enabled", bool_value(app.get("public_route_enabled"))),
             sample("nutsnews_app_container_running", bool_value(deploy_status.get("container_state") == "running")),
             sample("nutsnews_app_container_healthy", bool_value(deploy_status.get("container_health") in {"healthy", "none"})),
             sample("nutsnews_app_route_ready", bool_value(routing.get("health_status") == "ready")),

@@ -123,4 +123,6 @@ jobs:
 
       - name: Validate app secrets are not committed
         shell: bash
-        run: python3 ansible/tests/validate_no_app_secrets.py
+        run: |
+          python3 ansible/tests/validate_no_app_secrets.py
+          python3 ansible/tests/validate_app_deployment.py

@@ -848,7 +848,13 @@ function renderBackups(data) {
 function renderAppLayer(data) {
   const app = data.app || {};
   const deployStatus = app.deploy_status || {};
-  const routing = app.routing || {};
+  const routes = app.routes || {};
+  const stagedRoute = routes.staged || {};
+  const publicRoute = routes.public || {};
+  const stagedHealth = stagedRoute.health || {};
+  const publicHealth = publicRoute.health || {};
+  const expected = app.expected || {};
+  const actual = app.actual || {};
   const secrets = app.secrets || {};
   const marker = app.marker || {};
   const requiredKeys = secrets.required_secret_keys || [];
@@ -858,22 +864,21 @@ function renderAppLayer(data) {
   const requiredCount = Number.isFinite(Number(requiredKeys.length)) ? requiredKeys.length : 0;
   const containerHealth = text(deployStatus.container_health);
   const containerState = text(deployStatus.container_state);
-  const routeHealthStatus = text(routing.health_status, "unknown");
 
   const readinessLabel = app.enabled ? "enabled" : "not enabled";
-  const readinessHint = app.enabled ? "App service layer is configured by Ansible vars or protected secrets." : "Staged setup is ready for explicit rollout.";
-  const routeStatus = text(routing.status, "disabled");
-  const routeHint = routing.health_url
-    ? `Health check: ${routing.health_url}`
-    : "Route is disabled; no public path is currently active.";
+  const readinessHint = app.enabled
+    ? "App release is selected by the reviewed production manifest."
+    : "Prepared only; container and routes remain disabled.";
+  const stagedStatus = stagedRoute.enabled ? (stagedHealth.ok ? "healthy" : "not ready") : "disabled";
+  const publicStatus = publicRoute.enabled ? (publicHealth.ok ? "healthy" : "not ready") : "disabled";
   const secretHint = requiredCount
     ? `${text(requiredCount)} required secret keys, ${text(configuredKeys.length)} configured, ${text(missingCount)} missing`
     : "No required app secrets are declared.";
   const envFile = secrets.env_file || "/etc/nutsnews/nutsnews-app.env";
   const envState = secrets.env_file_present === false ? "missing" : "present";
-  const imageRepo = text(app.image_repo);
-  const imageTag = text(app.image_tag);
-  const image = text(app.image);
+  const expectedRepo = text(expected.image_repository);
+  const expectedDigest = text(expected.image_digest, "not promoted");
+  const actualDigest = text(actual.running_repo_digest, "not running");
   const markerStatus = text(marker.status, "unknown");
   const markerUpdated = text(marker.recorded_at, "no marker");
   const container = `${text(app.container_name)}` + (app.container_port ? `:${text(app.container_port)}` : "");
@@ -881,20 +886,25 @@ function renderAppLayer(data) {
   renderMetrics("app-grid", [
     { label: "App readiness", value: readinessLabel, hint: readinessHint },
     { label: "Deployment", value: text(deployStatus.status, "unknown"), hint: `${containerState} (${containerHealth})` },
-    { label: "Route", value: routeStatus, hint: routeHint },
-    { label: "Image", value: image, hint: text(app.image) },
-    { label: "Image repository", value: imageRepo, hint: "Configured image repo" },
-    { label: "Image tag", value: imageTag, hint: "Configured image tag" },
+    { label: "Last deployment", value: text(deployStatus.last_deployment_result), hint: markerUpdated },
+    { label: "Staged route", value: stagedStatus, hint: text(stagedRoute.health_url || stagedRoute.path) },
+    { label: "Public route", value: publicStatus, hint: text(publicRoute.health_url || publicRoute.domain) },
+    { label: "Expected repository", value: expectedRepo, hint: "Reviewed release state" },
+    { label: "Expected digest", value: expectedDigest, hint: text(expected.image_reference, "No image promoted") },
+    { label: "Running RepoDigest", value: actualDigest, hint: actual.matches_expected_digest ? "Matches expected digest" : "No verified match" },
+    { label: "Source commit", value: shortCommit(expected.source_commit), hint: `running ${shortCommit(actual.source_commit)}` },
+    { label: "Build ID", value: text(expected.build_id, "not promoted"), hint: `running ${text(actual.build_id, "not running")}` },
+    { label: "Deployment target", value: text(expected.deployment_target), hint: "GitOps promotion target" },
+    { label: "Rollback digest", value: text(expected.last_known_good_digest, "not recorded"), hint: "Last known good immutable digest" },
     { label: "Container", value: container, hint: `${text(deployStatus.container_ports, "no published ports")} • ${text(deployStatus.compose_project)}` },
     { label: "Secrets", value: `missing ${text(missingCount)}`, hint: secretHint },
     { label: "Env file", value: envState, hint: text(envFile) },
-    { label: "Route health", value: routeHealthStatus, hint: routeStatus === "staged" ? "Route probe succeeded" : "No staged route probe yet" },
     { label: "App marker", value: markerStatus, hint: markerUpdated },
   ]);
-  $("app-method").textContent = `Env file: ${envFile} • Route enabled: ${text(app.route_enabled, false)} • Marker: ${markerStatus}`;
-  $("app-notes").textContent = app.route_enabled
-    ? "Route checks target the configured staged path and will gate rollout until endpoint health is ready."
-    : "Staged route is disabled. App service can be configured without changing public paths.";
+  $("app-method").textContent = `Env file: ${envFile} • Staged: ${text(app.staged_route_enabled, false)} • Public: ${text(app.public_route_enabled, false)} • Marker: ${markerStatus}`;
+  $("app-notes").textContent = app.enabled
+    ? "The health-only staged gate and public route are controlled independently; public routing requires staged readiness."
+    : "Prepared, not deployed. No app container, staged route, public route, DNS, or traffic change is active.";
   renderLinks("app-links", data.app_links);
 }
 
