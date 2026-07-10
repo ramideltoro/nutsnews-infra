@@ -1300,6 +1300,11 @@
           changed_when: false
           when: vps_service_foundation_nutsnews_app_enabled | bool
           failed_when: false
+          retries: 15
+          delay: 5
+          until:
+            - vps_service_foundation_nutsnews_app_healthcheck.rc == 0
+            - vps_service_foundation_nutsnews_app_healthcheck.stdout is search('True\\|healthy')
 
         - name: Define app route health URL for staged rollout checks
           ansible.builtin.set_fact:
