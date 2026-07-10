@@ -20,6 +20,7 @@ Use this runbook after the service foundation PR is merged and before applying t
 - Caddy managed by Compose at `/opt/nutsnews/apps/caddy/compose.yml`
 - Read-only operations portal and `/healthz` endpoint on `127.0.0.1:8080`
 - Better Stack-compatible infrastructure health endpoint at `https://vps.nutsnews.com/health`
+- Optional GitOps-controlled NutsNews app route on `https://vps.nutsnews.com` while `/health` remains the infrastructure health endpoint
 - Small Ansible-managed zram fallback swap on `/dev/zram0` with low swappiness
 - Local portal status collector managed by `nutsnews-ops-portal-collector.timer`
 - Caddy rate limiting for public health, API, auth-sensitive, admin-sensitive, ops-sensitive, and general public paths
@@ -65,6 +66,22 @@ curl --connect-timeout 3 --max-time 5 http://vps.nutsnews.com:18080/health
 
 The HTTPS request must return HTTP `200`. The direct port-`18080` request must
 not connect; it is an intentional private-only failure.
+
+When `vps_service_foundation_nutsnews_app_public_route_enabled` is `true`, also
+verify the app route after the approved protected apply:
+
+```bash
+curl -i https://vps.nutsnews.com/
+curl -i https://vps.nutsnews.com/healthz
+curl -i 'https://vps.nutsnews.com/api/articles?page=0'
+curl -i https://vps.nutsnews.com/api/auth/signin/google
+```
+
+`/health` must keep returning the infrastructure health response. `/healthz`
+must return the app health response with the reviewed source commit and build
+identity. Record exact statuses, redirects, security headers, cookies,
+CSRF/CORS behavior, asset loading, cache behavior, Turnstile/contact-form
+origins, and Sentry identity before calling the rollout complete.
 
 ## Rate Limiting
 
@@ -157,7 +174,13 @@ Recommended regions: US East, US West, EU West
 
 ## Public Exposure
 
-Caddy publishes public ports `80` and `443` for `vps.nutsnews.com`. The public virtual host exposes only `/health` and returns `404` for other paths. Caddy proxies `/health` to the local `nutsnews-infra-health.service` through `host.docker.internal`, which resolves to the Docker host-gateway address `172.17.0.1`.
+Caddy publishes public ports `80` and `443` for `vps.nutsnews.com`. The public virtual host always keeps `/health` on the local `nutsnews-infra-health.service` through `host.docker.internal`, which resolves to the Docker host-gateway address `172.17.0.1`. When the reviewed app public route flag is disabled, all other `vps.nutsnews.com` paths return `404`; when it is enabled, all other paths proxy to the digest-pinned NutsNews app container.
+
+The loopback staged route is a health-only gate. It proxies
+`/app-stage/healthz` to the app, but it does not provide full authenticated
+HTML, asset, API, Auth.js callback, Turnstile, contact-form, cookie, CSRF/CORS,
+Sentry, or cache parity. Full app parity validation must happen immediately
+after the reviewed public route is enabled through Protected Ansible Apply.
 
 UFW allows only the Caddy Docker network (`172.18.0.0/16`) to reach the host health service on TCP port `18080`. Direct public access to TCP port 18080 is intentionally blocked. This internal rule is managed by Ansible so the public Better Stack endpoint works without manual firewall changes.
 
