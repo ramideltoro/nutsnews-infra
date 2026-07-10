@@ -58,6 +58,7 @@ services:
       - /opt/nutsnews/config/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
       - /opt/nutsnews/config/caddy/rate-limits:/etc/nutsnews/caddy/rate-limits:ro
       - /opt/nutsnews/config/caddy/app.routes:/etc/nutsnews/caddy/app.routes:ro
+      - /opt/nutsnews/config/caddy/app.public.routes:/etc/nutsnews/caddy/app.public.routes:ro
       - /opt/nutsnews/config/caddy/runtime:/config
       - /opt/nutsnews/data/caddy:/data
       - /opt/nutsnews/portal-assets:/srv/nutsnews-portal:ro

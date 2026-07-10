@@ -280,23 +280,41 @@ app = STATUS["app"]
 require(isinstance(app, dict), "Fixture app section is missing.")
 for key in (
     "enabled",
-    "route_enabled",
+    "staged_route_enabled",
+    "public_route_enabled",
     "route_path",
-    "routing",
+    "routes",
     "secrets",
     "deploy_status",
     "marker",
-    "image_repo",
-    "image_tag",
-    "image",
+    "expected",
+    "actual",
 ):
     require(key in app, f"App fixture is missing {key}.")
 require(app["enabled"] is False, "App fixture should remain disabled by default.")
-require(app["route_enabled"] is False, "App fixture should keep route disabled by default.")
-require(app["routing"]["status"] == "disabled", "App route status should be disabled by default.")
+require(app["staged_route_enabled"] is False, "App fixture should keep staged routing disabled by default.")
+require(app["public_route_enabled"] is False, "App fixture should keep public routing disabled by default.")
+require(app["routes"]["staged"]["enabled"] is False, "Staged route fixture must stay disabled.")
+require(app["routes"]["public"]["enabled"] is False, "Public route fixture must stay disabled.")
+require(app["expected"]["image_repository"] == "ghcr.io/ramideltoro/nutsnews", "Unexpected app image repo.")
+require(app["expected"]["image_digest"] == "", "Prepared fixture must not invent an image digest.")
+require("latest" not in json.dumps(app).lower(), "App status must not expose a mutable latest reference.")
+for key in ("running_repo_digest", "source_commit", "build_id"):
+    require(key in app["actual"], f"App actual runtime status is missing {key}.")
+for label in (
+    "Expected digest",
+    "Running RepoDigest",
+    "Source commit",
+    "Build ID",
+    "Rollback digest",
+    "Staged route",
+    "Public route",
+):
+    require(label in APP_JS, f"Portal UI is missing app field: {label}.")
 app_links = STATUS["app_links"]
 require(isinstance(app_links, list) and len(app_links) >= 3, "Fixture app links missing app-layer links.")
 for required_name in (
+    "Dual-target web deployment",
     "NutsNews app layer setup",
     "Ops Portal app state",
     "Protected app rollout",

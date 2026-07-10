@@ -11,19 +11,27 @@ vps.nutsnews.com {
     format json
   }
 
-  header {
-    X-Content-Type-Options nosniff
-    Referrer-Policy no-referrer
-    X-Frame-Options DENY
-    Permissions-Policy "camera=(), microphone=(), geolocation=()"
-    Content-Security-Policy "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'"
-  }
-
   handle /health {
+    header {
+      X-Content-Type-Options nosniff
+      Referrer-Policy no-referrer
+      X-Frame-Options DENY
+      Permissions-Policy "camera=(), microphone=(), geolocation=()"
+      Content-Security-Policy "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'"
+    }
     reverse_proxy host.docker.internal:18080
   }
 
+  import /etc/nutsnews/caddy/app.public.routes
+
   handle {
+    header {
+      X-Content-Type-Options nosniff
+      Referrer-Policy no-referrer
+      X-Frame-Options DENY
+      Permissions-Policy "camera=(), microphone=(), geolocation=()"
+      Content-Security-Policy "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'"
+    }
     respond 404
   }
 }

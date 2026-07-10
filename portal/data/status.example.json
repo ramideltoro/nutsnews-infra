@@ -883,6 +883,16 @@
   },
   "generated_at": "2026-07-05T00:00:00+00:00",
   "app": {
+    "actual": {
+      "build_id": "",
+      "configured_image": "",
+      "image_id": "",
+      "matches_expected_build": false,
+      "matches_expected_digest": false,
+      "matches_expected_source": false,
+      "running_repo_digest": "",
+      "source_commit": ""
+    },
     "container_name": "nutsnews-app",
     "container_port": 3000,
     "deploy_status": {
@@ -891,49 +901,76 @@
       "container_state": "absent",
       "compose_project": "nutsnews-app",
       "deployment_state": "disabled",
+      "last_deployment_result": "not_deployed",
       "status": "disabled"
     },
     "enabled": false,
-    "image": "ghcr.io/ramideltoro/nutsnews:latest",
-    "image_repo": "ghcr.io/ramideltoro/nutsnews",
-    "image_tag": "latest",
+    "expected": {
+      "build_id": "",
+      "deployment_target": "production-vps",
+      "image_digest": "",
+      "image_reference": "",
+      "image_repository": "ghcr.io/ramideltoro/nutsnews",
+      "last_known_good_digest": "",
+      "source_commit": ""
+    },
     "health_path": "/healthz",
-    "route_enabled": false,
+    "public_domain": "vps.nutsnews.com",
+    "public_route_enabled": false,
     "route_path": "/app-stage",
-    "routing": {
-      "health_status": "disabled",
-      "health_url": "",
-      "status": "disabled"
+    "routes": {
+      "public": {
+        "domain": "vps.nutsnews.com",
+        "enabled": false,
+        "health": {
+          "error": "public route disabled",
+          "ok": false,
+          "status": 0
+        },
+        "health_url": ""
+      },
+      "staged": {
+        "enabled": false,
+        "health": {
+          "error": "staged route disabled",
+          "ok": false,
+          "status": 0
+        },
+        "health_url": "",
+        "path": "/app-stage"
+      }
     },
     "secrets": {
       "configured_secret_keys": [],
       "env_file": "/etc/nutsnews/nutsnews-app.env",
       "env_file_present": true,
-      "missing_required_secret_keys": [
-        "NUTSNEWS_APP_DATABASE_URL",
-        "NUTSNEWS_APP_API_TOKEN"
-      ],
-      "required_secret_keys": [
-        "NUTSNEWS_APP_DATABASE_URL",
-        "NUTSNEWS_APP_API_TOKEN"
-      ],
-      "required_secrets_configured": false,
-      "secret_env_keys": [
-        "NUTSNEWS_APP_DATABASE_URL",
-        "NUTSNEWS_APP_API_TOKEN"
-      ]
+      "missing_required_secret_keys": [],
+      "required_secret_keys": [],
+      "required_secrets_configured": true,
+      "secret_env_keys": []
     },
+    "staged_route_enabled": false,
     "marker": {
       "container_name": "nutsnews-app",
+      "build_id": "",
+      "deployment_result": "not_deployed",
+      "deployment_target": "production-vps",
+      "image_digest": "",
       "image_repo": "ghcr.io/ramideltoro/nutsnews",
-      "image_tag": "latest",
+      "last_known_good_digest": "",
+      "public_route_enabled": false,
       "recorded_at": "2026-07-04T20:45:00+00:00",
-      "route_enabled": false,
       "route_path": "/app-stage",
+      "source_commit": "",
+      "staged_route_enabled": false,
       "status": "disabled"
     }
   },
   "app_links": [
+    {
+      "name": "Dual-target web deployment",
+      "url": "https://github.com/ramideltoro/nutsnews-docs/blob/main/NUTSNEWS_DUAL_TARGET_WEB_DEPLOYMENT.md"
+    },
     {
       "name": "NutsNews app layer setup",
       "url": "https://github.com/ramideltoro/nutsnews-docs/blob/main/NUTSNEWS_VPS_SERVICE_FOUNDATION.md#nutsnews-app-layer"

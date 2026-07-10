@@ -156,14 +156,18 @@ def collect() -> list[str]:
     lines.extend(timestamp_samples("nutsnews_email_reporting_last_report_success", reporting.get("last_report_success_at")))
 
     deploy_status = nested(app, "deploy_status", default={}) or {}
-    routing = nested(app, "routing", default={}) or {}
+    routes = nested(app, "routes", default={}) or {}
+    staged_route = nested(routes, "staged", default={}) or {}
+    public_route = nested(routes, "public", default={}) or {}
     lines.extend(
         [
             sample("nutsnews_app_enabled", bool_value(app.get("enabled"))),
-            sample("nutsnews_app_route_enabled", bool_value(app.get("route_enabled"))),
+            sample("nutsnews_app_staged_route_enabled", bool_value(app.get("staged_route_enabled"))),
+            sample("nutsnews_app_public_route_enabled", bool_value(app.get("public_route_enabled"))),
             sample("nutsnews_app_container_running", bool_value(deploy_status.get("container_state") == "running")),
-            sample("nutsnews_app_container_healthy", bool_value(deploy_status.get("container_health") in {"healthy", "none"})),
-            sample("nutsnews_app_route_ready", bool_value(routing.get("health_status") == "ready")),
+            sample("nutsnews_app_container_healthy", bool_value(deploy_status.get("container_health") == "healthy")),
+            sample("nutsnews_app_staged_route_healthy", bool_value(nested(staged_route, "health", "ok", default=False))),
+            sample("nutsnews_app_public_route_healthy", bool_value(nested(public_route, "health", "ok", default=False))),
         ]
     )
 
