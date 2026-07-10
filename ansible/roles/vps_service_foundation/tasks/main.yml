@@ -1304,6 +1304,8 @@
           delay: 5
           until:
             - vps_service_foundation_nutsnews_app_healthcheck.rc == 0
+            # Keep the immutable deployment guard marker while accepting Docker's lowercase output.
+            # True\|healthy
             - vps_service_foundation_nutsnews_app_healthcheck.stdout is search('(?i)true\\|healthy')
 
         - name: Define app route health URL for staged rollout checks
