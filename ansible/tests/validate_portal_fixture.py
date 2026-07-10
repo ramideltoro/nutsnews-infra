@@ -314,6 +314,7 @@ for label in (
 app_links = STATUS["app_links"]
 require(isinstance(app_links, list) and len(app_links) >= 3, "Fixture app links missing app-layer links.")
 for required_name in (
+    "Dual-target web deployment",
     "NutsNews app layer setup",
     "Ops Portal app state",
     "Protected app rollout",
