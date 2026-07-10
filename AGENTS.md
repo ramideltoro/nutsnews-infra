@@ -29,6 +29,14 @@
 - Keep only short operational pointers in this repository. Learning, explanation, diagrams, recovery context, and operating guides belong in `ramideltoro/nutsnews-docs`.
 - Documentation-only changes must never trigger app, Worker, VPS, or deployment workflows.
 
+## Production VPS Verification and Troubleshooting
+
+- For changes affecting VPS services, networking, Docker, Caddy, systemd, UFW, health endpoints, monitoring, security, or availability, SSH verification is REQUIRED before reporting success.
+- SSH is authorized for read-only verification and troubleshooting: inspect sockets, routes, service/unit state, logs, Docker network/configuration, UFW, and health responses as needed.
+- If runtime verification exposes a problem, troubleshoot it over SSH, but make the permanent fix only in this repository through Ansible/GitOps.
+- MUST NOT make persistent direct host edits, weaken the firewall, expose secrets, or restart/change production services manually to bypass the GitOps path.
+- After an approved Protected Ansible Apply, SSH verification is REQUIRED again and must prove the intended runtime state.
+
 ## Validation
 
 - Infrastructure changes require validation before PR review.

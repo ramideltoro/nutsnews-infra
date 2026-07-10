@@ -579,6 +579,19 @@
         group: root
         mode: "0644"
 
+    - name: Validate infrastructure health network boundary
+      ansible.builtin.assert:
+        that:
+          - vps_service_foundation_infra_health_host == '172.17.0.1'
+          - vps_service_foundation_infra_health_port | int == 18080
+          - vps_service_foundation_infra_health_ufw_allow_from == '172.18.0.0/16'
+        fail_msg: >-
+          The infrastructure health endpoint must bind only to the Docker
+          host-gateway address and accept traffic only from the Caddy Docker
+          network. Update the evidence, Caddy mapping, and UFW rule together
+          through a reviewed GitOps change before changing this boundary.
+        success_msg: Infrastructure health listener and Caddy UFW boundary are narrow.
+
     - name: Install NutsNews infrastructure health service
       ansible.builtin.template:
         src: nutsnews-infra-health.service.j2

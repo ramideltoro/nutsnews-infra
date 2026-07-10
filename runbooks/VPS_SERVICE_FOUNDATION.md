@@ -46,6 +46,8 @@ curl -fsS http://127.0.0.1:8080/
 curl -fsS http://127.0.0.1:8080/data/status.json
 systemctl status nutsnews-infra-health.service
 systemctl status nutsnews-ops-portal-collector.timer
+sudo ss -ltnp 'sport = :18080'
+sudo ufw status verbose
 free -h
 swapon --show
 cat /proc/sys/vm/swappiness
@@ -58,7 +60,11 @@ From a workstation or external monitor after DNS is pointed at the VPS and ports
 
 ```bash
 curl -i https://vps.nutsnews.com/health
+curl --connect-timeout 3 --max-time 5 http://vps.nutsnews.com:18080/health
 ```
+
+The HTTPS request must return HTTP `200`. The direct port-`18080` request must
+not connect; it is an intentional private-only failure.
 
 ## Rate Limiting
 
@@ -97,7 +103,7 @@ Expected `/health` success output:
 
 ## Infrastructure Health Check
 
-The public `/health` endpoint is intended for Better Stack and other HTTP status-code monitors. Caddy proxies `/health` to the local `nutsnews-infra-health.service`, which listens on the host health port and returns:
+The public `/health` endpoint is intended for Better Stack and other HTTP status-code monitors. Caddy proxies `/health` to the local `nutsnews-infra-health.service`, which listens only on the Docker host-gateway address `172.17.0.1:18080` and returns:
 
 - HTTP `200` only when all required checks pass
 - HTTP `503` when any required check fails
@@ -124,39 +130,14 @@ Safe local test commands after apply:
 
 ```bash
 curl -i http://127.0.0.1:8080/health
+curl -i http://172.17.0.1:18080/health
 sudo journalctl -u nutsnews-infra-health.service -n 80 --no-pager
 sudo tail -n 40 /opt/nutsnews/logs/health/health-failures.jsonl
 ```
 
-Safe failure simulation without stopping services:
-
-```bash
-sudo systemctl edit nutsnews-infra-health.service
-```
-
-Add this temporary override:
-
-```ini
-[Service]
-Environment="NUTSNEWS_INFRA_HEALTH_SIMULATE_FAILURES=manual-test"
-```
-
-Then run:
-
-```bash
-sudo systemctl daemon-reload
-sudo systemctl restart nutsnews-infra-health.service
-curl -i http://127.0.0.1:8080/health
-sudo journalctl -u nutsnews-infra-health.service -n 80 --no-pager
-```
-
-Remove the override and restart the service to restore normal checks:
-
-```bash
-sudo systemctl revert nutsnews-infra-health.service
-sudo systemctl daemon-reload
-sudo systemctl restart nutsnews-infra-health.service
-```
+Do not simulate failures by editing or restarting the production service over
+SSH. Exercise failure behavior in an isolated environment, then make any
+production change through a reviewed GitOps update and protected apply.
 
 Better Stack settings:
 
@@ -172,9 +153,9 @@ Recommended regions: US East, US West, EU West
 
 ## Public Exposure
 
-Caddy publishes public ports `80` and `443` for `vps.nutsnews.com`. The public virtual host exposes only `/health` and returns `404` for other paths. Caddy proxies `/health` to the local `nutsnews-infra-health.service` through the host gateway.
+Caddy publishes public ports `80` and `443` for `vps.nutsnews.com`. The public virtual host exposes only `/health` and returns `404` for other paths. Caddy proxies `/health` to the local `nutsnews-infra-health.service` through `host.docker.internal`, which resolves to the Docker host-gateway address `172.17.0.1`.
 
-UFW allows the Caddy Docker network to reach the host health service on TCP port `18080`. This internal rule is managed by Ansible so the public Better Stack endpoint works without manual firewall changes.
+UFW allows only the Caddy Docker network (`172.18.0.0/16`) to reach the host health service on TCP port `18080`. Direct public access to TCP port 18080 is intentionally blocked. This internal rule is managed by Ansible so the public Better Stack endpoint works without manual firewall changes.
 
 The operations portal is exposed publicly at `https://ops.nutsnews.com` through Caddy-managed TLS and the Ops Portal Google OAuth gateway. The host loopback listener at `127.0.0.1:8080` remains available for private health checks and SSH tunnel fallback. When Cloudflare DDNS is enabled, the protected apply workflow updates both `vps.nutsnews.com` and `ops.nutsnews.com` A records immediately and keeps the DDNS timer enabled for future VPS public IPv4 changes.
 
