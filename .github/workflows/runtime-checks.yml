@@ -72,7 +72,8 @@ jobs:
           fi
 
           export NUTSNEWS_OPS_PORTAL_AUTH_ENV_FILE="$RUNNER_TEMP/ops-portal-auth.env"
-          export NUTSNEWS_APP_IMAGE="ghcr.io/ramideltoro/nutsnews@sha256:$(printf '0%.0s' {1..64})"
+          NUTSNEWS_APP_IMAGE="ghcr.io/ramideltoro/nutsnews@sha256:$(printf '0%.0s' {1..64})"
+          export NUTSNEWS_APP_IMAGE
           cat > "$NUTSNEWS_OPS_PORTAL_AUTH_ENV_FILE" <<'EOF'
           GOOGLE_CLIENT_ID=dummy
           GOOGLE_CLIENT_SECRET=dummy
