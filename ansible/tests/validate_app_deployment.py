@@ -12,6 +12,7 @@ DEFAULTS = ROOT / "roles/vps_service_foundation/defaults/main.yml"
 TASKS = ROOT / "roles/vps_service_foundation/tasks/main.yml"
 STAGED_ROUTE = ROOT / "roles/vps_service_foundation/templates/nutsnews-app.routes.j2"
 PUBLIC_ROUTE = ROOT / "roles/vps_service_foundation/templates/nutsnews-app.public.routes.j2"
+APP_ENV_TEMPLATE = ROOT / "roles/vps_service_foundation/templates/nutsnews-app.env.j2"
 COLLECTOR = ROOT / "roles/vps_service_foundation/files/ops_portal_collector.py"
 APP_COMPOSE = REPO / "compose/nutsnews/compose.yml"
 CADDYFILE = REPO / "compose/caddy/Caddyfile"
@@ -58,6 +59,7 @@ tasks = TASKS.read_text(encoding="utf-8")
 app_compose = APP_COMPOSE.read_text(encoding="utf-8")
 staged_route = STAGED_ROUTE.read_text(encoding="utf-8")
 public_route = PUBLIC_ROUTE.read_text(encoding="utf-8")
+app_env_template = APP_ENV_TEMPLATE.read_text(encoding="utf-8")
 caddyfile = CADDYFILE.read_text(encoding="utf-8")
 protected_apply = PROTECTED_APPLY.read_text(encoding="utf-8")
 collector = COLLECTOR.read_text(encoding="utf-8")
@@ -81,6 +83,8 @@ assert "header_up Host" in public_route
 assert "header_up X-Forwarded-Proto" in public_route
 assert "flush_interval -1" in public_route
 assert "header_down" not in public_route
+assert "vps_service_foundation_nutsnews_app_envs | dictsort" in app_env_template
+assert ".items() | dictsort" not in app_env_template
 
 public_site = caddyfile.split("vps.nutsnews.com {", 1)[1].split("ops.nutsnews.com {", 1)[0]
 assert "handle /health" in public_site
