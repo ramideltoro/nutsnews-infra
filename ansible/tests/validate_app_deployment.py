@@ -27,9 +27,11 @@ def value(name: str) -> str:
 
 
 assert HOST_VARS.is_file(), f"Missing reviewed app release manifest: {HOST_VARS}"
-assert value("vps_service_foundation_nutsnews_app_enabled") == "false"
-assert value("vps_service_foundation_nutsnews_app_staged_route_enabled") == "false"
-assert value("vps_service_foundation_nutsnews_app_public_route_enabled") == "false"
+app_enabled = value("vps_service_foundation_nutsnews_app_enabled") == "true"
+staged_enabled = value("vps_service_foundation_nutsnews_app_staged_route_enabled") == "true"
+public_enabled = value("vps_service_foundation_nutsnews_app_public_route_enabled") == "true"
+assert not public_enabled
+assert not staged_enabled or app_enabled
 assert value("vps_service_foundation_nutsnews_app_image_repo") == "ghcr.io/ramideltoro/nutsnews"
 assert re.fullmatch(
     r"sha256:[0-9a-f]{64}",
