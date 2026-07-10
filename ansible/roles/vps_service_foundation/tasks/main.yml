@@ -1300,7 +1300,7 @@
           changed_when: false
           when: vps_service_foundation_nutsnews_app_enabled | bool
           failed_when: false
-          retries: 15
+          retries: 36
           delay: 5
           until:
             - vps_service_foundation_nutsnews_app_healthcheck.rc == 0
