@@ -1,5 +1,10 @@
 name: Protected Ansible Apply
 
+run-name: >-
+  ${{ inputs.release_source_commit != '' &&
+      format('Automated VPS release {0}', inputs.release_source_commit) ||
+      format('Protected Ansible Apply ({0})', inputs.run_mode) }}
+
 on:
   workflow_dispatch:
     inputs:
@@ -32,6 +37,21 @@ on:
         options:
           - "false"
           - "true"
+      release_source_commit:
+        description: Optional verified app source commit for an automated release.
+        required: false
+        default: ""
+        type: string
+      release_image_digest:
+        description: Optional verified immutable image digest for an automated release.
+        required: false
+        default: ""
+        type: string
+      release_build_id:
+        description: Optional verified app build ID for an automated release.
+        required: false
+        default: ""
+        type: string
 
 permissions:
   contents: read  # Required to check out the GitOps-managed Ansible playbooks.
@@ -56,6 +76,37 @@ jobs:
       - name: Validate reviewed app release state
         shell: bash
         run: python3 ansible/tests/validate_app_deployment.py
+
+      - name: Validate requested automated release identity
+        shell: bash
+        env:
+          RELEASE_SOURCE_COMMIT: ${{ inputs.release_source_commit }}
+          RELEASE_IMAGE_DIGEST: ${{ inputs.release_image_digest }}
+          RELEASE_BUILD_ID: ${{ inputs.release_build_id }}
+        run: |
+          set -euo pipefail
+
+          supplied=0
+          for value in "$RELEASE_SOURCE_COMMIT" "$RELEASE_IMAGE_DIGEST" "$RELEASE_BUILD_ID"; do
+            if [[ -n "$value" ]]; then
+              supplied=$((supplied + 1))
+            fi
+          done
+          if [[ "$supplied" -eq 0 ]]; then
+            exit 0
+          fi
+          if [[ "$supplied" -ne 3 ]]; then
+            echo "Automated release verification requires source commit, image digest, and build ID together." >&2
+            exit 1
+          fi
+
+          python3 ansible/scripts/promote_nutsnews_release.py \
+            --verify \
+            --manifest ansible/inventories/production/host_vars/vps.nutsnews.com.yml \
+            --image-repository ghcr.io/ramideltoro/nutsnews \
+            --image-digest "$RELEASE_IMAGE_DIGEST" \
+            --source-commit "$RELEASE_SOURCE_COMMIT" \
+            --build-id "$RELEASE_BUILD_ID"
 
       - name: Validate dispatch inputs
         shell: bash
@@ -542,3 +593,75 @@ jobs:
           fi
 
           exit "$ansible_status"
+
+      - name: Verify released Docker image over SSH
+        if: inputs.release_source_commit != ''
+        shell: bash
+        env:
+          RELEASE_IMAGE_DIGEST: ${{ inputs.release_image_digest }}
+        run: |
+          set -euo pipefail
+
+          expected_image="ghcr.io/ramideltoro/nutsnews@${RELEASE_IMAGE_DIGEST}"
+          actual="$(ssh \
+            -i "$HOME/.ssh/nutsnews_vps" \
+            -o "UserKnownHostsFile=$HOME/.ssh/known_hosts" \
+            -o StrictHostKeyChecking=yes \
+            -o IdentitiesOnly=yes \
+            nutsnews_ops@65.75.202.112 \
+            "sudo docker inspect --format '{{.Config.Image}}|{{.State.Running}}|{{if .State.Health}}{{.State.Health.Status}}{{else}}missing{{end}}' nutsnews-app")"
+
+          if [[ "$actual" != "$expected_image|true|healthy" ]]; then
+            echo "The running VPS container does not match the reviewed immutable image or is unhealthy." >&2
+            exit 1
+          fi
+
+      - name: Verify released public health identity
+        if: inputs.release_source_commit != ''
+        shell: bash
+        env:
+          RELEASE_SOURCE_COMMIT: ${{ inputs.release_source_commit }}
+          RELEASE_BUILD_ID: ${{ inputs.release_build_id }}
+        run: |
+          set -euo pipefail
+
+          node --input-type=module <<'NODE'
+          const sourceCommit = process.env.RELEASE_SOURCE_COMMIT ?? "";
+          const buildId = process.env.RELEASE_BUILD_ID ?? "";
+          const delay = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
+
+          if (!/^[0-9a-f]{40}$/.test(sourceCommit) || !/^\d+-\d+$/.test(buildId)) {
+            throw new Error("Automated release health verification received invalid expected identity values.");
+          }
+
+          const url = new URL("https://vps.nutsnews.com/healthz");
+          url.searchParams.set("release", sourceCommit);
+          let lastFailure = "no response";
+          for (let attempt = 1; attempt <= 12; attempt += 1) {
+            try {
+              const response = await fetch(url, {
+                headers: { "Cache-Control": "no-cache" },
+              });
+              const payload = await response.json();
+              const valid =
+                response.ok &&
+                payload?.ok === true &&
+                payload?.service === "nutsnews-web" &&
+                payload?.sourceCommit === sourceCommit &&
+                payload?.buildId === buildId &&
+                payload?.deploymentTarget === "vps" &&
+                response.headers.get("x-nutsnews-source-commit") === sourceCommit &&
+                response.headers.get("x-nutsnews-build-id") === buildId &&
+                response.headers.get("x-nutsnews-deployment-target") === "vps";
+              if (valid) {
+                console.log(`Verified public VPS health identity for ${sourceCommit}.`);
+                process.exit(0);
+              }
+              lastFailure = `unexpected health identity (HTTP ${response.status})`;
+            } catch (error) {
+              lastFailure = error instanceof Error ? error.message : String(error);
+            }
+            await delay(10_000);
+          }
+          throw new Error(`Timed out waiting for the released VPS identity: ${lastFailure}`);
+          NODE

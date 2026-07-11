@@ -126,3 +126,4 @@ jobs:
         run: |
           python3 ansible/tests/validate_no_app_secrets.py
           python3 ansible/tests/validate_app_deployment.py
+          python3 ansible/tests/validate_release_promotion.py
