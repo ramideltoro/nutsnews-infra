@@ -184,6 +184,24 @@
       "destination": "ACTIONS_READ_TOKEN",
       "reason": "Optional server-side GitHub Actions read credential used by the admin production-readiness dashboard."
     },
+    "AUTH_GOOGLE_ID": {
+      "category": "server_side_secret",
+      "sync": true,
+      "destination": "AUTH_GOOGLE_ID",
+      "reason": "Auth.js Google OAuth client identifier consumed by the VPS server runtime."
+    },
+    "AUTH_GOOGLE_SECRET": {
+      "category": "server_side_secret",
+      "sync": true,
+      "destination": "AUTH_GOOGLE_SECRET",
+      "reason": "Auth.js Google OAuth client secret consumed by the VPS server runtime."
+    },
+    "AUTH_SECRET": {
+      "category": "server_side_secret",
+      "sync": true,
+      "destination": "AUTH_SECRET",
+      "reason": "Auth.js session/encryption secret required by the VPS server runtime."
+    },
     "SENTRY_AUTH_TOKEN": {
       "category": "server_side_secret",
       "sync": false,
