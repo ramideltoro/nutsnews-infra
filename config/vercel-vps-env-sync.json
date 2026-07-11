@@ -9,6 +9,30 @@
     "env_file": "/etc/nutsnews/nutsnews-app.env"
   },
   "variables": {
+    "ADMIN_EMAILS": {
+      "category": "safe_to_synchronize",
+      "sync": true,
+      "destination": "ADMIN_EMAILS",
+      "reason": "Server-side admin allowlist consumed by the web runtime."
+    },
+    "ADMIN_SHARD_COUNT": {
+      "category": "safe_to_synchronize",
+      "sync": true,
+      "destination": "ADMIN_SHARD_COUNT",
+      "reason": "Server-side admin shard health setting consumed by the web runtime."
+    },
+    "ADMIN_SHARD_SLOW_RUN_MS": {
+      "category": "safe_to_synchronize",
+      "sync": true,
+      "destination": "ADMIN_SHARD_SLOW_RUN_MS",
+      "reason": "Server-side admin shard health setting consumed by the web runtime."
+    },
+    "ADMIN_SHARD_STALE_MINUTES": {
+      "category": "safe_to_synchronize",
+      "sync": true,
+      "destination": "ADMIN_SHARD_STALE_MINUTES",
+      "reason": "Server-side admin shard health setting consumed by the web runtime."
+    },
     "BETTER_STACK_INGESTING_HOST": {
       "category": "safe_to_synchronize",
       "sync": true,
@@ -75,6 +99,12 @@
       "destination": "NEXT_PUBLIC_NUTSNEWS_IOS_APP_STORE_URL",
       "reason": "Public app-store link rendered by the web runtime."
     },
+    "NEXT_PUBLIC_TURNSTILE_SITE_KEY": {
+      "category": "safe_to_synchronize",
+      "sync": true,
+      "destination": "NEXT_PUBLIC_TURNSTILE_SITE_KEY",
+      "reason": "Public Cloudflare Turnstile site key used by the contact form."
+    },
     "NEXT_PUBLIC_SUPABASE_ANON_KEY": {
       "category": "safe_to_synchronize",
       "sync": true,
@@ -98,6 +128,12 @@
       "sync": true,
       "destination": "RESEND_API_KEY",
       "reason": "Contact email delivery credential consumed by the web runtime."
+    },
+    "TURNSTILE_SECRET_KEY": {
+      "category": "server_side_secret",
+      "sync": true,
+      "destination": "TURNSTILE_SECRET_KEY",
+      "reason": "Cloudflare Turnstile verification credential consumed by the web runtime."
     },
     "AUTH_GOOGLE_ID": {
       "category": "server_side_secret",
