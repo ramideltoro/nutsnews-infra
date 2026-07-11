@@ -1,0 +1,98 @@
+{
+  "source": {
+    "provider": "vercel",
+    "environment": "production"
+  },
+  "target": {
+    "provider": "nutsnews-vps",
+    "environment": "production",
+    "env_file": "/etc/nutsnews/nutsnews-app.env"
+  },
+  "variables": {
+    "NEXT_PUBLIC_APP_ENV": {
+      "category": "safe_to_synchronize",
+      "sync": true,
+      "destination": "NEXT_PUBLIC_APP_ENV",
+      "reason": "Runtime environment label; not secret."
+    },
+    "NEXT_PUBLIC_SITE_URL": {
+      "category": "safe_to_synchronize",
+      "sync": true,
+      "destination": "NEXT_PUBLIC_SITE_URL",
+      "reason": "Public canonical site URL."
+    },
+    "NEXT_PUBLIC_SENTRY_DSN": {
+      "category": "safe_to_synchronize",
+      "sync": true,
+      "destination": "NEXT_PUBLIC_SENTRY_DSN",
+      "reason": "Sentry DSNs are client configuration, not write credentials."
+    },
+    "NEXT_PUBLIC_SUPABASE_ANON_KEY": {
+      "category": "safe_to_synchronize",
+      "sync": true,
+      "destination": "NEXT_PUBLIC_SUPABASE_ANON_KEY",
+      "reason": "Supabase public anon key; database policy remains the security boundary."
+    },
+    "NEXT_PUBLIC_SUPABASE_URL": {
+      "category": "safe_to_synchronize",
+      "sync": true,
+      "destination": "NEXT_PUBLIC_SUPABASE_URL",
+      "reason": "Supabase public project URL."
+    },
+    "OPENAI_API_KEY": {
+      "category": "server_side_secret",
+      "sync": false,
+      "reason": "Worker-owned credential; no current VPS web runtime usage. Review before enabling."
+    },
+    "SENTRY_AUTH_TOKEN": {
+      "category": "server_side_secret",
+      "sync": false,
+      "reason": "Vercel build/source-map credential; not a VPS runtime credential."
+    },
+    "SUPABASE_SERVICE_ROLE_KEY": {
+      "category": "server_side_secret",
+      "sync": false,
+      "reason": "Worker-owned privileged credential; never copy without an explicit VPS consumer review."
+    },
+    "SENTRY_ORG": {
+      "category": "vercel_platform_only",
+      "sync": false,
+      "reason": "Vercel build configuration."
+    },
+    "SENTRY_PROJECT": {
+      "category": "vercel_platform_only",
+      "sync": false,
+      "reason": "Vercel build configuration."
+    },
+    "NEXT_PUBLIC_VERCEL_GIT_COMMIT_SHA": {
+      "category": "vercel_platform_only",
+      "sync": false,
+      "reason": "Deployment metadata; it is not stable VPS configuration."
+    },
+    "NEXT_PUBLIC_VERCEL_ENV": {
+      "category": "vercel_platform_only",
+      "sync": false,
+      "reason": "Vercel deployment metadata."
+    }
+  },
+  "patterns": [
+    {
+      "pattern": "^(VERCEL_|NOW_)|^NEXT_PUBLIC_VERCEL_",
+      "category": "vercel_platform_only",
+      "sync": false,
+      "reason": "Vercel system or deployment metadata."
+    },
+    {
+      "pattern": "(^|_)(PREVIEW|DEVELOPMENT|DEV)(_|$)",
+      "category": "preview_development_only",
+      "sync": false,
+      "reason": "Preview/development configuration must not enter VPS production."
+    },
+    {
+      "pattern": "^(NEXT_PUBLIC_TURNSTILE_|TURNSTILE_|ADMIN_|CONTROLLER_)",
+      "category": "manual_review",
+      "sync": false,
+      "reason": "Browser-only or service-specific configuration requires an explicit consumer review."
+    }
+  ]
+}

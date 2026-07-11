@@ -21,6 +21,14 @@ on:
         required: false
         default: ""
         type: string
+      sync_vercel_production:
+        description: Sync only the explicitly mapped Vercel Production variables to VPS production.
+        required: true
+        default: "true"
+        type: choice
+        options:
+          - "true"
+          - "false"
       enable_cloudflare_ddns:
         description: Enable the Cloudflare DDNS timer for vps.nutsnews.com.
         required: true
@@ -113,6 +121,7 @@ jobs:
         env:
           RUN_MODE: ${{ inputs.run_mode }}
           CONFIRM_APPLY: ${{ inputs.confirm_apply }}
+          SYNC_VERCEL_PRODUCTION: ${{ inputs.sync_vercel_production }}
         run: |
           set -euo pipefail
 
@@ -123,6 +132,11 @@ jobs:
 
           if [[ "$RUN_MODE" == "apply" && "$CONFIRM_APPLY" != "vps.nutsnews.com" ]]; then
             echo "Apply mode requires confirm_apply to be exactly vps.nutsnews.com." >&2
+            exit 1
+          fi
+
+          if [[ "$SYNC_VERCEL_PRODUCTION" != "true" && "$SYNC_VERCEL_PRODUCTION" != "false" ]]; then
+            echo "sync_vercel_production must be true or false." >&2
             exit 1
           fi
 
@@ -150,8 +164,12 @@ jobs:
           NUTSNEWS_GRAFANA_CLOUD_LOGS_URL: ${{ secrets.NUTSNEWS_GRAFANA_CLOUD_LOGS_URL }}
           NUTSNEWS_GRAFANA_CLOUD_LOGS_USERNAME: ${{ secrets.NUTSNEWS_GRAFANA_CLOUD_LOGS_USERNAME }}
           NUTSNEWS_GRAFANA_CLOUD_ACCESS_POLICY_TOKEN: ${{ secrets.NUTSNEWS_GRAFANA_CLOUD_ACCESS_POLICY_TOKEN }}
+          NUTSNEWS_VERCEL_TOKEN: ${{ secrets.NUTSNEWS_VERCEL_TOKEN }}
+          NUTSNEWS_VERCEL_PROJECT_ID: ${{ secrets.NUTSNEWS_VERCEL_PROJECT_ID }}
+          NUTSNEWS_VERCEL_TEAM_ID: ${{ secrets.NUTSNEWS_VERCEL_TEAM_ID }}
           ENABLE_CLOUDFLARE_DDNS: ${{ inputs.enable_cloudflare_ddns }}
           ENABLE_GRAFANA_ALLOY: ${{ inputs.enable_grafana_alloy }}
+          SYNC_VERCEL_PRODUCTION: ${{ inputs.sync_vercel_production }}
         run: |
           set -euo pipefail
 
@@ -187,6 +205,19 @@ jobs:
             done
           fi
 
+          if [[ "$SYNC_VERCEL_PRODUCTION" == "true" ]]; then
+            for secret_name in \
+              NUTSNEWS_VERCEL_TOKEN \
+              NUTSNEWS_VERCEL_PROJECT_ID \
+              NUTSNEWS_VERCEL_TEAM_ID
+            do
+              if [[ -z "${!secret_name}" ]]; then
+                echo "Missing required production-vps environment secret: $secret_name" >&2
+                missing=1
+              fi
+            done
+          fi
+
           exit "$missing"
 
       - name: Prepare SSH material
@@ -196,6 +227,7 @@ jobs:
           NUTSNEWS_VPS_KNOWN_HOSTS: ${{ secrets.NUTSNEWS_VPS_KNOWN_HOSTS }}
         run: |
           set -euo pipefail
+          umask 077
 
           install -m 0700 -d "$HOME/.ssh"
           printf '%s\n' "$NUTSNEWS_VPS_SSH_PRIVATE_KEY" > "$HOME/.ssh/nutsnews_vps"
@@ -206,6 +238,41 @@ jobs:
 
           ssh-keygen -y -f "$HOME/.ssh/nutsnews_vps" > /dev/null
           ssh-keygen -F 65.75.202.112 -f "$HOME/.ssh/known_hosts" > /dev/null
+
+      - name: Fetch and diff reviewed Vercel Production variables
+        if: inputs.sync_vercel_production == 'true'
+        shell: bash
+        env:
+          VERCEL_TOKEN: ${{ secrets.NUTSNEWS_VERCEL_TOKEN }}
+          VERCEL_PROJECT_ID: ${{ secrets.NUTSNEWS_VERCEL_PROJECT_ID }}
+          VERCEL_TEAM_ID: ${{ secrets.NUTSNEWS_VERCEL_TEAM_ID }}
+        run: |
+          set -euo pipefail
+          umask 077
+
+          selected_file="$RUNNER_TEMP/vercel-selected.json"
+          report_file="$RUNNER_TEMP/vercel-classification.json"
+          target_file="$RUNNER_TEMP/vps-env-fingerprints.json"
+          python3 scripts/vercel_vps_env_sync.py fetch \
+            --mapping config/vercel-vps-env-sync.json \
+            --output "$selected_file" \
+            --report-output "$report_file"
+
+          ssh_args=(
+            -i "$HOME/.ssh/nutsnews_vps"
+            -o UserKnownHostsFile="$HOME/.ssh/known_hosts"
+            -o StrictHostKeyChecking=yes
+            -o IdentitiesOnly=yes
+          )
+          ssh "${ssh_args[@]}" nutsnews_ops@65.75.202.112 \
+            "sudo -n python3 - fingerprint --path /etc/nutsnews/nutsnews-app.env" \
+            < scripts/vercel_vps_env_sync.py > "$target_file"
+
+          python3 scripts/vercel_vps_env_sync.py diff \
+            --mapping config/vercel-vps-env-sync.json \
+            --selected "$selected_file" \
+            --target "$target_file" \
+            --report "$report_file"
 
       - name: Build runtime extra vars
         shell: bash
@@ -266,9 +333,12 @@ jobs:
           NUTSNEWS_GITHUB_USAGE_API_TOKEN: ${{ secrets.NUTSNEWS_GITHUB_USAGE_API_TOKEN }}
           NUTSNEWS_GITHUB_ACTIONS_USAGE_API_URL: ${{ secrets.NUTSNEWS_GITHUB_ACTIONS_USAGE_API_URL }}
           ENABLE_GRAFANA_ALLOY: ${{ inputs.enable_grafana_alloy }}
+          SYNC_VERCEL_PRODUCTION: ${{ inputs.sync_vercel_production }}
+          NUTSNEWS_VERCEL_SYNC_ENVS_FILE: ${{ runner.temp }}/vercel-selected.json
           RUN_MODE: ${{ inputs.run_mode }}
         run: |
           set -euo pipefail
+          umask 077
 
           python3 - <<'PY'
           import json
@@ -317,6 +387,18 @@ jobs:
               if not isinstance(data, dict):
                   raise SystemExit(f"{name} must be a JSON object.")
               return data
+
+          vercel_envs = {}
+          if truthy("SYNC_VERCEL_PRODUCTION"):
+              sync_file = Path(os.environ["NUTSNEWS_VERCEL_SYNC_ENVS_FILE"])
+              try:
+                  vercel_envs = json.loads(sync_file.read_text(encoding="utf-8"))
+              except (OSError, json.JSONDecodeError) as exc:
+                  raise SystemExit("The classified Vercel environment file is missing or invalid.") from exc
+              if not isinstance(vercel_envs, dict) or not all(
+                  isinstance(key, str) and isinstance(value, str) for key, value in vercel_envs.items()
+              ):
+                  raise SystemExit("The classified Vercel environment file must be a JSON object of strings.")
 
           def optional_https_url(name):
               value = os.environ.get(name, "").strip()
@@ -463,6 +545,7 @@ jobs:
               "vps_service_foundation_backup_keep_monthly": env_int("NUTSNEWS_BACKUP_KEEP_MONTHLY", 12),
               "vps_service_foundation_backup_keep_yearly": env_int("NUTSNEWS_BACKUP_KEEP_YEARLY", 2),
               "vps_service_foundation_nutsnews_app_envs": app_envs,
+              "vps_service_foundation_nutsnews_app_vercel_envs": vercel_envs,
               "vps_service_foundation_ops_portal_allowed_email": "rami.deltoro@gmail.com",
               "vps_service_foundation_ops_portal_domain": ops_portal_domain,
               "vps_service_foundation_ops_portal_callback_path": ops_portal_callback_path,
@@ -665,3 +748,20 @@ jobs:
           }
           throw new Error(`Timed out waiting for the released VPS identity: ${lastFailure}`);
           NODE
+      - name: Remove temporary credentials and sync material
+        if: always()
+        shell: bash
+        run: |
+          set +e
+          for path in \
+            "$HOME/.ssh/nutsnews_vps" \
+            "$HOME/.ssh/known_hosts" \
+            "$RUNNER_TEMP/vercel-selected.json" \
+            "$RUNNER_TEMP/vercel-classification.json" \
+            "$RUNNER_TEMP/vps-env-fingerprints.json" \
+            "$GITHUB_WORKSPACE/ansible/.runtime-extra-vars.json"
+          do
+            if [[ -e "$path" ]]; then
+              shred -u "$path" 2>/dev/null || rm -f "$path"
+            fi
+          done

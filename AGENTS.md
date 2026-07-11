@@ -20,6 +20,7 @@
 - Treat the VPS as the primary production host. Stability, security, performance, resiliency, observability, recoverability, and constant email reporting are platform priorities.
 - Keep the setup provider-agnostic. Avoid provider-specific coupling unless isolated, documented, and replaceable.
 - Treat manual SSH as break-glass only. Any manual intervention must be documented afterward and reconciled back into this repository.
+- Vercel-to-VPS environment synchronization must use the protected `Protected Ansible Apply` workflow with the reviewed production-only mapping. Never edit `/etc/nutsnews/nutsnews-app.env` over SSH.
 - Treat the Ops Portal as the central dashboard and control plane for VPS state, services, deploys, checks, alerts, backups, runbooks, and reports.
 - The optional home server support node must never be required for the public website to stay online.
 - Use private networking or tunnels for support-node connectivity. Do not expose broad inbound ports.

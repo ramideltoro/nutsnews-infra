@@ -381,9 +381,20 @@
       ansible.builtin.assert:
         that:
           - vps_service_foundation_nutsnews_app_envs is mapping
+          - vps_service_foundation_nutsnews_app_vercel_envs is mapping
           - vps_service_foundation_nutsnews_app_secret_env_keys is iterable
           - vps_service_foundation_nutsnews_app_required_secrets is iterable
         fail_msg: "NutsNews app env or app secret key lists are not valid types."
+      when: vps_service_foundation_nutsnews_app_enabled | bool
+      no_log: true
+
+    - name: Merge reviewed Vercel environment values over VPS-only app values
+      ansible.builtin.set_fact:
+        vps_service_foundation_nutsnews_app_envs: >-
+          {{
+            vps_service_foundation_nutsnews_app_envs
+            | combine(vps_service_foundation_nutsnews_app_vercel_envs | default({}), recursive=false)
+          }}
       when: vps_service_foundation_nutsnews_app_enabled | bool
       no_log: true
 
