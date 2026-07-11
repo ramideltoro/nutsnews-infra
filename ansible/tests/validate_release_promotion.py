@@ -101,7 +101,9 @@ for required in (
     "repository_dispatch:",
     "nutsnews-production-release",
     "NUTSNEWS_INFRA_RELEASE_TOKEN",
-    "gh pr checks \"$PR_URL\" --required --watch",
+    "Wait for promotion checks to pass and merge",
+    "gh pr checks \"$PR_URL\" --json name,bucket",
+    "Promotion checks did not pass before the timeout.",
     "gh pr merge \"$PR_URL\" --merge",
     "gh workflow run protected-ansible-apply.yml",
     "gh run watch \"$run_id\"",
@@ -122,5 +124,6 @@ for required in (
 
 assert "NUTSNEWS_APP_IMAGE_TAG" not in promotion_workflow
 assert ":latest" not in promotion_workflow.lower()
+assert "gh pr checks \"$PR_URL\" --required" not in promotion_workflow
 
 print("Automatic NutsNews VPS release promotion guardrails passed.")

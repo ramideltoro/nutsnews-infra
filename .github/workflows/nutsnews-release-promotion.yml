@@ -157,13 +157,73 @@ jobs:
           echo "pr_url=$pr_url" >> "$GITHUB_OUTPUT"
           echo "release_branch=$release_branch" >> "$GITHUB_OUTPUT"
 
-      - name: Wait for required promotion checks and merge
+      - name: Wait for promotion checks to pass and merge
         if: steps.promotion.outputs.pr_url != ''
         env:
           PR_URL: ${{ steps.promotion.outputs.pr_url }}
         run: |
           set -euo pipefail
-          gh pr checks "$PR_URL" --required --watch --interval 10
+
+          deadline=$((SECONDS + 3600))
+          checks_file="$RUNNER_TEMP/promotion-checks.json"
+          checks_error_file="$RUNNER_TEMP/promotion-checks.stderr"
+
+          while true; do
+            set +e
+            gh pr checks "$PR_URL" --json name,bucket > "$checks_file" 2> "$checks_error_file"
+            checks_exit=$?
+            set -e
+
+            if [[ ! -s "$checks_file" ]]; then
+              if grep -Fq 'no checks reported' "$checks_error_file"; then
+                check_state="waiting"
+              else
+                cat "$checks_error_file" >&2
+                exit "$checks_exit"
+              fi
+            else
+              check_state="$(python3 - "$checks_file" <<'PY'
+          import json
+          import sys
+
+          with open(sys.argv[1], encoding="utf-8") as checks_file:
+              checks = json.load(checks_file)
+
+          if not checks:
+              print("waiting")
+          elif any(check.get("bucket") in {"fail", "cancel"} for check in checks):
+              print("failed")
+          elif all(check.get("bucket") in {"pass", "skipping"} for check in checks):
+              print("passed")
+          else:
+              print("waiting")
+          PY
+              )"
+            fi
+
+            case "$check_state" in
+              passed)
+                break
+                ;;
+              failed)
+                echo "A VPS release promotion check failed or was cancelled." >&2
+                exit 1
+                ;;
+              waiting)
+                if (( SECONDS >= deadline )); then
+                  echo "Promotion checks did not pass before the timeout." >&2
+                  exit 1
+                fi
+                echo "Waiting for promotion checks to register and pass."
+                sleep 10
+                ;;
+              *)
+                echo "Unexpected promotion-check state: $check_state" >&2
+                exit 1
+                ;;
+            esac
+          done
+
           gh pr merge "$PR_URL" --merge --delete-branch
 
       - name: Verify merged manifest matches the release request
