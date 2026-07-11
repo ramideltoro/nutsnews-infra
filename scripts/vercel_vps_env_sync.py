@@ -141,15 +141,19 @@ def production_records(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
 def classify_records(records: list[dict[str, Any]], mapping: dict[str, Any]) -> tuple[dict[str, str], dict[str, list[str]]]:
     selected: dict[str, str] = {}
     report = {"safe_to_synchronize": [], "server_side_secret": [], "vercel_platform_only": [], "preview_development_only": [], "manual_review": []}
+    unclassified: list[str] = []
+    manual_review: list[str] = []
     for record in production_records(records):
         key = record["key"]
         rule = rule_for(mapping, key)
         if rule is None:
-            fail(f"Unclassified Vercel Production variable {key}; add an explicit mapping rule before syncing.")
+            unclassified.append(key)
+            continue
         category = rule["category"]
         report[category].append(key)
         if category == REVIEW_CATEGORY:
-            fail(f"Vercel Production variable {key} is classified for manual review; sync is stopped safely.")
+            manual_review.append(key)
+            continue
         if not rule["sync"]:
             continue
         value = record.get("value")
@@ -161,6 +165,18 @@ def classify_records(records: list[dict[str, Any]], mapping: dict[str, Any]) -> 
         if destination in selected:
             fail(f"Multiple Vercel variables map to VPS destination {destination}.")
         selected[destination] = value
+    if unclassified:
+        fail(
+            "Unclassified Vercel Production variables: "
+            + ", ".join(sorted(unclassified))
+            + "; add explicit mapping rules before syncing."
+        )
+    if manual_review:
+        fail(
+            "Vercel Production variables require manual review: "
+            + ", ".join(sorted(manual_review))
+            + "; sync is stopped safely."
+        )
     return selected, report
 
 
