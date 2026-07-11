@@ -92,7 +92,8 @@ Default Caddy limits are keyed by `{remote_host}` with IPv6 clients grouped by `
 | Route group | Paths | Limit |
 | --- | --- | --- |
 | Health-sensitive endpoints | `/health`, `/healthz` | 30 requests per minute |
-| Auth/admin/ops-sensitive routes | `/api/auth/*`, `/login*`, `/admin*`, `/ops*` | 20 requests per minute |
+| Auth and ops-sensitive routes | `/api/auth/*`, `/login*`, `/ops*` | 20 requests per minute |
+| Admin UI navigation | `/admin*` | 120 requests per minute |
 | API routes | `/api/*` | 60 requests per minute |
 | Public/default content | `/*` | 600 requests per minute |
 
@@ -103,6 +104,15 @@ sudo docker logs nutsnews-caddy --since 30m | grep -E '"status":429|rate'
 ```
 
 Tune limits in `ansible/roles/vps_service_foundation/defaults/main.yml` by changing `vps_service_foundation_caddy_rate_limit_zones`, then run the protected workflow in `check` mode before `apply`. To disable the limiter temporarily through GitOps, set `vps_service_foundation_caddy_rate_limits_enabled: false`, merge the PR, and apply through the same workflow.
+
+The admin UI has a separate higher-capacity bucket because a normal Next.js
+App Router navigation can issue multiple HTML, RSC, and route requests. Keep
+the stricter `/api/auth/*` bucket separate so credential and callback abuse is
+still throttled without turning ordinary `/admin/*` navigation into a 429.
+Repeated 429s on `/admin/login` or an admin dashboard should first be checked
+against the Caddy JSON logs and the `Retry-After` header; do not bypass the
+limiter with manual host changes. A regression test locks the separate zones,
+their paths, and their budgets in `ansible/tests/validate_caddy_rate_limits.py`.
 
 Cloudflare is currently managed here only for DDNS records and defaults to DNS-only records. If Cloudflare proxying is enabled later, add complementary Cloudflare WAF/rate-limit rules there and review Caddy client IP handling before relying on `{remote_host}`.
 

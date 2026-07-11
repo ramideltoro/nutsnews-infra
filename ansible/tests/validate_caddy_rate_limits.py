@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 
@@ -29,12 +30,32 @@ for token in (
     "events: 30",
     "name: nutsnews_auth_sensitive",
     "events: 20",
+    "name: nutsnews_admin_ui",
+    "events: 120",
     "name: nutsnews_api",
     "events: 60",
     "name: nutsnews_public",
     "events: 600",
 ):
     require(token in DEFAULTS, f"Defaults missing {token}.")
+
+
+def zone_block(name: str) -> str:
+    match = re.search(
+        rf"^  - name: {re.escape(name)}$(.*?)(?=^  - name: |\Z)",
+        DEFAULTS,
+        re.MULTILINE | re.DOTALL,
+    )
+    require(match is not None, f"Rate-limit zone {name} is missing.")
+    return match.group(1)
+
+
+auth_sensitive = zone_block("nutsnews_auth_sensitive")
+admin_ui = zone_block("nutsnews_admin_ui")
+require("/admin*" not in auth_sensitive, "Admin UI must not share the Auth.js rate-limit bucket.")
+require("/api/auth/*" in auth_sensitive, "Auth.js endpoints must retain a dedicated rate-limit bucket.")
+require("/admin*" in admin_ui, "Admin UI paths must have a dedicated rate-limit bucket.")
+require("events: 120" in admin_ui, "Admin UI must allow a normal Next.js navigation burst.")
 
 for token in (
     "Install Caddy image build file",
