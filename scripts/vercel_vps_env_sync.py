@@ -252,7 +252,9 @@ def print_diff(selected: dict[str, str], target: dict[str, str], mapping: dict[s
             print(f"{label}: {name}")
     for category in ("vercel_platform_only", "preview_development_only", "server_side_secret"):
         for name in sorted(report[category]):
-            print(f"excluded ({category}): {name}")
+            rule = rule_for(mapping, name)
+            if rule is not None and not rule["sync"]:
+                print(f"excluded ({category}): {name}")
     for name in sorted(report[REVIEW_CATEGORY]):
         print(f"manual-review: {name}")
     if not (added or changed or removed):
@@ -299,7 +301,9 @@ def command_fetch(args: argparse.Namespace) -> None:
     )
     for category in ("vercel_platform_only", "preview_development_only", "server_side_secret"):
         for name in sorted(report[category]):
-            print(f"excluded ({category}): {name}")
+            rule = rule_for(mapping, name)
+            if rule is not None and not rule["sync"]:
+                print(f"excluded ({category}): {name}")
 
 
 def command_diff(args: argparse.Namespace) -> None:

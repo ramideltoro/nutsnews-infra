@@ -147,6 +147,18 @@ class VercelVpsEnvSyncTests(unittest.TestCase):
             },
         )
 
+    def test_synchronized_server_secret_is_not_reported_as_excluded(self) -> None:
+        selected, report = sync.classify_records(
+            [{"key": "SUPABASE_SERVICE_ROLE_KEY", "target": ["production"], "value": "secret"}],
+            self.mapping,
+        )
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            changed = sync.print_diff(selected, {}, self.mapping, report)
+        self.assertTrue(changed)
+        self.assertIn("added: SUPABASE_SERVICE_ROLE_KEY", output.getvalue())
+        self.assertNotIn("excluded", output.getvalue())
+
     def test_unknown_production_variable_fails_closed(self) -> None:
         with self.assertRaisesRegex(SystemExit, "Unclassified"):
             sync.classify_records(
