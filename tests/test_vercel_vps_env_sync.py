@@ -111,7 +111,7 @@ class VercelVpsEnvSyncTests(unittest.TestCase):
     def test_manual_review_variable_stops_the_sync(self) -> None:
         with self.assertRaisesRegex(SystemExit, "manual review"):
             sync.classify_records(
-                [{"key": "NEXT_PUBLIC_TURNSTILE_SITE_KEY", "target": ["production"], "value": "review"}],
+                [{"key": "ADMIN_UNREVIEWED", "target": ["production"], "value": "review"}],
                 self.mapping,
             )
 
