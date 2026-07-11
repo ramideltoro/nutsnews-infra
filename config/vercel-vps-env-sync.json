@@ -9,6 +9,42 @@
     "env_file": "/etc/nutsnews/nutsnews-app.env"
   },
   "variables": {
+    "BETTER_STACK_INGESTING_HOST": {
+      "category": "safe_to_synchronize",
+      "sync": true,
+      "destination": "BETTER_STACK_INGESTING_HOST",
+      "reason": "Server-side logging endpoint used by the web runtime."
+    },
+    "BETTER_STACK_SOURCE_TOKEN": {
+      "category": "server_side_secret",
+      "sync": true,
+      "destination": "BETTER_STACK_SOURCE_TOKEN",
+      "reason": "Server-side logging credential consumed by the web runtime."
+    },
+    "CONTACT_FROM_EMAIL": {
+      "category": "safe_to_synchronize",
+      "sync": true,
+      "destination": "CONTACT_FROM_EMAIL",
+      "reason": "Server-side contact sender configuration."
+    },
+    "CONTACT_TO_EMAIL": {
+      "category": "safe_to_synchronize",
+      "sync": true,
+      "destination": "CONTACT_TO_EMAIL",
+      "reason": "Server-side contact recipient configuration."
+    },
+    "HOME_SERVER_STATS_API_KEY": {
+      "category": "server_side_secret",
+      "sync": true,
+      "destination": "HOME_SERVER_STATS_API_KEY",
+      "reason": "Admin-only home-server API credential consumed by the web runtime."
+    },
+    "HOME_SERVER_STATS_URL": {
+      "category": "safe_to_synchronize",
+      "sync": true,
+      "destination": "HOME_SERVER_STATS_URL",
+      "reason": "Admin-only home-server API endpoint consumed by the web runtime."
+    },
     "NEXT_PUBLIC_APP_ENV": {
       "category": "safe_to_synchronize",
       "sync": true,
@@ -27,6 +63,18 @@
       "destination": "NEXT_PUBLIC_SENTRY_DSN",
       "reason": "Sentry DSNs are client configuration, not write credentials."
     },
+    "NEXT_PUBLIC_GA_ID": {
+      "category": "safe_to_synchronize",
+      "sync": true,
+      "destination": "NEXT_PUBLIC_GA_ID",
+      "reason": "Browser analytics measurement identifier."
+    },
+    "NEXT_PUBLIC_NUTSNEWS_IOS_APP_STORE_URL": {
+      "category": "safe_to_synchronize",
+      "sync": true,
+      "destination": "NEXT_PUBLIC_NUTSNEWS_IOS_APP_STORE_URL",
+      "reason": "Public app-store link rendered by the web runtime."
+    },
     "NEXT_PUBLIC_SUPABASE_ANON_KEY": {
       "category": "safe_to_synchronize",
       "sync": true,
@@ -39,10 +87,57 @@
       "destination": "NEXT_PUBLIC_SUPABASE_URL",
       "reason": "Supabase public project URL."
     },
+    "NUTSNEWS_EDGE_FEED_SNAPSHOT_URL": {
+      "category": "safe_to_synchronize",
+      "sync": true,
+      "destination": "NUTSNEWS_EDGE_FEED_SNAPSHOT_URL",
+      "reason": "Worker edge snapshot endpoint consumed by the web runtime."
+    },
+    "RESEND_API_KEY": {
+      "category": "server_side_secret",
+      "sync": true,
+      "destination": "RESEND_API_KEY",
+      "reason": "Contact email delivery credential consumed by the web runtime."
+    },
+    "AUTH_GOOGLE_ID": {
+      "category": "server_side_secret",
+      "sync": false,
+      "reason": "No current web, Worker, or VPS consumer found; keep excluded pending ownership review."
+    },
+    "AUTH_GOOGLE_SECRET": {
+      "category": "server_side_secret",
+      "sync": false,
+      "reason": "No current web, Worker, or VPS consumer found; keep excluded pending ownership review."
+    },
+    "AUTH_SECRET": {
+      "category": "server_side_secret",
+      "sync": false,
+      "reason": "No current web, Worker, or VPS consumer found; keep excluded pending ownership review."
+    },
     "OPENAI_API_KEY": {
       "category": "server_side_secret",
       "sync": false,
       "reason": "Worker-owned credential; no current VPS web runtime usage. Review before enabling."
+    },
+    "OPENAI_INPUT_COST_PER_1M_TOKENS": {
+      "category": "vercel_platform_only",
+      "sync": false,
+      "reason": "Cost-estimation metadata with no current application or VPS consumer."
+    },
+    "OPENAI_INPUT_TOKENS_PER_REVIEW_ESTIMATE": {
+      "category": "vercel_platform_only",
+      "sync": false,
+      "reason": "Cost-estimation metadata with no current application or VPS consumer."
+    },
+    "OPENAI_OUTPUT_COST_PER_1M_TOKENS": {
+      "category": "vercel_platform_only",
+      "sync": false,
+      "reason": "Cost-estimation metadata with no current application or VPS consumer."
+    },
+    "OPENAI_OUTPUT_TOKENS_PER_REVIEW_ESTIMATE": {
+      "category": "vercel_platform_only",
+      "sync": false,
+      "reason": "Cost-estimation metadata with no current application or VPS consumer."
     },
     "ACTIONS_READ_TOKEN": {
       "category": "server_side_secret",
