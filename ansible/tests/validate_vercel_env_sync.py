@@ -36,6 +36,7 @@ require("set -x" not in WORKFLOW, "Secret-bearing workflow must not enable shell
 require("vercel env pull" not in WORKFLOW, "Sync must not use a plaintext Vercel env export file.")
 require("VERCEL_TOKEN" in SCRIPT_PATH.read_text(encoding="utf-8"), "Vercel token must be consumed from the environment.")
 require('"decrypt": "true"' in SCRIPT_PATH.read_text(encoding="utf-8"), "Vercel API fetch must request decrypted values in memory.")
+require("app_envs.update(vercel_envs)" in WORKFLOW, "Vercel values must be merged before passing extra vars to Ansible.")
 
 selected = [name for name, rule in mapping["variables"].items() if rule.get("sync")]
 require(selected, "Mapping must contain an explicit synchronization allowlist.")
