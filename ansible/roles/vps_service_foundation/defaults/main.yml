@@ -680,9 +680,16 @@ vps_service_foundation_caddy_rate_limit_zones:
     paths:
       - /api/auth/*
       - /login*
-      - /admin*
       - /ops*
     events: 20
+    window: 1m
+  # Next.js admin navigation makes several HTML/RSC requests per page. Keep
+  # the UI bucket separate from Auth.js endpoints so normal navigation does
+  # not exhaust the credential-protection budget.
+  - name: nutsnews_admin_ui
+    paths:
+      - /admin*
+    events: 120
     window: 1m
   - name: nutsnews_api
     paths:
