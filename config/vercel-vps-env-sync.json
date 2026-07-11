@@ -44,6 +44,11 @@
       "sync": false,
       "reason": "Worker-owned credential; no current VPS web runtime usage. Review before enabling."
     },
+    "ACTIONS_READ_TOKEN": {
+      "category": "server_side_secret",
+      "sync": false,
+      "reason": "No current application, Worker, or VPS consumer; keep excluded until an owner and consumer are reviewed."
+    },
     "SENTRY_AUTH_TOKEN": {
       "category": "server_side_secret",
       "sync": false,
