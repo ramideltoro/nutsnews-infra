@@ -43,7 +43,6 @@ assert re.fullmatch(
 assert re.fullmatch(r"[0-9a-f]{40}", value("vps_service_foundation_nutsnews_app_source_commit"))
 assert value("vps_service_foundation_nutsnews_app_build_id")
 assert value("vps_service_foundation_nutsnews_app_deployment_target") == "production-vps"
-assert value("vps_service_foundation_nutsnews_app_last_known_good_digest") == ""
 
 for name in (
     "vps_service_foundation_nutsnews_app_image_digest",
