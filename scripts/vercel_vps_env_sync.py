@@ -60,10 +60,10 @@ def load_mapping(path: Path) -> dict[str, Any]:
             fail(f"Invalid exact variable rule: {name!r}.")
         validate_rule(name, rule)
         if rule.get("sync"):
-            destination = rule.get("destination")
-            if destination in destinations:
-                fail(f"Duplicate synchronization destination: {destination}.")
-            destinations.add(destination)
+            for destination in rule_destinations(rule):
+                if destination in destinations:
+                    fail(f"Duplicate synchronization destination: {destination}.")
+                destinations.add(destination)
 
     for index, rule in enumerate(patterns):
         if not isinstance(rule, dict):
@@ -86,16 +86,31 @@ def validate_rule(label: str, rule: dict[str, Any], *, require_destination: bool
     if not isinstance(rule.get("sync"), bool):
         fail(f"{label} must explicitly set sync true or false.")
     if rule["sync"]:
-        destination = rule.get("destination")
-        if not require_destination or not isinstance(destination, str) or not KEY_RE.fullmatch(destination):
+        if require_destination and not rule_destinations(rule):
             fail(f"{label} requires a valid destination when sync is true.")
         if category not in SYNC_CATEGORIES:
             fail(f"{label} cannot synchronize under category {category}.")
     elif "destination" in rule and rule.get("destination") is not None:
         if not isinstance(rule["destination"], str) or not KEY_RE.fullmatch(rule["destination"]):
             fail(f"{label} has an invalid destination.")
+    if "destinations" in rule:
+        destinations = rule["destinations"]
+        if not isinstance(destinations, list) or not destinations or not all(
+            isinstance(destination, str) and KEY_RE.fullmatch(destination) for destination in destinations
+        ):
+            fail(f"{label} has an invalid destinations list.")
+        if "destination" in rule:
+            fail(f"{label} cannot define both destination and destinations.")
     if not isinstance(rule.get("reason"), str) or not rule["reason"].strip():
         fail(f"{label} must include a non-empty reason.")
+
+
+def rule_destinations(rule: dict[str, Any]) -> list[str]:
+    destinations = rule.get("destinations")
+    if destinations is not None:
+        return list(destinations) if isinstance(destinations, list) else []
+    destination = rule.get("destination")
+    return [destination] if isinstance(destination, str) else []
 
 
 def rule_for(mapping: dict[str, Any], key: str) -> dict[str, Any] | None:
@@ -161,10 +176,10 @@ def classify_records(records: list[dict[str, Any]], mapping: dict[str, Any]) -> 
             fail(f"Vercel Production variable {key} has no decrypted value available to the sync credential.")
         if "\n" in value or "\r" in value:
             fail(f"Vercel Production variable {key} contains a newline and cannot be represented safely in the VPS env file.")
-        destination = rule["destination"]
-        if destination in selected:
-            fail(f"Multiple Vercel variables map to VPS destination {destination}.")
-        selected[destination] = value
+        for destination in rule_destinations(rule):
+            if destination in selected:
+                fail(f"Multiple Vercel variables map to VPS destination {destination}.")
+            selected[destination] = value
     if unclassified:
         fail(
             "Unclassified Vercel Production variables: "
@@ -222,7 +237,12 @@ def read_fingerprints(path: Path) -> dict[str, str]:
 
 
 def print_diff(selected: dict[str, str], target: dict[str, str], mapping: dict[str, Any], report: dict[str, list[str]]) -> bool:
-    managed = {rule.get("destination") for rule in mapping["variables"].values() if rule.get("sync")}
+    managed = {
+        destination
+        for rule in mapping["variables"].values()
+        if rule.get("sync")
+        for destination in rule_destinations(rule)
+    }
     desired_hashes = {key: sha256(value) for key, value in selected.items()}
     added = sorted(key for key in desired_hashes if key not in target)
     changed = sorted(key for key in desired_hashes if key in target and target[key] != desired_hashes[key])
