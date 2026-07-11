@@ -428,6 +428,11 @@ jobs:
                   )
 
           app_envs = parse_app_envs("NUTSNEWS_APP_ENVS_JSON")
+          # Extra vars have higher precedence than role set_fact values. Merge
+          # here so the reviewed Vercel values are actually passed to the app
+          # environment map that the role templates.
+          if vercel_envs:
+              app_envs.update(vercel_envs)
           free_tier_usage_json = parse_json_object("NUTSNEWS_FREE_TIER_USAGE_JSON")
           ops_portal_domain = os.environ.get("NUTSNEWS_OPS_PORTAL_DOMAIN", "ops.nutsnews.com").strip() or "ops.nutsnews.com"
           ops_portal_callback_path = "/api/auth/callback/google"
