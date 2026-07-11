@@ -114,8 +114,11 @@
     "NEXT_PUBLIC_SUPABASE_URL": {
       "category": "safe_to_synchronize",
       "sync": true,
-      "destination": "NEXT_PUBLIC_SUPABASE_URL",
-      "reason": "Supabase public project URL."
+      "destinations": [
+        "NEXT_PUBLIC_SUPABASE_URL",
+        "SUPABASE_URL"
+      ],
+      "reason": "Supabase project URL used by browser code and server-side admin dashboards."
     },
     "NUTSNEWS_EDGE_FEED_SNAPSHOT_URL": {
       "category": "safe_to_synchronize",
@@ -177,8 +180,9 @@
     },
     "ACTIONS_READ_TOKEN": {
       "category": "server_side_secret",
-      "sync": false,
-      "reason": "No current application, Worker, or VPS consumer; keep excluded until an owner and consumer are reviewed."
+      "sync": true,
+      "destination": "ACTIONS_READ_TOKEN",
+      "reason": "Optional server-side GitHub Actions read credential used by the admin production-readiness dashboard."
     },
     "SENTRY_AUTH_TOKEN": {
       "category": "server_side_secret",
@@ -187,8 +191,9 @@
     },
     "SUPABASE_SERVICE_ROLE_KEY": {
       "category": "server_side_secret",
-      "sync": false,
-      "reason": "Worker-owned privileged credential; never copy without an explicit VPS consumer review."
+      "sync": true,
+      "destination": "SUPABASE_SERVICE_ROLE_KEY",
+      "reason": "Privileged server-only Supabase credential required by VPS admin dashboards and readiness checks; never exposed to browser code."
     },
     "SENTRY_ORG": {
       "category": "vercel_platform_only",

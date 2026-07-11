@@ -23,6 +23,46 @@ def digest(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
 
+CURRENT_VERCEL_PRODUCTION_NAMES = {
+    "ACTIONS_READ_TOKEN",
+    "ADMIN_EMAILS",
+    "ADMIN_SHARD_COUNT",
+    "ADMIN_SHARD_SLOW_RUN_MS",
+    "ADMIN_SHARD_STALE_MINUTES",
+    "AUTH_GOOGLE_ID",
+    "AUTH_GOOGLE_SECRET",
+    "AUTH_SECRET",
+    "BETTER_STACK_INGESTING_HOST",
+    "BETTER_STACK_SOURCE_TOKEN",
+    "CONTACT_FROM_EMAIL",
+    "CONTACT_TO_EMAIL",
+    "HOME_SERVER_STATS_API_KEY",
+    "HOME_SERVER_STATS_URL",
+    "NEXT_PUBLIC_APP_ENV",
+    "NEXT_PUBLIC_GA_ID",
+    "NEXT_PUBLIC_NUTSNEWS_IOS_APP_STORE_URL",
+    "NEXT_PUBLIC_SENTRY_DSN",
+    "NEXT_PUBLIC_SITE_URL",
+    "NEXT_PUBLIC_SUPABASE_ANON_KEY",
+    "NEXT_PUBLIC_SUPABASE_URL",
+    "NEXT_PUBLIC_TURNSTILE_SITE_KEY",
+    "NEXT_PUBLIC_VERCEL_ENV",
+    "NEXT_PUBLIC_VERCEL_GIT_COMMIT_SHA",
+    "NUTSNEWS_EDGE_FEED_SNAPSHOT_URL",
+    "OPENAI_API_KEY",
+    "OPENAI_INPUT_COST_PER_1M_TOKENS",
+    "OPENAI_INPUT_TOKENS_PER_REVIEW_ESTIMATE",
+    "OPENAI_OUTPUT_COST_PER_1M_TOKENS",
+    "OPENAI_OUTPUT_TOKENS_PER_REVIEW_ESTIMATE",
+    "RESEND_API_KEY",
+    "SENTRY_AUTH_TOKEN",
+    "SENTRY_ORG",
+    "SENTRY_PROJECT",
+    "SUPABASE_SERVICE_ROLE_KEY",
+    "TURNSTILE_SECRET_KEY",
+}
+
+
 class VercelVpsEnvSyncTests(unittest.TestCase):
     def setUp(self) -> None:
         self.mapping = sync.load_mapping(MAPPING)
@@ -40,6 +80,9 @@ class VercelVpsEnvSyncTests(unittest.TestCase):
             changed = sync.print_diff({}, {}, self.mapping, self.report)
         self.assertFalse(changed)
         self.assertIn("No synchronized variable changes detected.", output.getvalue())
+
+    def test_current_production_inventory_is_explicitly_classified(self) -> None:
+        self.assertEqual(set(self.mapping["variables"]), CURRENT_VERCEL_PRODUCTION_NAMES)
 
     def test_added_variable_reports_name_only(self) -> None:
         output = io.StringIO()
@@ -90,6 +133,19 @@ class VercelVpsEnvSyncTests(unittest.TestCase):
             self.mapping,
         )
         self.assertEqual(selected, {})
+
+    def test_supabase_url_populates_browser_and_server_destinations(self) -> None:
+        selected, _ = sync.classify_records(
+            [{"key": "NEXT_PUBLIC_SUPABASE_URL", "target": ["production"], "value": "https://example.supabase.co"}],
+            self.mapping,
+        )
+        self.assertEqual(
+            selected,
+            {
+                "NEXT_PUBLIC_SUPABASE_URL": "https://example.supabase.co",
+                "SUPABASE_URL": "https://example.supabase.co",
+            },
+        )
 
     def test_unknown_production_variable_fails_closed(self) -> None:
         with self.assertRaisesRegex(SystemExit, "Unclassified"):
