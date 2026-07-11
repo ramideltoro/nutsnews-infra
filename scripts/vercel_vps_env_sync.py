@@ -1,0 +1,320 @@
+#!/usr/bin/env python3
+"""Fetch, classify, fingerprint, and diff the reviewed Vercel-to-VPS env set.
+
+Secret values are read only in memory or in caller-created mode-0600 temporary
+files. This program never prints values; its human-readable output contains
+only variable names, categories, and counts.
+"""
+
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import os
+import re
+import shlex
+import urllib.error
+import urllib.parse
+import urllib.request
+from pathlib import Path
+from typing import Any, NoReturn
+
+
+KEY_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+SYNC_CATEGORIES = {"safe_to_synchronize", "server_side_secret"}
+EXCLUDED_CATEGORIES = {"vercel_platform_only", "preview_development_only"}
+REVIEW_CATEGORY = "manual_review"
+
+
+def fail(message: str) -> NoReturn:
+    raise SystemExit(message)
+
+
+def load_json(path: Path) -> Any:
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        fail(f"Unable to read valid JSON from {path}: {exc.__class__.__name__}.")
+
+
+def load_mapping(path: Path) -> dict[str, Any]:
+    data = load_json(path)
+    if not isinstance(data, dict):
+        fail("Environment sync mapping must be a JSON object.")
+    source = data.get("source")
+    target = data.get("target")
+    if not isinstance(source, dict) or source.get("provider") != "vercel" or source.get("environment") != "production":
+        fail("Environment sync mapping must select Vercel Production as its source.")
+    if not isinstance(target, dict) or target.get("environment") != "production":
+        fail("Environment sync mapping must select VPS production as its target.")
+
+    variables = data.get("variables")
+    patterns = data.get("patterns")
+    if not isinstance(variables, dict) or not isinstance(patterns, list):
+        fail("Environment sync mapping requires variables and patterns.")
+
+    destinations: set[str] = set()
+    for name, rule in variables.items():
+        if not KEY_RE.fullmatch(name) or not isinstance(rule, dict):
+            fail(f"Invalid exact variable rule: {name!r}.")
+        validate_rule(name, rule)
+        if rule.get("sync"):
+            destination = rule.get("destination")
+            if destination in destinations:
+                fail(f"Duplicate synchronization destination: {destination}.")
+            destinations.add(destination)
+
+    for index, rule in enumerate(patterns):
+        if not isinstance(rule, dict):
+            fail(f"Invalid variable pattern at index {index}.")
+        pattern = rule.get("pattern")
+        if not isinstance(pattern, str):
+            fail(f"Variable pattern {index} is missing a string pattern.")
+        try:
+            re.compile(pattern)
+        except re.error as exc:
+            fail(f"Invalid variable pattern {index}: {exc}.")
+        validate_rule(f"pattern {index}", rule, require_destination=False)
+    return data
+
+
+def validate_rule(label: str, rule: dict[str, Any], *, require_destination: bool = True) -> None:
+    category = rule.get("category")
+    if category not in SYNC_CATEGORIES | EXCLUDED_CATEGORIES | {REVIEW_CATEGORY}:
+        fail(f"{label} has an unsupported classification.")
+    if not isinstance(rule.get("sync"), bool):
+        fail(f"{label} must explicitly set sync true or false.")
+    if rule["sync"]:
+        destination = rule.get("destination")
+        if not require_destination or not isinstance(destination, str) or not KEY_RE.fullmatch(destination):
+            fail(f"{label} requires a valid destination when sync is true.")
+        if category not in SYNC_CATEGORIES:
+            fail(f"{label} cannot synchronize under category {category}.")
+    elif "destination" in rule and rule.get("destination") is not None:
+        if not isinstance(rule["destination"], str) or not KEY_RE.fullmatch(rule["destination"]):
+            fail(f"{label} has an invalid destination.")
+    if not isinstance(rule.get("reason"), str) or not rule["reason"].strip():
+        fail(f"{label} must include a non-empty reason.")
+
+
+def rule_for(mapping: dict[str, Any], key: str) -> dict[str, Any] | None:
+    exact = mapping["variables"].get(key)
+    if exact is not None:
+        return exact
+    for rule in mapping["patterns"]:
+        if re.search(rule["pattern"], key):
+            return rule
+    return None
+
+
+def api_records(payload: Any) -> list[dict[str, Any]]:
+    if isinstance(payload, list):
+        records = payload
+    elif isinstance(payload, dict):
+        records = payload.get("envs", payload.get("data"))
+    else:
+        records = None
+    if not isinstance(records, list) or not all(isinstance(item, dict) for item in records):
+        fail("Vercel environment response did not contain a variable list.")
+    return records
+
+
+def production_records(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    selected: dict[str, dict[str, Any]] = {}
+    for record in records:
+        key = record.get("key")
+        target = record.get("target", [])
+        targets = [target] if isinstance(target, str) else target
+        if not isinstance(key, str) or not KEY_RE.fullmatch(key):
+            fail("Vercel returned an environment variable with an invalid name.")
+        if not isinstance(targets, list):
+            fail(f"Vercel variable {key} has an invalid target classification.")
+        if "production" not in targets:
+            continue
+        if key in selected:
+            fail(f"Vercel returned duplicate Production records for {key}.")
+        selected[key] = record
+    return list(selected.values())
+
+
+def classify_records(records: list[dict[str, Any]], mapping: dict[str, Any]) -> tuple[dict[str, str], dict[str, list[str]]]:
+    selected: dict[str, str] = {}
+    report = {"safe_to_synchronize": [], "server_side_secret": [], "vercel_platform_only": [], "preview_development_only": [], "manual_review": []}
+    for record in production_records(records):
+        key = record["key"]
+        rule = rule_for(mapping, key)
+        if rule is None:
+            fail(f"Unclassified Vercel Production variable {key}; add an explicit mapping rule before syncing.")
+        category = rule["category"]
+        report[category].append(key)
+        if category == REVIEW_CATEGORY:
+            fail(f"Vercel Production variable {key} is classified for manual review; sync is stopped safely.")
+        if not rule["sync"]:
+            continue
+        value = record.get("value")
+        if not isinstance(value, str):
+            fail(f"Vercel Production variable {key} has no decrypted value available to the sync credential.")
+        if "\n" in value or "\r" in value:
+            fail(f"Vercel Production variable {key} contains a newline and cannot be represented safely in the VPS env file.")
+        destination = rule["destination"]
+        if destination in selected:
+            fail(f"Multiple Vercel variables map to VPS destination {destination}.")
+        selected[destination] = value
+    return selected, report
+
+
+def fetch_payload() -> Any:
+    token = os.environ.get("VERCEL_TOKEN", "").strip()
+    project_id = os.environ.get("VERCEL_PROJECT_ID", "").strip()
+    team_id = os.environ.get("VERCEL_TEAM_ID", "").strip()
+    missing = [name for name, value in (("VERCEL_TOKEN", token), ("VERCEL_PROJECT_ID", project_id), ("VERCEL_TEAM_ID", team_id)) if not value]
+    if missing:
+        fail("Missing required Vercel sync credential or identifier: " + ", ".join(missing) + ".")
+    query = urllib.parse.urlencode({"teamId": team_id, "decrypt": "true"})
+    url = f"https://api.vercel.com/v10/projects/{urllib.parse.quote(project_id, safe='')}/env?{query}"
+    request = urllib.request.Request(url, headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(request, timeout=30) as response:
+            return json.load(response)
+    except urllib.error.HTTPError as exc:
+        fail(f"Vercel environment API request failed with HTTP {exc.code}; no response body was printed.")
+    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError):
+        fail("Vercel environment API request failed; no response body was printed.")
+
+
+def write_private_json(path: Path, data: Any) -> None:
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+            handle.write(json.dumps(data, sort_keys=True) + "\n")
+    except OSError as exc:
+        fail(f"Unable to write the private temporary sync file: {exc.__class__.__name__}.")
+
+
+def sha256(value: str) -> str:
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+def read_fingerprints(path: Path) -> dict[str, str]:
+    data = load_json(path)
+    variables = data.get("variables") if isinstance(data, dict) else None
+    if not isinstance(variables, dict) or not all(isinstance(key, str) and isinstance(value, str) for key, value in variables.items()):
+        fail("VPS fingerprint input is not a name-to-hash JSON object.")
+    return variables
+
+
+def print_diff(selected: dict[str, str], target: dict[str, str], mapping: dict[str, Any], report: dict[str, list[str]]) -> bool:
+    managed = {rule.get("destination") for rule in mapping["variables"].values() if rule.get("sync")}
+    desired_hashes = {key: sha256(value) for key, value in selected.items()}
+    added = sorted(key for key in desired_hashes if key not in target)
+    changed = sorted(key for key in desired_hashes if key in target and target[key] != desired_hashes[key])
+    removed = sorted(key for key in target if key in managed and key not in desired_hashes)
+    for label, names in (("added", added), ("changed", changed), ("removed", removed)):
+        for name in names:
+            print(f"{label}: {name}")
+    for category in ("vercel_platform_only", "preview_development_only", "server_side_secret"):
+        for name in sorted(report[category]):
+            print(f"excluded ({category}): {name}")
+    for name in sorted(report[REVIEW_CATEGORY]):
+        print(f"manual-review: {name}")
+    if not (added or changed or removed):
+        print("No synchronized variable changes detected.")
+    return bool(added or changed or removed)
+
+
+def parse_env_file(path: Path) -> dict[str, str]:
+    try:
+        text = path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return {}
+    except OSError as exc:
+        fail(f"Unable to read the VPS env file: {exc.__class__.__name__}.")
+    values: dict[str, str] = {}
+    for line_number, line in enumerate(text.splitlines(), 1):
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        if "=" not in line:
+            fail(f"Invalid VPS env file line {line_number}.")
+        key, raw = line.split("=", 1)
+        key = key.strip()
+        if not KEY_RE.fullmatch(key):
+            fail(f"Invalid VPS env variable name on line {line_number}.")
+        try:
+            parsed = shlex.split(raw, comments=False, posix=True)
+        except ValueError:
+            fail(f"Invalid VPS env value quoting on line {line_number}.")
+        values[key] = parsed[0] if len(parsed) == 1 else raw.strip().strip('"')
+    return values
+
+
+def command_fetch(args: argparse.Namespace) -> None:
+    mapping = load_mapping(Path(args.mapping))
+    selected, report = classify_records(api_records(fetch_payload()), mapping)
+    write_private_json(Path(args.output), selected)
+    write_private_json(Path(args.report_output), report)
+    print(
+        "Fetched and classified Vercel Production variables: "
+        f"selected={len(selected)} "
+        f"excluded={len(report['vercel_platform_only']) + len(report['preview_development_only']) + len(report['server_side_secret'])} "
+        f"manual_review={len(report['manual_review'])}."
+    )
+    for category in ("vercel_platform_only", "preview_development_only", "server_side_secret"):
+        for name in sorted(report[category]):
+            print(f"excluded ({category}): {name}")
+
+
+def command_diff(args: argparse.Namespace) -> None:
+    mapping = load_mapping(Path(args.mapping))
+    selected = load_json(Path(args.selected))
+    if not isinstance(selected, dict) or not all(isinstance(key, str) and isinstance(value, str) for key, value in selected.items()):
+        fail("Selected sync input is not a name-to-value JSON object.")
+    target = read_fingerprints(Path(args.target))
+    report = load_json(Path(args.report))
+    if not isinstance(report, dict):
+        fail("Classification report is not a JSON object.")
+    for category in ("safe_to_synchronize", "server_side_secret", "vercel_platform_only", "preview_development_only", "manual_review"):
+        if not isinstance(report.get(category), list):
+            fail("Classification report is missing a category.")
+    print_diff(selected, target, mapping, report)
+
+
+def command_fingerprint(args: argparse.Namespace) -> None:
+    values = parse_env_file(Path(args.path))
+    print(json.dumps({"variables": {key: sha256(value) for key, value in sorted(values.items())}}))
+
+
+def command_validate_credentials(_: argparse.Namespace) -> None:
+    for name in ("VERCEL_TOKEN", "VERCEL_PROJECT_ID", "VERCEL_TEAM_ID"):
+        if not os.environ.get(name, "").strip():
+            fail(f"Missing required Vercel sync credential or identifier: {name}.")
+    print("Required Vercel sync credentials and identifiers are present.")
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description=__doc__)
+    subparsers = parser.add_subparsers(dest="command", required=True)
+    fetch = subparsers.add_parser("fetch")
+    fetch.add_argument("--mapping", required=True)
+    fetch.add_argument("--output", required=True)
+    fetch.add_argument("--report-output", required=True)
+    fetch.set_defaults(function=command_fetch)
+    diff = subparsers.add_parser("diff")
+    diff.add_argument("--mapping", required=True)
+    diff.add_argument("--selected", required=True)
+    diff.add_argument("--target", required=True)
+    diff.add_argument("--report", required=True)
+    diff.set_defaults(function=command_diff)
+    fingerprint = subparsers.add_parser("fingerprint")
+    fingerprint.add_argument("--path", required=True)
+    fingerprint.set_defaults(function=command_fingerprint)
+    credentials = subparsers.add_parser("validate-credentials")
+    credentials.set_defaults(function=command_validate_credentials)
+    return parser
+
+
+if __name__ == "__main__":
+    arguments = build_parser().parse_args()
+    arguments.function(arguments)

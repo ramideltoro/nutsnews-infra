@@ -742,6 +742,7 @@ vps_service_foundation_nutsnews_app_public_domain: vps.nutsnews.com
 vps_service_foundation_nutsnews_app_enabled: false
 vps_service_foundation_nutsnews_app_apply_marker_file: "{{ vps_service_foundation_ops_dir }}/last-app-apply.json"
 vps_service_foundation_nutsnews_app_envs: {}
+vps_service_foundation_nutsnews_app_vercel_envs: {}
 vps_service_foundation_nutsnews_app_secret_env_keys: []
 vps_service_foundation_nutsnews_app_required_secrets: []
 

@@ -80,6 +80,8 @@ The observability layer adds optional Grafana Alloy telemetry on the VPS and Ope
 
 Use [runbooks/PROTECTED_ANSIBLE_APPLY.md](runbooks/PROTECTED_ANSIBLE_APPLY.md) before running the manual Ansible workflow. Root SSH was only for the initial bootstrap and is now break-glass only.
 
+Use [runbooks/VERCEL_VPS_ENV_SYNC.md](runbooks/VERCEL_VPS_ENV_SYNC.md) when synchronizing the reviewed Vercel Production environment variables to the VPS app.
+
 Use [runbooks/VPS_SERVICE_FOUNDATION.md](runbooks/VPS_SERVICE_FOUNDATION.md) before applying or verifying the Docker and Caddy service foundation.
 
 Use [runbooks/OPS_PORTAL.md](runbooks/OPS_PORTAL.md) before applying or verifying the read-only operations portal.
