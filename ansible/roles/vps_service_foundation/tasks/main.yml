@@ -455,6 +455,41 @@
         mode: "0600"
       no_log: true
 
+    - name: Read rendered NutsNews app environment names for sync verification
+      ansible.builtin.command:
+        argv:
+          - awk
+          - -F=
+          - '/^[A-Za-z_][A-Za-z0-9_]*=/{print $1}'
+          - "{{ vps_service_foundation_nutsnews_app_env_file }}"
+      register: vps_service_foundation_rendered_nutsnews_app_env_names
+      changed_when: false
+      when:
+        - not ansible_check_mode
+        - vps_service_foundation_nutsnews_app_enabled | bool
+        - vps_service_foundation_nutsnews_app_vercel_envs | length > 0
+
+    - name: Verify synchronized Vercel environment names were rendered
+      ansible.builtin.assert:
+        that:
+          - >-
+            {{
+              (
+                vps_service_foundation_nutsnews_app_vercel_envs.keys() | list
+                | difference(vps_service_foundation_rendered_nutsnews_app_env_names.stdout_lines | default([]))
+              )
+              | length == 0
+            }}
+        fail_msg: >-
+          One or more reviewed Vercel environment destinations were not rendered
+          into the VPS NutsNews app environment file.
+        success_msg: Reviewed Vercel environment destinations were rendered into the VPS app environment file.
+      when:
+        - not ansible_check_mode
+        - vps_service_foundation_nutsnews_app_enabled | bool
+        - vps_service_foundation_nutsnews_app_vercel_envs | length > 0
+      no_log: true
+
     - name: Install local health placeholder page
       ansible.builtin.copy:
         src: "{{ vps_service_foundation_source_health_index }}"
