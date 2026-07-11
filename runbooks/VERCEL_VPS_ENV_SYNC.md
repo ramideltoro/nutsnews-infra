@@ -18,7 +18,9 @@ admin dashboards require the server-only `SUPABASE_SERVICE_ROLE_KEY`; the
 mapping also exposes the same reviewed Supabase URL as `SUPABASE_URL` for
 server-side consumers while retaining `NEXT_PUBLIC_SUPABASE_URL` for browser
 code. `ACTIONS_READ_TOKEN` is synchronized because the production-readiness
-dashboard can use it for GitHub Actions status.
+dashboard can use it for GitHub Actions status. The Auth.js Google OAuth and
+session secrets are synchronized as server-only values because Auth.js reads
+the `AUTH_*` convention internally.
 
 Use the companion operating guide in `ramideltoro/nutsnews-docs` for credential
 setup, classification policy, dry-run/apply commands, rollback, rotation, and
