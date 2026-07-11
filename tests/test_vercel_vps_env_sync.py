@@ -98,6 +98,16 @@ class VercelVpsEnvSyncTests(unittest.TestCase):
                 self.mapping,
             )
 
+    def test_multiple_unknown_variables_are_reported_together(self) -> None:
+        with self.assertRaisesRegex(SystemExit, "FIRST_UNKNOWN, SECOND_UNKNOWN"):
+            sync.classify_records(
+                [
+                    {"key": "SECOND_UNKNOWN", "target": ["production"], "value": "second"},
+                    {"key": "FIRST_UNKNOWN", "target": ["production"], "value": "first"},
+                ],
+                self.mapping,
+            )
+
     def test_manual_review_variable_stops_the_sync(self) -> None:
         with self.assertRaisesRegex(SystemExit, "manual review"):
             sync.classify_records(
