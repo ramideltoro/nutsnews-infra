@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import re
 import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -427,5 +428,28 @@ require(
 )
 require("ops-reporter.env.j2" in TASKS, "Reporter environment template must be managed by Ansible.")
 require("no_log: true" in TASKS, "Reporter environment task must keep SMTP secrets out of logs.")
+reporting_refresh = re.search(
+    r"(?ms)^    - name: Refresh operations portal reporting status snapshot\n(?P<body>.*?)(?=^    - name: )",
+    TASKS,
+)
+require(reporting_refresh is not None, "Reporting status refresh task is missing.")
+reporting_refresh_body = reporting_refresh.group("body") if reporting_refresh else ""
+require("--dry-run" in reporting_refresh_body, "Apply-time reporting refresh must not send email.")
+require("no_log: true" in reporting_refresh_body, "Apply-time reporting refresh must hide SMTP configuration.")
+for required_environment in (
+    "NUTSNEWS_EMAIL_ENABLED",
+    "NUTSNEWS_SMTP_HOST",
+    "NUTSNEWS_SMTP_USERNAME",
+    "NUTSNEWS_SMTP_PASSWORD",
+    "NUTSNEWS_EMAIL_FROM",
+    "NUTSNEWS_EMAIL_TO",
+    "NUTSNEWS_PORTAL_STATUS_FILE",
+    "NUTSNEWS_REPORTING_STATUS_FILE",
+    "NUTSNEWS_ALERT_STATE_FILE",
+):
+    require(
+        required_environment in reporting_refresh_body,
+        f"Apply-time reporting refresh must pass {required_environment}.",
+    )
 
 print("Portal fixture and secret-safety guardrails passed.")
