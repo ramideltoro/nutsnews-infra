@@ -99,6 +99,18 @@
       "destination": "NEXT_PUBLIC_NUTSNEWS_IOS_APP_STORE_URL",
       "reason": "Public app-store link rendered by the web runtime."
     },
+    "NEXT_PUBLIC_NUTSNEWS_RUNTIME_ENV": {
+      "category": "safe_to_synchronize",
+      "sync": true,
+      "destination": "NEXT_PUBLIC_NUTSNEWS_RUNTIME_ENV",
+      "reason": "Public runtime identity used to gate browser telemetry."
+    },
+    "NEXT_PUBLIC_NUTSNEWS_SIDE_EFFECTS_MODE": {
+      "category": "safe_to_synchronize",
+      "sync": true,
+      "destination": "NEXT_PUBLIC_NUTSNEWS_SIDE_EFFECTS_MODE",
+      "reason": "Public side-effect mode used to gate browser telemetry."
+    },
     "NEXT_PUBLIC_TURNSTILE_SITE_KEY": {
       "category": "safe_to_synchronize",
       "sync": true,
@@ -125,6 +137,42 @@
       "sync": true,
       "destination": "NUTSNEWS_EDGE_FEED_SNAPSHOT_URL",
       "reason": "Worker edge snapshot endpoint consumed by the web runtime."
+    },
+    "NUTSNEWS_DATA_ENV": {
+      "category": "safe_to_synchronize",
+      "sync": true,
+      "destination": "NUTSNEWS_DATA_ENV",
+      "reason": "Declared non-secret data-environment identity for runtime validation."
+    },
+    "NUTSNEWS_PRODUCTION_SUPABASE_PROJECT_REF": {
+      "category": "safe_to_synchronize",
+      "sync": true,
+      "destination": "NUTSNEWS_PRODUCTION_SUPABASE_PROJECT_REF",
+      "reason": "Known non-secret production project identity used to reject staging mismatches."
+    },
+    "NUTSNEWS_RUNTIME_ENV": {
+      "category": "safe_to_synchronize",
+      "sync": true,
+      "destination": "NUTSNEWS_RUNTIME_ENV",
+      "reason": "Declared non-secret runtime identity for side-effect policy enforcement."
+    },
+    "NUTSNEWS_SIDE_EFFECTS_MODE": {
+      "category": "safe_to_synchronize",
+      "sync": true,
+      "destination": "NUTSNEWS_SIDE_EFFECTS_MODE",
+      "reason": "Declared non-secret side-effect mode for runtime policy enforcement."
+    },
+    "NUTSNEWS_SUPABASE_CREDENTIALS_ENV": {
+      "category": "safe_to_synchronize",
+      "sync": true,
+      "destination": "NUTSNEWS_SUPABASE_CREDENTIALS_ENV",
+      "reason": "Declared non-secret credential-environment identity for runtime validation."
+    },
+    "NUTSNEWS_SUPABASE_PROJECT_REF": {
+      "category": "safe_to_synchronize",
+      "sync": true,
+      "destination": "NUTSNEWS_SUPABASE_PROJECT_REF",
+      "reason": "Declared non-secret Supabase project identity for runtime validation."
     },
     "RESEND_API_KEY": {
       "category": "server_side_secret",
