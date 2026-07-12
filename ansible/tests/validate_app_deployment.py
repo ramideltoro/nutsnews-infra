@@ -84,6 +84,16 @@ assert "flush_interval -1" in public_route
 assert "header_down" not in public_route
 assert "vps_service_foundation_nutsnews_app_envs | dictsort" in app_env_template
 assert ".items() | dictsort" not in app_env_template
+for runtime_identity in (
+    "NUTSNEWS_SOURCE_COMMIT",
+    "NUTSNEWS_BUILD_ID",
+    "NUTSNEWS_DEPLOYMENT_TARGET",
+    "NUTSNEWS_EXPECTED_IMAGE_DIGEST",
+):
+    assert runtime_identity in app_env_template, f"Missing runtime identity {runtime_identity}"
+assert app_env_template.index("NUTSNEWS_EXPECTED_IMAGE_DIGEST") > app_env_template.index(
+    "vps_service_foundation_nutsnews_app_envs | dictsort"
+)
 
 public_site = caddyfile.split("vps.nutsnews.com {", 1)[1].split("ops.nutsnews.com {", 1)[0]
 assert "handle /health" in public_site
