@@ -21,6 +21,9 @@ REPORTING_STATUS_FILE = Path(
     os.environ.get("NUTSNEWS_REPORTING_STATUS_FILE", "/opt/nutsnews/portal-assets/data/reporting-status.json")
 )
 ALERT_STATE_FILE = Path(os.environ.get("NUTSNEWS_ALERT_STATE_FILE", "/opt/nutsnews/ops/email-alert-state.json"))
+ALERT_STATE_SCHEMA_VERSION = 2
+ALERT_STATE_MAX_ENTRIES = 256
+ALERT_LEVEL_RANK = {"warning": 1, "critical": 2}
 
 
 def utc_now() -> str:
@@ -166,14 +169,100 @@ def relevant_alerts(status: dict[str, Any]) -> list[dict[str, str]]:
             continue
         level = str(alert.get("level", "")).lower()
         message = str(alert.get("message", "")).strip()
+        identity = str(alert.get("id", "")).strip()
         if level in {"warning", "critical"} and message:
-            selected.append({"level": level, "message": message})
+            if not identity:
+                identity = "legacy." + hashlib.sha256(message.encode("utf-8")).hexdigest()[:16]
+            selected.append({"id": identity, "level": level, "message": message})
     return selected
 
 
 def alert_fingerprint(alert: dict[str, str]) -> str:
-    raw = f"{alert['level']}\0{alert['message']}".encode("utf-8")
+    raw = alert["id"].encode("utf-8")
     return hashlib.sha256(raw).hexdigest()
+
+
+def bounded_alert_records(records: dict[str, dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    ordered = sorted(
+        records.items(),
+        key=lambda item: (int(item[1].get("last_sent_epoch", 0)), item[0]),
+        reverse=True,
+    )
+    return dict(ordered[:ALERT_STATE_MAX_ENTRIES])
+
+
+def active_alert_state(state: Any, alerts: list[dict[str, str]]) -> dict[str, Any]:
+    stored = state.get("alerts", {}) if isinstance(state, dict) else {}
+    if not isinstance(stored, dict):
+        stored = {}
+
+    active_records: dict[str, dict[str, Any]] = {}
+    for alert in alerts:
+        fingerprint = alert_fingerprint(alert)
+        record = stored.get(fingerprint)
+        if not isinstance(record, dict) or record.get("identity") != alert["id"]:
+            continue
+        active_records[fingerprint] = {
+            "identity": alert["id"],
+            "level": str(record.get("level", "")),
+            "last_sent_epoch": int(record.get("last_sent_epoch", 0)),
+            "last_sent_at": str(record.get("last_sent_at", "unknown")),
+        }
+
+    return {
+        "schema_version": ALERT_STATE_SCHEMA_VERSION,
+        "alerts": bounded_alert_records(active_records),
+    }
+
+
+def alert_delivery_plan(
+    alerts: list[dict[str, str]],
+    state: Any,
+    *,
+    now: int,
+    cooldown_seconds: int,
+) -> tuple[list[tuple[str, dict[str, str]]], int, dict[str, Any]]:
+    current_state = active_alert_state(state, alerts)
+    records = current_state["alerts"]
+    sendable: list[tuple[str, dict[str, str]]] = []
+    suppressed = 0
+    seen: set[str] = set()
+
+    for alert in alerts:
+        fingerprint = alert_fingerprint(alert)
+        if fingerprint in seen:
+            continue
+        seen.add(fingerprint)
+        previous = records.get(fingerprint)
+        last_sent = int(previous.get("last_sent_epoch", 0)) if isinstance(previous, dict) else 0
+        previous_level = str(previous.get("level", "")) if isinstance(previous, dict) else ""
+        escalated = ALERT_LEVEL_RANK.get(alert["level"], 0) > ALERT_LEVEL_RANK.get(previous_level, 0)
+        if previous is None or escalated or now - last_sent >= cooldown_seconds:
+            sendable.append((fingerprint, alert))
+        else:
+            suppressed += 1
+
+    return sendable, suppressed, current_state
+
+
+def record_sent_alerts(
+    state: dict[str, Any],
+    sendable: list[tuple[str, dict[str, str]]],
+    *,
+    now: int,
+    sent_at: str,
+) -> dict[str, Any]:
+    records = state.setdefault("alerts", {})
+    for fingerprint, alert in sendable:
+        records[fingerprint] = {
+            "identity": alert["id"],
+            "level": alert["level"],
+            "last_sent_epoch": now,
+            "last_sent_at": sent_at,
+        }
+    state["schema_version"] = ALERT_STATE_SCHEMA_VERSION
+    state["alerts"] = bounded_alert_records(records)
+    return state
 
 
 def send_email(config: dict[str, Any], subject: str, body: str) -> None:
@@ -385,22 +474,18 @@ def handle_alert(config: dict[str, Any], configured: bool, dry_run: bool) -> int
         )
         return 0
 
-    state = read_json(ALERT_STATE_FILE, {"alerts": {}})
-    if not isinstance(state, dict):
-        state = {"alerts": {}}
-    sent_alerts = state.setdefault("alerts", {})
+    state = read_json(ALERT_STATE_FILE, {"schema_version": ALERT_STATE_SCHEMA_VERSION, "alerts": {}})
     now = int(time.time())
-    sendable = []
-    suppressed = 0
-    for alert in alerts:
-        fingerprint = alert_fingerprint(alert)
-        last_sent = int(sent_alerts.get(fingerprint, {}).get("last_sent_epoch", 0))
-        if now - last_sent >= config["cooldown_seconds"]:
-            sendable.append((fingerprint, alert))
-        else:
-            suppressed += 1
+    sendable, suppressed, state = alert_delivery_plan(
+        alerts,
+        state,
+        now=now,
+        cooldown_seconds=config["cooldown_seconds"],
+    )
 
     if not alerts:
+        if not dry_run:
+            write_json(ALERT_STATE_FILE, state, mode=0o600)
         public_status_update(
             config=config,
             configured=True,
@@ -412,6 +497,8 @@ def handle_alert(config: dict[str, Any], configured: bool, dry_run: bool) -> int
         return 0
 
     if not sendable:
+        if not dry_run:
+            write_json(ALERT_STATE_FILE, state, mode=0o600)
         public_status_update(
             config=config,
             configured=True,
@@ -427,13 +514,7 @@ def handle_alert(config: dict[str, Any], configured: bool, dry_run: bool) -> int
         if not dry_run:
             subject = f"{config['subject_prefix']}: {len(sendable)} VPS alert(s)"
             send_email(config, subject, alert_body(status, [alert for _, alert in sendable]))
-            for fingerprint, alert in sendable:
-                sent_alerts[fingerprint] = {
-                    "last_sent_epoch": now,
-                    "last_sent_at": utc_now(),
-                    "level": alert["level"],
-                    "message": alert["message"],
-                }
+            state = record_sent_alerts(state, sendable, now=now, sent_at=utc_now())
             write_json(ALERT_STATE_FILE, state, mode=0o600)
         public_status_update(
             config=config,
@@ -446,6 +527,8 @@ def handle_alert(config: dict[str, Any], configured: bool, dry_run: bool) -> int
             sent=not dry_run,
         )
     except Exception as error:  # noqa: BLE001 - surface email transport errors to the status feed
+        if not dry_run:
+            write_json(ALERT_STATE_FILE, state, mode=0o600)
         public_status_update(
             config=config,
             configured=True,

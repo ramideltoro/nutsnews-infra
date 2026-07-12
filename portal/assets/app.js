@@ -826,7 +826,9 @@ function renderBackups(data) {
     {
       label: "Latest Verification",
       value: text(verification.status || backups.verification_status),
-      hint: `${text(verification.detail)}${Number.isFinite(Number(verificationAge)) ? ` age ${duration(verificationAge)}` : ""}`,
+      hint: `${text(verification.detail)}; policy ${text(verification.policy_status)}${
+        Number.isFinite(Number(verificationAge)) ? ` age ${duration(verificationAge)}` : ""
+      }; policy deadline ${text(verification.deadline_at)}`,
     },
     {
       label: "Checked Snapshot",

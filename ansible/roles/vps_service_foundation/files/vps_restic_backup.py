@@ -11,7 +11,7 @@ import os
 import re
 import subprocess
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -273,6 +273,20 @@ def parse_timestamp(value: Any) -> datetime | None:
     return parsed
 
 
+def age_seconds(value: Any) -> int | None:
+    parsed = parse_timestamp(value)
+    if not parsed:
+        return None
+    return max(int((datetime.now(timezone.utc) - parsed).total_seconds()), 0)
+
+
+def deadline_at(value: Any, seconds: int) -> str:
+    parsed = parse_timestamp(value)
+    if not parsed:
+        return "unknown"
+    return (parsed + timedelta(seconds=seconds)).replace(microsecond=0).isoformat()
+
+
 def snapshot_id_candidates(snapshot: Any) -> list[str]:
     if not isinstance(snapshot, dict):
         return []
@@ -332,10 +346,8 @@ def verification_status(data: dict[str, Any]) -> dict[str, Any]:
     if threshold_seconds <= 0:
         threshold_seconds = env_int("NUTSNEWS_BACKUP_VERIFY_STALE_AFTER_HOURS", 192) * 3600
     finished_at = last_check.get("finished_at")
-    finished_at_age = None
-    parsed_finished_at = parse_timestamp(finished_at)
-    if parsed_finished_at:
-        finished_at_age = max(int((datetime.now(timezone.utc) - parsed_finished_at).total_seconds()), 0)
+    finished_at_age = age_seconds(finished_at)
+    latest_snapshot_age = age_seconds(latest.get("time")) if latest else None
 
     check_status = str(last_check.get("status", "never")).lower()
     latest_id = latest.get("short_id") or latest.get("id", "")
@@ -343,14 +355,22 @@ def verification_status(data: dict[str, Any]) -> dict[str, Any]:
         snapshot_id_matches(last_check.get("latest_snapshot_id"), latest)
         or snapshot_time_matches(last_check.get("latest_snapshot_time"), latest.get("time"))
     )
-    stale = isinstance(finished_at_age, int) and finished_at_age > threshold_seconds
+    deadline_basis = finished_at if check_status == "success" else latest.get("time")
+    overdue = (
+        isinstance(finished_at_age, int) and finished_at_age > threshold_seconds
+        if check_status == "success"
+        else isinstance(latest_snapshot_age, int) and latest_snapshot_age > threshold_seconds
+    )
 
     result = {
         "status": "unknown",
+        "policy_status": "unknown",
         "latest_snapshot_verified": False,
         "checked_latest_snapshot": checked_latest,
         "checked_snapshot_is_older": checked_snapshot_is_older(last_check, latest) if latest else False,
         "stale": False,
+        "overdue": False,
+        "pending": False,
         "age_seconds": finished_at_age,
         "stale_after_seconds": threshold_seconds,
         "stale_after_hours": round(threshold_seconds / 3600, 2),
@@ -359,34 +379,70 @@ def verification_status(data: dict[str, Any]) -> dict[str, Any]:
         "checked_snapshot_id": last_check.get("latest_snapshot_id", ""),
         "checked_snapshot_time": last_check.get("latest_snapshot_time", ""),
         "last_checked_at": finished_at or "never",
+        "deadline_at": deadline_at(deadline_basis, threshold_seconds),
+        "deadline_basis": "last_successful_verification" if check_status == "success" else "latest_snapshot",
         "detail": "Backup verification status is unknown.",
     }
 
     if not data.get("enabled"):
-        result.update({"status": "disabled", "detail": "Backups are disabled."})
+        result.update({"status": "disabled", "policy_status": "disabled", "detail": "Backups are disabled."})
     elif not data.get("configured"):
-        result.update({"status": "misconfigured", "detail": "Backups are enabled but restic/rclone configuration is incomplete."})
+        result.update(
+            {
+                "status": "misconfigured",
+                "policy_status": "misconfigured",
+                "detail": "Backups are enabled but restic/rclone configuration is incomplete.",
+            }
+        )
     elif check_status == "running":
-        result.update({"status": "running", "detail": "Backup verification is currently running."})
+        result.update(
+            {"status": "running", "policy_status": "running", "detail": "Backup verification is currently running."}
+        )
     elif check_status == "failed":
-        result.update({"status": "failed", "detail": last_check.get("error") or "The latest backup verification failed."})
+        result.update(
+            {
+                "status": "failed",
+                "policy_status": "failed",
+                "detail": last_check.get("error") or "The latest backup verification failed.",
+            }
+        )
     elif not latest:
-        result.update({"status": "latest_unverified", "detail": "No latest restic snapshot is available to verify."})
-    elif check_status != "success":
-        result.update({"status": "latest_unverified", "detail": "The latest restic snapshot has not been verified yet."})
-    elif not checked_latest:
         result.update(
             {
                 "status": "latest_unverified",
-                "detail": "The last successful verification checked an older snapshot than the latest backup.",
+                "policy_status": "pending",
+                "pending": True,
+                "detail": "No latest restic snapshot is available to verify yet.",
             }
         )
-    elif stale:
-        result.update({"status": "stale", "stale": True, "detail": "The latest snapshot was verified, but the verification is stale."})
+    elif overdue:
+        result.update(
+            {
+                "status": "stale" if checked_latest else "latest_unverified",
+                "policy_status": "overdue",
+                "stale": True,
+                "overdue": True,
+                "detail": (
+                    "Backup verification is overdue and the newest snapshot is still awaiting verification."
+                    if not checked_latest
+                    else "The latest snapshot was verified, but the verification is overdue."
+                ),
+            }
+        )
+    elif check_status != "success" or not checked_latest:
+        result.update(
+            {
+                "status": "latest_unverified",
+                "policy_status": "pending",
+                "pending": True,
+                "detail": "The newest daily snapshot is awaiting the scheduled weekly verification within policy.",
+            }
+        )
     else:
         result.update(
             {
                 "status": "success",
+                "policy_status": "current",
                 "latest_snapshot_verified": True,
                 "detail": "The latest restic snapshot has a recent successful verification.",
             }
