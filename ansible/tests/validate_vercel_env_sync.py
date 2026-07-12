@@ -46,4 +46,27 @@ require(selected, "Mapping must contain an explicit synchronization allowlist.")
 require("patterns" in mapping, "Mapping must contain explicit classification patterns.")
 require(all(rule.get("sync") is False for rule in mapping["variables"].values() if rule.get("category") == "manual_review"), "Manual-review rules must never sync implicitly.")
 
+runtime_public_destinations = {
+    "NEXT_PUBLIC_SENTRY_DSN": "NUTSNEWS_PUBLIC_SENTRY_DSN",
+    "NEXT_PUBLIC_GA_ID": "NUTSNEWS_PUBLIC_GA_ID",
+    "NEXT_PUBLIC_NUTSNEWS_IOS_APP_STORE_URL": "NUTSNEWS_PUBLIC_IOS_APP_STORE_URL",
+    "NEXT_PUBLIC_TURNSTILE_SITE_KEY": "NUTSNEWS_PUBLIC_TURNSTILE_SITE_KEY",
+    "NEXT_PUBLIC_SUPABASE_ANON_KEY": "NUTSNEWS_PUBLIC_SUPABASE_ANON_KEY",
+}
+for source, destination in runtime_public_destinations.items():
+    require(
+        mapping["variables"].get(source, {}).get("destination") == destination,
+        f"{source} must synchronize into the runtime-only {destination} destination.",
+    )
+
+supabase_url_destinations = mapping["variables"].get("NEXT_PUBLIC_SUPABASE_URL", {}).get("destinations", [])
+require(
+    "NUTSNEWS_PUBLIC_SUPABASE_URL" in supabase_url_destinations,
+    "NEXT_PUBLIC_SUPABASE_URL must synchronize into NUTSNEWS_PUBLIC_SUPABASE_URL.",
+)
+require(
+    "NEXT_PUBLIC_SUPABASE_URL" not in supabase_url_destinations,
+    "Legacy NEXT_PUBLIC_SUPABASE_URL must not be rendered into the VPS runtime environment.",
+)
+
 print("Vercel-to-VPS environment sync guardrails passed.")

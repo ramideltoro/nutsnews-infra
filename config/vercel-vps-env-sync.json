@@ -84,20 +84,20 @@
     "NEXT_PUBLIC_SENTRY_DSN": {
       "category": "safe_to_synchronize",
       "sync": true,
-      "destination": "NEXT_PUBLIC_SENTRY_DSN",
-      "reason": "Sentry DSNs are client configuration, not write credentials."
+      "destination": "NUTSNEWS_PUBLIC_SENTRY_DSN",
+      "reason": "Browser-safe Sentry DSN is read at container runtime, never embedded at image build."
     },
     "NEXT_PUBLIC_GA_ID": {
       "category": "safe_to_synchronize",
       "sync": true,
-      "destination": "NEXT_PUBLIC_GA_ID",
-      "reason": "Browser analytics measurement identifier."
+      "destination": "NUTSNEWS_PUBLIC_GA_ID",
+      "reason": "Browser analytics identifier is read at container runtime, never embedded at image build."
     },
     "NEXT_PUBLIC_NUTSNEWS_IOS_APP_STORE_URL": {
       "category": "safe_to_synchronize",
       "sync": true,
-      "destination": "NEXT_PUBLIC_NUTSNEWS_IOS_APP_STORE_URL",
-      "reason": "Public app-store link rendered by the web runtime."
+      "destination": "NUTSNEWS_PUBLIC_IOS_APP_STORE_URL",
+      "reason": "Public app-store link is served from runtime configuration."
     },
     "NEXT_PUBLIC_NUTSNEWS_RUNTIME_ENV": {
       "category": "safe_to_synchronize",
@@ -114,23 +114,23 @@
     "NEXT_PUBLIC_TURNSTILE_SITE_KEY": {
       "category": "safe_to_synchronize",
       "sync": true,
-      "destination": "NEXT_PUBLIC_TURNSTILE_SITE_KEY",
-      "reason": "Public Cloudflare Turnstile site key used by the contact form."
+      "destination": "NUTSNEWS_PUBLIC_TURNSTILE_SITE_KEY",
+      "reason": "Public Turnstile key is served from runtime configuration."
     },
     "NEXT_PUBLIC_SUPABASE_ANON_KEY": {
       "category": "safe_to_synchronize",
       "sync": true,
-      "destination": "NEXT_PUBLIC_SUPABASE_ANON_KEY",
-      "reason": "Supabase public anon key; database policy remains the security boundary."
+      "destination": "NUTSNEWS_PUBLIC_SUPABASE_ANON_KEY",
+      "reason": "Supabase public anon key is served from runtime configuration; database policy remains the security boundary."
     },
     "NEXT_PUBLIC_SUPABASE_URL": {
       "category": "safe_to_synchronize",
       "sync": true,
       "destinations": [
-        "NEXT_PUBLIC_SUPABASE_URL",
+        "NUTSNEWS_PUBLIC_SUPABASE_URL",
         "SUPABASE_URL"
       ],
-      "reason": "Supabase project URL used by browser code and server-side admin dashboards."
+      "reason": "Supabase URL is injected at runtime for browser-safe config and server-side admin dashboards."
     },
     "NUTSNEWS_EDGE_FEED_SNAPSHOT_URL": {
       "category": "safe_to_synchronize",
