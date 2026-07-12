@@ -180,13 +180,7 @@ After reviewing check output and environment approval, apply with:
 gh workflow run protected-ansible-apply.yml -f run_mode=apply -f confirm_apply=vps.nutsnews.com
 ```
 
-To send no email but refresh the public reporting status on the VPS:
-
-```bash
-sudo /usr/local/bin/nutsnews-ops-portal-reporter --mode alert --dry-run
-sudo /usr/local/bin/nutsnews-ops-portal-reporter --mode report --dry-run
-sudo systemctl start nutsnews-ops-portal-collector.service
-```
+Protected apply refreshes the public reporting status with `--dry-run` and the same managed email environment used by the systemd reporter units. Do not invoke the reporter binary bare: a direct process does not load `/etc/nutsnews/ops-reporter.env` and can temporarily misreport configured email as disabled. For routine refreshes, let the managed alert timer run through its systemd service.
 
 Use the systemd unit for portal status refreshes so the collector follows the deployed timer path. The collector also falls back to `/etc/nutsnews/free-tier-usage.env` when its process environment is missing free-tier settings, so external providers such as Vercel stay visible instead of disappearing from the generated snapshot.
 

@@ -1176,7 +1176,22 @@
           - --mode
           - alert
           - --dry-run
+      environment:
+        NUTSNEWS_EMAIL_ENABLED: "{{ (vps_service_foundation_email_enabled | bool) | ternary('1', '0') }}"
+        NUTSNEWS_SMTP_HOST: "{{ vps_service_foundation_email_smtp_host }}"
+        NUTSNEWS_SMTP_PORT: "{{ vps_service_foundation_email_smtp_port | string }}"
+        NUTSNEWS_SMTP_USERNAME: "{{ vps_service_foundation_email_smtp_username }}"
+        NUTSNEWS_SMTP_PASSWORD: "{{ vps_service_foundation_email_smtp_password }}"
+        NUTSNEWS_SMTP_STARTTLS: "{{ (vps_service_foundation_email_smtp_starttls | bool) | ternary('1', '0') }}"
+        NUTSNEWS_EMAIL_FROM: "{{ vps_service_foundation_email_from }}"
+        NUTSNEWS_EMAIL_TO: "{{ vps_service_foundation_email_to }}"
+        NUTSNEWS_ALERT_COOLDOWN_SECONDS: "{{ vps_service_foundation_email_alert_cooldown_seconds | string }}"
+        NUTSNEWS_REPORT_SUBJECT_PREFIX: "{{ vps_service_foundation_email_report_subject_prefix }}"
+        NUTSNEWS_PORTAL_STATUS_FILE: "{{ vps_service_foundation_portal_status_file }}"
+        NUTSNEWS_REPORTING_STATUS_FILE: "{{ vps_service_foundation_reporting_status_file }}"
+        NUTSNEWS_ALERT_STATE_FILE: "{{ vps_service_foundation_alert_state_file }}"
       changed_when: false
+      no_log: true
 
     - name: Refresh operations portal status after reporting update
       ansible.builtin.systemd_service:
