@@ -138,21 +138,6 @@
       "destination": "TURNSTILE_SECRET_KEY",
       "reason": "Cloudflare Turnstile verification credential consumed by the web runtime."
     },
-    "AUTH_GOOGLE_ID": {
-      "category": "server_side_secret",
-      "sync": false,
-      "reason": "No current web, Worker, or VPS consumer found; keep excluded pending ownership review."
-    },
-    "AUTH_GOOGLE_SECRET": {
-      "category": "server_side_secret",
-      "sync": false,
-      "reason": "No current web, Worker, or VPS consumer found; keep excluded pending ownership review."
-    },
-    "AUTH_SECRET": {
-      "category": "server_side_secret",
-      "sync": false,
-      "reason": "No current web, Worker, or VPS consumer found; keep excluded pending ownership review."
-    },
     "OPENAI_API_KEY": {
       "category": "server_side_secret",
       "sync": false,

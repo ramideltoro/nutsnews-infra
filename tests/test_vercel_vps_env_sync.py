@@ -9,6 +9,7 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 
 SCRIPT = Path(__file__).parents[1] / "scripts" / "vercel_vps_env_sync.py"
@@ -136,7 +137,15 @@ class VercelVpsEnvSyncTests(unittest.TestCase):
 
     def test_supabase_url_populates_browser_and_server_destinations(self) -> None:
         selected, _ = sync.classify_records(
-            [{"key": "NEXT_PUBLIC_SUPABASE_URL", "target": ["production"], "value": "https://example.supabase.co"}],
+            [
+                {
+                    "key": "NEXT_PUBLIC_SUPABASE_URL",
+                    "target": ["production"],
+                    "type": "plain",
+                    "decrypted": True,
+                    "value": "https://example.supabase.co",
+                }
+            ],
             self.mapping,
         )
         self.assertEqual(
@@ -149,7 +158,15 @@ class VercelVpsEnvSyncTests(unittest.TestCase):
 
     def test_synchronized_server_secret_is_not_reported_as_excluded(self) -> None:
         selected, report = sync.classify_records(
-            [{"key": "SUPABASE_SERVICE_ROLE_KEY", "target": ["production"], "value": "secret"}],
+            [
+                {
+                    "key": "SUPABASE_SERVICE_ROLE_KEY",
+                    "target": ["production"],
+                    "type": "encrypted",
+                    "decrypted": True,
+                    "value": "secret",
+                }
+            ],
             self.mapping,
         )
         output = io.StringIO()
@@ -158,6 +175,155 @@ class VercelVpsEnvSyncTests(unittest.TestCase):
         self.assertTrue(changed)
         self.assertIn("added: SUPABASE_SERVICE_ROLE_KEY", output.getvalue())
         self.assertNotIn("excluded", output.getvalue())
+
+    def test_valid_plaintext_is_accepted(self) -> None:
+        selected, _ = sync.classify_records(
+            [
+                {
+                    "key": "AUTH_GOOGLE_ID",
+                    "target": ["production"],
+                    "type": "encrypted",
+                    "decrypted": True,
+                    "value": "1234567890-test-client.apps.googleusercontent.com",
+                }
+            ],
+            self.mapping,
+        )
+        self.assertEqual(selected["AUTH_GOOGLE_ID"], "1234567890-test-client.apps.googleusercontent.com")
+
+    def test_encrypted_envelope_is_rejected_without_echoing_ciphertext(self) -> None:
+        ciphertext = "ciphertext-fixture-must-not-appear"
+        envelope = json.dumps({"encryptedValue": ciphertext, "keyId": "fixture"})
+        with self.assertRaisesRegex(SystemExit, "AUTH_GOOGLE_ID") as raised:
+            sync.classify_records(
+                [
+                    {
+                        "key": "AUTH_GOOGLE_ID",
+                        "target": ["production"],
+                        "type": "encrypted",
+                        "decrypted": False,
+                        "value": envelope,
+                    }
+                ],
+                self.mapping,
+            )
+        self.assertNotIn(ciphertext, str(raised.exception))
+        self.assertNotIn(envelope, str(raised.exception))
+
+    def test_observed_opaque_auth_values_fail_semantic_validation(self) -> None:
+        opaque_client_id = "x" * 1192
+        with self.assertRaisesRegex(SystemExit, "AUTH_GOOGLE_ID") as raised:
+            sync.validate_selected_values(
+                {
+                    "AUTH_GOOGLE_ID": opaque_client_id,
+                    "AUTH_GOOGLE_SECRET": "valid-secret-fixture",
+                    "AUTH_SECRET": "s" * 64,
+                    "ADMIN_EMAILS": "rami.deltoro@gmail.com",
+                }
+            )
+        self.assertNotIn(opaque_client_id, str(raised.exception))
+
+    def test_observed_opaque_secret_lengths_fail_semantic_validation(self) -> None:
+        opaque_google_secret = "x" * 1084
+        opaque_auth_secret = "x" * 1168
+        with self.assertRaisesRegex(SystemExit, "AUTH_GOOGLE_SECRET.*AUTH_SECRET") as raised:
+            sync.validate_selected_values(
+                {
+                    "AUTH_GOOGLE_ID": "1234567890-test-client.apps.googleusercontent.com",
+                    "AUTH_GOOGLE_SECRET": opaque_google_secret,
+                    "AUTH_SECRET": opaque_auth_secret,
+                    "ADMIN_EMAILS": "rami.deltoro@gmail.com",
+                }
+            )
+        self.assertNotIn(opaque_google_secret, str(raised.exception))
+        self.assertNotIn(opaque_auth_secret, str(raised.exception))
+
+    def test_observed_opaque_auth_secret_is_rejected_by_decryption_metadata(self) -> None:
+        opaque_secret = "x" * 1168
+        with self.assertRaisesRegex(SystemExit, "AUTH_SECRET") as raised:
+            sync.classify_records(
+                [
+                    {
+                        "key": "AUTH_SECRET",
+                        "target": ["production"],
+                        "type": "encrypted",
+                        "decrypted": False,
+                        "value": opaque_secret,
+                    }
+                ],
+                self.mapping,
+            )
+        self.assertNotIn(opaque_secret, str(raised.exception))
+
+    def test_auth_semantics_and_admin_email_format_are_checked(self) -> None:
+        sync.validate_selected_values(
+            {
+                "AUTH_GOOGLE_ID": "1234567890-test-client.apps.googleusercontent.com",
+                "AUTH_GOOGLE_SECRET": "valid-secret-fixture",
+                "AUTH_SECRET": "s" * 64,
+                "ADMIN_EMAILS": "rami.deltoro@gmail.com,admin@example.com",
+            }
+        )
+        with self.assertRaisesRegex(SystemExit, "ADMIN_EMAILS"):
+            sync.validate_selected_values(
+                {
+                    "AUTH_GOOGLE_ID": "1234567890-test-client.apps.googleusercontent.com",
+                    "AUTH_GOOGLE_SECRET": "valid-secret-fixture",
+                    "AUTH_SECRET": "s" * 64,
+                    "ADMIN_EMAILS": "not-an-email",
+                }
+            )
+
+    def test_fetch_uses_documented_per_variable_decrypted_endpoint(self) -> None:
+        saved = {
+            name: os.environ.get(name)
+            for name in ("VERCEL_TOKEN", "VERCEL_PROJECT_ID", "VERCEL_TEAM_ID")
+        }
+        os.environ.update(
+            {
+                "VERCEL_TOKEN": "token-fixture",
+                "VERCEL_PROJECT_ID": "project-fixture",
+                "VERCEL_TEAM_ID": "team-fixture",
+            }
+        )
+        calls: list[tuple[str, str | None]] = []
+
+        def fake_fetch(url: str, token: str, variable_name: str | None = None):
+            calls.append((url, variable_name))
+            if "/v10/" in url:
+                return {
+                    "envs": [
+                        {
+                            "id": "env-fixture",
+                            "key": "AUTH_GOOGLE_ID",
+                            "target": ["production"],
+                            "type": "encrypted",
+                            "decrypted": False,
+                            "value": "list-envelope-not-used",
+                        }
+                    ]
+                }
+            return {
+                "key": "AUTH_GOOGLE_ID",
+                "type": "encrypted",
+                "decrypted": True,
+                "value": "1234567890-test-client.apps.googleusercontent.com",
+            }
+
+        try:
+            with mock.patch.object(sync, "fetch_json", side_effect=fake_fetch):
+                payload = sync.fetch_payload(self.mapping)
+        finally:
+            for name, value in saved.items():
+                if value is None:
+                    os.environ.pop(name, None)
+                else:
+                    os.environ[name] = value
+
+        self.assertEqual(payload[0]["value"], "1234567890-test-client.apps.googleusercontent.com")
+        self.assertNotIn("decrypt=true", calls[0][0])
+        self.assertIn("/v1/projects/project-fixture/env/env-fixture", calls[1][0])
+        self.assertEqual(calls[1][1], "AUTH_GOOGLE_ID")
 
     def test_unknown_production_variable_fails_closed(self) -> None:
         with self.assertRaisesRegex(SystemExit, "Unclassified"):
@@ -187,7 +353,7 @@ class VercelVpsEnvSyncTests(unittest.TestCase):
         saved = {name: os.environ.pop(name, None) for name in ("VERCEL_TOKEN", "VERCEL_PROJECT_ID", "VERCEL_TEAM_ID")}
         try:
             with self.assertRaisesRegex(SystemExit, "VERCEL_TOKEN") as raised:
-                sync.fetch_payload()
+                sync.fetch_payload(self.mapping)
             self.assertNotIn("alpha", str(raised.exception))
         finally:
             for name, value in saved.items():
