@@ -91,6 +91,13 @@ require(host.get("public_ipv6") not in ("", "unknown", None), "Fixture public IP
 require("NUTSNEWS_PUBLIC_IPV4={{ vps_service_foundation_public_ipv4 }}" in COLLECTOR_UNIT, "Collector unit must pass IPv4.")
 require("NUTSNEWS_PUBLIC_IPV6={{ vps_service_foundation_public_ipv6 }}" in COLLECTOR_UNIT, "Collector unit must pass IPv6.")
 
+alert_items = STATUS.get("alerts", {}).get("items", [])
+alert_ids = [item.get("id") for item in alert_items if isinstance(item, dict)]
+require(alert_ids and all(isinstance(item, str) and item for item in alert_ids), "Every portal alert must have a stable ID.")
+require(len(alert_ids) == len(set(alert_ids)), "Portal alert IDs must be unique in a snapshot.")
+require('alert["id"]' in REPORTER, "Reporter cooldown must use stable alert identity.")
+require("ALERT_STATE_MAX_ENTRIES" in REPORTER, "Reporter alert state must have a bounded cleanup policy.")
+
 alloy = STATUS.get("observability", {}).get("alloy", {})
 require(alloy.get("enabled") is True, "Fixture must show Alloy enabled for portal visibility.")
 require(alloy.get("collect_docker") is False, "Fixture must show Docker/cAdvisor collection disabled by default.")
@@ -340,9 +347,13 @@ require(backups.get("last_check", {}).get("status") == "success", "Fixture verif
 verification = backups.get("latest_snapshot_verification", {})
 require(isinstance(verification, dict), "Fixture must include latest snapshot verification status.")
 require(verification.get("status") == "success", "Fixture latest snapshot verification must be success.")
+require(verification.get("policy_status") == "current", "Fixture verification policy must be current.")
 require(verification.get("latest_snapshot_verified") is True, "Fixture latest snapshot must be marked verified.")
 require(verification.get("checked_latest_snapshot") is True, "Fixture verification must match the latest snapshot.")
 require(verification.get("stale") is False, "Fixture verification should not be stale.")
+require(verification.get("pending") is False, "Fixture successful verification must not be pending.")
+require(verification.get("overdue") is False, "Fixture successful verification must not be overdue.")
+require(verification.get("deadline_at") not in (None, "", "unknown"), "Fixture must show verification policy deadline.")
 require(backups.get("verification_status") == "success", "Fixture top-level verification status must be success.")
 require(backups.get("latest_snapshot_verified") is True, "Fixture top-level latest snapshot verified flag must be true.")
 require(backups.get("verify_timer") == "nutsnews-restic-verify.timer", "Fixture verify timer missing.")
@@ -355,7 +366,7 @@ require("missing_paths" not in backups, "Public backup fixture must not expose r
 require("paths" not in backups.get("latest_snapshot", {}), "Public latest snapshot fixture must not expose raw paths.")
 require(backups.get("protected_path_count", 0) >= 1, "Backups must expose a protected path count.")
 require(
-    "Latest Verification" in APP_JS and "Verify Next Run" in APP_JS and "Last Prune" in APP_JS,
+    "Latest Verification" in APP_JS and "Verify Next Run" in APP_JS and "Last Prune" in APP_JS and "deadline_at" in APP_JS,
     "Portal UI missing backup verification status.",
 )
 require("NUTSNEWS_BACKUP_STATUS_FILE" in COLLECTOR_UNIT, "Collector unit must pass backup status file path.")
@@ -404,6 +415,16 @@ for forbidden in ("<button", "<form", "docker.sock", "child_process", "execFile"
 
 require("last_report_run_at" in REPORTER, "Reporter must record report attempts.")
 require("last_report_success_at" in REPORTER, "Reporter must record successful report sends.")
+backup_provider = next(provider for provider in providers if provider.get("key") == "backup_storage")
+require(backup_provider.get("platform") == "Backup Local Cache", "Backup free-tier provider must describe local cache only.")
+require(
+    {metric.get("unit") for metric in backup_provider.get("metrics", [])} == {"GiB"},
+    "Backup free-tier provider must use measurable GiB capacity.",
+)
+require(
+    not any(metric.get("key") == "latest_snapshot_age_hours" for metric in backup_provider.get("metrics", [])),
+    "Snapshot freshness must not be modeled as free-tier storage usage.",
+)
 require("ops-reporter.env.j2" in TASKS, "Reporter environment template must be managed by Ansible.")
 require("no_log: true" in TASKS, "Reporter environment task must keep SMTP secrets out of logs.")
 

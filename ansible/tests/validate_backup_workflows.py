@@ -47,6 +47,15 @@ def load_collector():
     return module
 
 
+def load_backup_runner():
+    path = Path("ansible/roles/vps_service_foundation/files/vps_restic_backup.py").resolve()
+    spec = importlib.util.spec_from_file_location("vps_restic_backup_under_test", path)
+    require(spec is not None and spec.loader is not None, "Could not load VPS restic backup module.")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 def fake_collector_run(argv: list[str], timeout: int = 8) -> dict[str, object]:
     if argv[:1] == ["du"]:
         return {"ok": True, "stdout": "0\t/tmp/nutsnews-backups\n", "stderr": "", "returncode": 0}
@@ -109,6 +118,8 @@ def backup_status_fixture(snapshot_time: str) -> dict[str, object]:
         "stale_after_hours": 1,
         "verify_stale_after_seconds": 691200,
         "verify_stale_after_hours": 192,
+        "timer_active": "active",
+        "verify_timer_active": "active",
         "missing_configuration": [],
         "backup_paths": ["/opt/nutsnews", "/etc/nutsnews"],
         "missing_paths": [],
@@ -146,6 +157,132 @@ def validate_collector_recomputes_backup_freshness() -> None:
     require(backups.get("status") == "success", "Successful backup status must remain visible.")
     for forbidden in ("RESTIC_PASSWORD", "RCLONE_CONFIG", "password=", "token=", "authorization="):
         require(forbidden not in rendered, f"Backup status must not expose {forbidden}.")
+
+
+def validate_backup_alert_semantics() -> None:
+    collector = load_collector()
+    backup_runner = load_backup_runner()
+    now = datetime.now(timezone.utc).replace(microsecond=0)
+    latest_time = now.isoformat()
+    backups = backup_status_fixture(latest_time)
+    backups["latest_snapshot_age_seconds"] = int(30 * 3600 * 0.797)
+    backups["last_check"] = {
+        "status": "success",
+        "finished_at": (now - timedelta(days=1)).isoformat(),
+        "latest_snapshot_id": "older123",
+        "latest_snapshot_time": (now - timedelta(days=1, hours=1)).isoformat(),
+        "error": "",
+    }
+
+    verification = collector.backup_verification_status(backups)
+    require(
+        verification.get("status") == "latest_unverified",
+        "A new daily snapshot must remain visibly different from the last verified snapshot.",
+    )
+    require(verification.get("policy_status") == "pending", "A new daily snapshot must be pending within policy.")
+    require(verification.get("pending") is True, "Pending verification must stay visible in portal status.")
+    require(verification.get("overdue") is False, "Expected weekly verification wait must not be overdue.")
+    require(verification.get("deadline_at") != "unknown", "Pending verification must expose its policy deadline.")
+    runner_verification = backup_runner.verification_status(backups)
+    require(
+        runner_verification.get("status") == "latest_unverified"
+        and runner_verification.get("policy_status") == "pending",
+        "Backup runner and collector must agree on the visible mismatch and pending policy.",
+    )
+    backups["latest_snapshot_verification"] = verification
+
+    alerts = collector.alert_state({}, {}, [], backups, {})
+    alert_ids = {item.get("id") for item in alerts}
+    require("backup.verification_overdue" not in alert_ids, "Expected weekly verification wait must not alert.")
+    require(
+        not any("has not been verified" in item.get("message", "") for item in alerts),
+        "A newer daily snapshot must not immediately emit repetitive unverified email noise.",
+    )
+
+    gibibyte = 1024**3
+    collector.directory_size_bytes = lambda _path: gibibyte
+    providers = collector.local_usage_providers(
+        {
+            "cpu_percent": 5,
+            "memory": {"used_bytes": 2 * gibibyte, "total_bytes": 8 * gibibyte},
+            "swap": {"status": "enabled", "used_bytes": 0, "total_bytes": 2 * gibibyte},
+            "disk": {"used_bytes": 20 * gibibyte, "total_bytes": 80 * gibibyte},
+        },
+        {"available": True},
+        {**backups, "enabled": True, "size_bytes": gibibyte},
+    )
+    backup_provider = next(item for item in providers if item.get("key") == "backup_storage")
+    require(
+        backup_provider.get("platform") == "Backup Local Cache",
+        "Backup provider must describe measurable local cache.",
+    )
+    require(
+        {metric.get("unit") for metric in backup_provider.get("metrics", [])} == {"GiB"},
+        "Backup free-tier metrics must use measurable GiB capacity only.",
+    )
+    require(
+        not any(metric.get("key") == "latest_snapshot_age_hours" for metric in backup_provider.get("metrics", [])),
+        "Snapshot age must not be treated as quota consumption.",
+    )
+    require(
+        not collector.free_tier_alerts({"providers": [backup_provider]}),
+        "A fresh snapshot at 79.7% of its freshness window must not create a storage-quota warning.",
+    )
+
+    stale_case = backup_status_fixture(latest_time)
+    stale_case["last_check"] = {
+        "status": "success",
+        "finished_at": (now - timedelta(days=9)).isoformat(),
+        "latest_snapshot_id": "older123",
+        "latest_snapshot_time": (now - timedelta(days=9)).isoformat(),
+        "error": "",
+    }
+    stale_verification = collector.backup_verification_status(stale_case)
+    require(
+        stale_verification.get("status") == "latest_unverified"
+        and stale_verification.get("policy_status") == "overdue",
+        "An older checked snapshot beyond 192 hours must be visibly unverified and overdue.",
+    )
+    stale_case["latest_snapshot_verification"] = stale_verification
+    stale_alerts = collector.alert_state({}, {}, [], stale_case, {})
+    require(
+        any(item.get("id") == "backup.verification_overdue" for item in stale_alerts),
+        "Overdue verification must keep its warning alert.",
+    )
+
+    never_checked_case = backup_status_fixture((now - timedelta(days=9)).isoformat())
+    never_checked_case["last_check"] = {"status": "never"}
+    never_checked_verification = collector.backup_verification_status(never_checked_case)
+    require(
+        never_checked_verification.get("status") == "latest_unverified"
+        and never_checked_verification.get("policy_status") == "overdue"
+        and never_checked_verification.get("overdue") is True,
+        "A snapshot that has never been checked by the policy deadline must be overdue.",
+    )
+    never_checked_case["latest_snapshot_verification"] = never_checked_verification
+    never_checked_alerts = collector.alert_state({}, {}, [], never_checked_case, {})
+    require(
+        any(item.get("id") == "backup.verification_overdue" for item in never_checked_alerts),
+        "Never-checked overdue verification must alert.",
+    )
+
+    failed_case = backup_status_fixture(latest_time)
+    failed_case["last_check"] = {"status": "failed", "finished_at": now.isoformat(), "error": "safe failure"}
+    failed_case["latest_snapshot_verification"] = collector.backup_verification_status(failed_case)
+    failed_alerts = collector.alert_state({}, {}, [], failed_case, {})
+    require(
+        any(item.get("id") == "backup.verification_failed" for item in failed_alerts),
+        "Failed verification must keep its warning alert.",
+    )
+
+    inactive_case = backup_status_fixture(latest_time)
+    inactive_case["verify_timer_active"] = "inactive"
+    inactive_case["latest_snapshot_verification"] = collector.backup_verification_status(inactive_case)
+    inactive_alerts = collector.alert_state({}, {}, [], inactive_case, {})
+    require(
+        any(item.get("id") == "backup.verification_timer_inactive" for item in inactive_alerts),
+        "Inactive verification timer must keep its warning alert.",
+    )
 
 
 def validate_workflow(item: dict[str, object]) -> None:
@@ -189,5 +326,6 @@ for workflow in WORKFLOWS:
     validate_workflow(workflow)
 
 validate_collector_recomputes_backup_freshness()
+validate_backup_alert_semantics()
 
 print("Backup workflow guardrails passed.")

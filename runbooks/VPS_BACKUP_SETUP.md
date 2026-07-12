@@ -91,6 +91,10 @@ sudo cat /opt/nutsnews/portal-assets/data/backup-status.json
 
 The scheduled verify timer is conservative by default: weekly, randomized by several hours, and stale after 192 hours. It verifies the latest snapshot with the same lock-protected runner as the manual workflow, so backup and verification jobs do not run restic against each other.
 
+Daily backups normally create a newer snapshot than the last weekly verification. The portal shows that mismatch as `latest_unverified` with `policy_status=pending` and a policy deadline; it is status information, not an immediate email condition. Alerting remains active for failed verification, verification beyond 192 hours, an inactive verify timer, failed backup/prune work, or a backup snapshot older than the 30-hour freshness threshold. Full restore drills remain separate under issue #24.
+
+`Backup Local Cache` in the Free Tier section measures only local GiB against the VPS root filesystem. Snapshot age remains in the backup panel, and remote OneDrive capacity is reported as unmeasured unless a real read-only quota source is added.
+
 ## Rollback
 
 Revert the infra PR, merge it, and run protected apply. If backup secrets were added, leave them in GitHub until restore confidence is no longer needed; deleting secrets does not delete existing encrypted OneDrive snapshots.

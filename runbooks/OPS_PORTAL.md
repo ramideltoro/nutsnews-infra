@@ -40,6 +40,8 @@ The shorthand `https:///api/auth/callback/google` is not a valid runtime URL bec
 
 Email reporting is opt-in. SMTP host, credentials, sender, recipients, and cooldown values come from the protected `production-vps` GitHub Environment and are rendered into a root-only env file during protected apply. If email is disabled or incomplete, the reporter exits cleanly and the portal shows reporting as disabled or misconfigured.
 
+Alert cooldown uses each alert's stable machine ID plus its severity, not the rendered message. Numeric details may change in email without bypassing cooldown. Warning-to-critical escalation sends promptly; cleared alerts are removed from state so a later recurrence is a new incident. The root-only state file stores no rendered alert body and is capped at 256 active identities.
+
 Free Tier Usage is read-only. The quota catalog lives in `vps_service_foundation_free_tier_quotas`; recheck official provider docs before changing those values. Local VPS, Docker, and backup entries come from live read-only collector data. Provider credentials are optional and only support read-only collection. The dashboard groups rows by service and labels each metric as `measured`, `missing credential`, `unavailable`, `unsupported`, or `unknown`. If a token, usage endpoint, or normalized snapshot is missing, malformed, or stale, the portal shows an honest unavailable state for that metric or provider instead of failing the whole dashboard.
 
 Alloy telemetry visibility is read-only. The collector checks `alloy.service`, the local readiness URL, whether Docker log shipping is enabled separately from cAdvisor/container metrics, `.prom` files under the configured textfile directory, and recent journal matches for `containerd.sock: connect: permission denied`. A nonzero recent match count raises a portal alert because it means the broken cAdvisor/container path has returned or the post-apply validation window needs investigation. The portal does not read Alloy secrets or expose any control that can restart or reconfigure Alloy.
@@ -198,7 +200,9 @@ The workflow has no dispatch inputs and does not accept remote commands. If emai
 
 The portal shows encrypted VPS backup status from the local restic runner: enabled/configured state, repository path, latest snapshot freshness, whether the latest snapshot has been verified, last backup, last prune, next backup run, next verify run, and protected path count. Raw backup path lists stay in root-only config and are not copied into public status JSON.
 
-Backup failures, stale snapshots, prune failures, verification failures, stale verification, latest-snapshot-unverified state, and inactive backup or verify timers are emitted as warning or critical alerts. The existing email alert timer sends those alerts when email reporting is enabled.
+Backup failures, stale snapshots, prune failures, verification failures, overdue verification, and inactive backup or verify timers are emitted as warning or critical alerts. A newer daily snapshot remains visibly `latest_unverified` with `policy_status=pending` until the scheduled weekly verification and does not alert while it is inside the 192-hour policy window.
+
+The Free Tier section labels measurable backup capacity as `Backup Local Cache` in GiB against the VPS root filesystem. Snapshot age is backup freshness, not storage consumption. Remote OneDrive quota remains unmeasured unless a real read-only source is added; do not infer it from snapshot age or display invented zero usage.
 
 Manual backup workflows stay narrow:
 

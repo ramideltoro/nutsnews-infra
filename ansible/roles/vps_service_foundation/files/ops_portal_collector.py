@@ -14,7 +14,7 @@ import subprocess
 import time
 import urllib.error
 import urllib.request
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -153,6 +153,13 @@ def age_seconds(value: Any) -> int | None:
     return max(int((datetime.now(timezone.utc) - parsed).total_seconds()), 0)
 
 
+def deadline_at(value: Any, seconds: int) -> str:
+    parsed = parse_timestamp(value)
+    if not parsed:
+        return "unknown"
+    return (parsed + timedelta(seconds=seconds)).replace(microsecond=0).isoformat()
+
+
 def snapshot_id_candidates(snapshot: Any) -> list[str]:
     if not isinstance(snapshot, dict):
         return []
@@ -208,19 +215,28 @@ def backup_verification_status(backups: dict[str, Any]) -> dict[str, Any]:
     threshold_seconds = safe_int(backups.get("verify_stale_after_seconds"), 691200)
     finished_at = last_check.get("finished_at")
     finished_at_age = age_seconds(finished_at)
+    latest_snapshot_age = age_seconds(latest.get("time")) if latest else None
     check_status = str(last_check.get("status", "never")).lower()
     checked_latest = bool(latest) and (
         snapshot_id_matches(last_check.get("latest_snapshot_id"), latest)
         or snapshot_time_matches(last_check.get("latest_snapshot_time"), latest.get("time"))
     )
-    stale = isinstance(finished_at_age, int) and finished_at_age > threshold_seconds
+    deadline_basis = finished_at if check_status == "success" else latest.get("time")
+    overdue = (
+        isinstance(finished_at_age, int) and finished_at_age > threshold_seconds
+        if check_status == "success"
+        else isinstance(latest_snapshot_age, int) and latest_snapshot_age > threshold_seconds
+    )
     latest_id = latest.get("short_id") or latest.get("id", "")
     result = {
         "status": "unknown",
+        "policy_status": "unknown",
         "latest_snapshot_verified": False,
         "checked_latest_snapshot": checked_latest,
         "checked_snapshot_is_older": checked_snapshot_is_older(last_check, latest) if latest else False,
         "stale": False,
+        "overdue": False,
+        "pending": False,
         "age_seconds": finished_at_age,
         "stale_after_seconds": threshold_seconds,
         "stale_after_hours": round(threshold_seconds / 3600, 2),
@@ -229,34 +245,70 @@ def backup_verification_status(backups: dict[str, Any]) -> dict[str, Any]:
         "checked_snapshot_id": last_check.get("latest_snapshot_id", ""),
         "checked_snapshot_time": last_check.get("latest_snapshot_time", ""),
         "last_checked_at": finished_at or "never",
+        "deadline_at": deadline_at(deadline_basis, threshold_seconds),
+        "deadline_basis": "last_successful_verification" if check_status == "success" else "latest_snapshot",
         "detail": "Backup verification status is unknown.",
     }
 
     if not backups.get("enabled"):
-        result.update({"status": "disabled", "detail": "Backups are disabled."})
+        result.update({"status": "disabled", "policy_status": "disabled", "detail": "Backups are disabled."})
     elif not backups.get("configured"):
-        result.update({"status": "misconfigured", "detail": "Backups are enabled but restic/rclone configuration is incomplete."})
+        result.update(
+            {
+                "status": "misconfigured",
+                "policy_status": "misconfigured",
+                "detail": "Backups are enabled but restic/rclone configuration is incomplete.",
+            }
+        )
     elif check_status == "running":
-        result.update({"status": "running", "detail": "Backup verification is currently running."})
+        result.update(
+            {"status": "running", "policy_status": "running", "detail": "Backup verification is currently running."}
+        )
     elif check_status == "failed":
-        result.update({"status": "failed", "detail": last_check.get("error") or "The latest backup verification failed."})
+        result.update(
+            {
+                "status": "failed",
+                "policy_status": "failed",
+                "detail": last_check.get("error") or "The latest backup verification failed.",
+            }
+        )
     elif not latest:
-        result.update({"status": "latest_unverified", "detail": "No latest restic snapshot is available to verify."})
-    elif check_status != "success":
-        result.update({"status": "latest_unverified", "detail": "The latest restic snapshot has not been verified yet."})
-    elif not checked_latest:
         result.update(
             {
                 "status": "latest_unverified",
-                "detail": "The last successful verification checked an older snapshot than the latest backup.",
+                "policy_status": "pending",
+                "pending": True,
+                "detail": "No latest restic snapshot is available to verify yet.",
             }
         )
-    elif stale:
-        result.update({"status": "stale", "stale": True, "detail": "The latest snapshot was verified, but the verification is stale."})
+    elif overdue:
+        result.update(
+            {
+                "status": "stale" if checked_latest else "latest_unverified",
+                "policy_status": "overdue",
+                "stale": True,
+                "overdue": True,
+                "detail": (
+                    "Backup verification is overdue and the newest snapshot is still awaiting verification."
+                    if not checked_latest
+                    else "The latest snapshot was verified, but the verification is overdue."
+                ),
+            }
+        )
+    elif check_status != "success" or not checked_latest:
+        result.update(
+            {
+                "status": "latest_unverified",
+                "policy_status": "pending",
+                "pending": True,
+                "detail": "The newest daily snapshot is awaiting the scheduled weekly verification within policy.",
+            }
+        )
     else:
         result.update(
             {
                 "status": "success",
+                "policy_status": "current",
                 "latest_snapshot_verified": True,
                 "detail": "The latest restic snapshot has a recent successful verification.",
             }
@@ -1154,12 +1206,12 @@ def security_state() -> dict[str, Any]:
 
 def backup_state() -> dict[str, Any]:
     usage = run(["du", "-sb", str(BACKUPS_DIR)], timeout=8)
-    size_bytes = 0
+    size_bytes = None
     if usage["ok"] and usage["stdout"].strip():
         try:
             size_bytes = int(usage["stdout"].split()[0])
         except (IndexError, ValueError):
-            size_bytes = 0
+            size_bytes = None
 
     latest = None
     if BACKUPS_DIR.exists():
@@ -1540,9 +1592,6 @@ def local_usage_providers(
     )
 
     backup_size = gib(backups.get("size_bytes"))
-    stale_after_hours = round(safe_int(backups.get("stale_after_seconds"), 108000) / 3600, 2)
-    latest_age = backups.get("latest_snapshot_age_seconds")
-    latest_age_hours = None if latest_age is None else round(safe_int(latest_age) / 3600, 2)
     backup_metrics = [
         local_usage_metric(
             "backup_local_cache_gib",
@@ -1552,24 +1601,20 @@ def local_usage_providers(
             "GiB",
             "current",
         ),
-        local_usage_metric(
-            "latest_snapshot_age_hours",
-            "Latest Snapshot Age",
-            latest_age_hours,
-            stale_after_hours,
-            "hours",
-            "current",
-        ),
     ]
     backup_status = "live" if backups.get("enabled") else "not configured"
     providers.append(
         local_usage_provider(
             "backup_storage",
-            "Backup Storage",
+            "Backup Local Cache",
             backup_metrics,
-            "Backup usage combines the local backup cache size and the existing restic freshness status.",
-            "Remote OneDrive quota is not queried here; the portal shows local backup footprint and snapshot freshness.",
+            "Local backup cache usage is measured against the VPS root filesystem capacity.",
+            (
+                "Snapshot age stays in backup freshness status. Remote OneDrive quota is not measured "
+                "without a real read-only source."
+            ),
             backup_status,
+            plan="VPS root filesystem capacity",
         )
     )
 
@@ -1627,6 +1672,10 @@ def resource_state() -> dict[str, Any]:
     }
 
 
+def alert_item(identity: str, level: str, message: str) -> dict[str, str]:
+    return {"id": identity, "level": level, "message": message}
+
+
 def free_tier_alerts(free_tier: dict[str, Any]) -> list[dict[str, str]]:
     alerts = []
     for provider in free_tier.get("providers", []):
@@ -1640,10 +1689,11 @@ def free_tier_alerts(free_tier: dict[str, Any]) -> list[dict[str, str]]:
         remaining = provider.get("remaining") or "unknown remaining"
         used = provider.get("percent_used_display") or "unknown used"
         alerts.append(
-            {
-                "level": level,
-                "message": f"{name} free-tier usage is {risk.replace('_', ' ')}: {remaining} remaining, {used} used.",
-            }
+            alert_item(
+                f"free_tier.{provider.get('key') or 'unknown'}.quota_risk",
+                level,
+                f"{name} free-tier usage is {risk.replace('_', ' ')}: {remaining} remaining, {used} used.",
+            )
         )
     return alerts
 
@@ -1663,21 +1713,21 @@ def alert_state(
     swap = resources.get("swap", {})
 
     if disk.get("used_percent", 0) >= 85:
-        alerts.append({"level": "warning", "message": "Root disk usage is above 85 percent."})
+        alerts.append(alert_item("resource.root_disk_usage", "warning", "Root disk usage is above 85 percent."))
     if disk.get("inode_used_percent", 0) >= 85:
-        alerts.append({"level": "warning", "message": "Root inode usage is above 85 percent."})
+        alerts.append(alert_item("resource.root_inode_usage", "warning", "Root inode usage is above 85 percent."))
     if memory.get("used_percent", 0) >= 90:
-        alerts.append({"level": "warning", "message": "Memory usage is above 90 percent."})
+        alerts.append(alert_item("resource.memory_usage", "warning", "Memory usage is above 90 percent."))
     swap_usage_state = str(swap.get("usage_state") or "unknown")
     if swap_usage_state == "critical":
-        alerts.append({"level": "critical", "message": "Swap usage is above the critical threshold."})
+        alerts.append(alert_item("resource.swap_usage", "critical", "Swap usage is above the critical threshold."))
     elif swap.get("warning"):
-        alerts.append({"level": "warning", "message": "Swap usage is sustained or non-trivial."})
+        alerts.append(alert_item("resource.swap_usage", "warning", "Swap usage is sustained or non-trivial."))
 
     oom_evidence = resources.get("oom_evidence", {})
     oom_count = oom_evidence.get("count") if isinstance(oom_evidence, dict) else None
     if isinstance(oom_count, int) and oom_count > 0:
-        alerts.append({"level": "critical", "message": "Recent kernel OOM evidence was found."})
+        alerts.append(alert_item("resource.kernel_oom", "critical", "Recent kernel OOM evidence was found."))
 
     unhealthy = [
         container["name"]
@@ -1685,7 +1735,9 @@ def alert_state(
         if container.get("health") not in ("healthy", "none", "unknown", "")
     ]
     if unhealthy:
-        alerts.append({"level": "critical", "message": "Unhealthy containers: " + ", ".join(unhealthy)})
+        alerts.append(
+            alert_item("runtime.unhealthy_containers", "critical", "Unhealthy containers: " + ", ".join(unhealthy))
+        )
 
     inactive = [
         service["name"]
@@ -1694,12 +1746,20 @@ def alert_state(
         and service.get("active") not in ("active", "activating")
     ]
     if inactive:
-        alerts.append({"level": "critical", "message": "Important services are not active: " + ", ".join(inactive)})
+        alerts.append(
+            alert_item(
+                "runtime.important_services_inactive",
+                "critical",
+                "Important services are not active: " + ", ".join(inactive),
+            )
+        )
 
     if backups.get("enabled"):
         if not backups.get("configured"):
             missing = ", ".join(backups.get("missing_configuration", [])) or "backup secrets"
-            alerts.append({"level": "critical", "message": f"VPS backups are enabled but misconfigured: {missing}."})
+            alerts.append(
+                alert_item("backup.configuration", "critical", f"VPS backups are enabled but misconfigured: {missing}.")
+            )
 
         backup_status = str(backups.get("last_backup", {}).get("status", "")).lower()
         prune_status = str(backups.get("last_prune", {}).get("status", "")).lower()
@@ -1707,28 +1767,41 @@ def alert_state(
         if not isinstance(verification, dict):
             verification = backup_verification_status(backups)
         verification_status = str(verification.get("status", "")).lower()
+        verification_overdue = bool(verification.get("overdue"))
         latest_status = str(backups.get("latest_status", "")).lower()
         latest_age = backups.get("latest_snapshot_age_seconds")
         stale_after = safe_int(backups.get("stale_after_seconds"), 108000)
 
         if backup_status == "failed":
-            alerts.append({"level": "critical", "message": "The latest VPS restic backup failed."})
+            alerts.append(alert_item("backup.last_run_failed", "critical", "The latest VPS restic backup failed."))
         if prune_status == "failed":
-            alerts.append({"level": "warning", "message": "The latest VPS restic prune failed after backup."})
+            alerts.append(
+                alert_item("backup.prune_failed", "warning", "The latest VPS restic prune failed after backup.")
+            )
         if verification_status == "failed":
-            alerts.append({"level": "warning", "message": "The latest VPS backup verification failed."})
-        elif verification_status == "stale":
-            alerts.append({"level": "warning", "message": "VPS backup verification is stale."})
-        elif verification_status == "latest_unverified":
-            alerts.append({"level": "warning", "message": "The latest VPS restic snapshot has not been verified."})
+            alerts.append(
+                alert_item("backup.verification_failed", "warning", "The latest VPS backup verification failed.")
+            )
+        elif verification_status == "stale" or verification_overdue:
+            alerts.append(alert_item("backup.verification_overdue", "warning", "VPS backup verification is overdue."))
         if backups.get("timer_active") not in ("active", "activating"):
-            alerts.append({"level": "warning", "message": "The VPS backup timer is not active."})
+            alerts.append(alert_item("backup.timer_inactive", "warning", "The VPS backup timer is not active."))
         if backups.get("verify_timer_active") not in ("active", "activating"):
-            alerts.append({"level": "warning", "message": "The VPS backup verification timer is not active."})
+            alerts.append(
+                alert_item(
+                    "backup.verification_timer_inactive",
+                    "warning",
+                    "The VPS backup verification timer is not active.",
+                )
+            )
         if not backups.get("latest_snapshot"):
-            alerts.append({"level": "warning", "message": "No VPS restic backup snapshot is available yet."})
+            alerts.append(
+                alert_item("backup.snapshot_missing", "warning", "No VPS restic backup snapshot is available yet.")
+            )
         elif latest_status == "stale" or (isinstance(latest_age, int) and latest_age > stale_after):
-            alerts.append({"level": "critical", "message": "The latest VPS restic backup snapshot is stale."})
+            alerts.append(
+                alert_item("backup.snapshot_stale", "critical", "The latest VPS restic backup snapshot is stale.")
+            )
 
     alerts.extend(free_tier_alerts(free_tier))
 
@@ -1736,13 +1809,27 @@ def alert_state(
     if isinstance(alloy, dict) and alloy.get("enabled"):
         ready = alloy.get("ready", {})
         if isinstance(ready, dict) and not ready.get("ok"):
-            alerts.append({"level": "critical", "message": "Grafana Alloy is enabled but its readiness endpoint is not healthy."})
+            alerts.append(
+                alert_item(
+                    "observability.alloy_not_ready",
+                    "critical",
+                    "Grafana Alloy is enabled but its readiness endpoint is not healthy.",
+                )
+            )
         permission_errors = alloy.get("permission_errors", {})
         if isinstance(permission_errors, dict) and safe_int(permission_errors.get("count"), 0) > 0:
-            alerts.append({"level": "warning", "message": "Recent Grafana Alloy permission errors detected."})
+            alerts.append(
+                alert_item(
+                    "observability.alloy_permission_errors",
+                    "warning",
+                    "Recent Grafana Alloy permission errors detected.",
+                )
+            )
 
     if not alerts:
-        alerts.append({"level": "ok", "message": "No local threshold alerts from the current snapshot."})
+        alerts.append(
+            alert_item("system.no_active_alerts", "ok", "No local threshold alerts from the current snapshot.")
+        )
     return alerts
 
 
