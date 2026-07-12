@@ -35,7 +35,10 @@ require("shred -u" in WORKFLOW, "Temporary secret-bearing files must be removed 
 require("set -x" not in WORKFLOW, "Secret-bearing workflow must not enable shell tracing.")
 require("vercel env pull" not in WORKFLOW, "Sync must not use a plaintext Vercel env export file.")
 require("VERCEL_TOKEN" in SCRIPT_PATH.read_text(encoding="utf-8"), "Vercel token must be consumed from the environment.")
-require('"decrypt": "true"' in SCRIPT_PATH.read_text(encoding="utf-8"), "Vercel API fetch must request decrypted values in memory.")
+require("/v1/projects/" in SCRIPT_PATH.read_text(encoding="utf-8"), "Vercel sync must use the documented per-variable decrypted-value endpoint.")
+require('"decrypt": "true"' not in SCRIPT_PATH.read_text(encoding="utf-8"), "Vercel sync must not rely on the deprecated decrypt query parameter.")
+require("looks_like_encrypted_envelope" in SCRIPT_PATH.read_text(encoding="utf-8"), "Vercel sync must reject encrypted envelope values.")
+require("validate_selected_values" in SCRIPT_PATH.read_text(encoding="utf-8"), "Vercel sync must validate semantic runtime values.")
 require("app_envs.update(vercel_envs)" in WORKFLOW, "Vercel values must be merged before passing extra vars to Ansible.")
 
 selected = [name for name, rule in mapping["variables"].items() if rule.get("sync")]
