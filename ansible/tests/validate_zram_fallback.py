@@ -116,7 +116,10 @@ for token in (
 require("Kernel OOM evidence" in REPORTER, "reporter must include kernel OOM evidence.")
 require("Swap State" in APP_JS and "Kernel OOM" in APP_JS, "portal UI must render swap state and OOM evidence.")
 require("mem_limit: 128m" in CADDY_COMPOSE, "Caddy/Ops Auth memory limits must remain in place.")
-require("mem_limit: 768m" in APP_COMPOSE, "NutsNews app memory limit must remain in place.")
+require(
+    "mem_limit: ${NUTSNEWS_APP_MEMORY_LIMIT_MIB" in APP_COMPOSE,
+    "NutsNews app memory limit must remain Docker-enforced.",
+)
 
 swap_fixture = STATUS.get("resources", {}).get("swap", {})
 require(swap_fixture.get("status") == "enabled", "fixture must show zram swap enabled.")
