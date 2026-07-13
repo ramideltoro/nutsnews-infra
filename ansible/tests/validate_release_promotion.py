@@ -101,6 +101,9 @@ for required in (
     "repository_dispatch:",
     "nutsnews-production-release",
     "NUTSNEWS_INFRA_RELEASE_TOKEN",
+    "git fetch origin main --prune",
+    "current-vps-release.yml",
+    'git switch -c "$release_branch" origin/main',
     "Wait for promotion checks to pass and merge",
     "gh pr checks \"$PR_URL\" --json name,bucket",
     "Promotion checks did not pass before the timeout.",
@@ -111,6 +114,11 @@ for required in (
     "ansible/scripts/promote_nutsnews_release.py",
 ):
     assert required in promotion_workflow, f"Promotion workflow is missing required guardrail: {required}"
+
+assert (
+    promotion_workflow.index("current-vps-release.yml")
+    < promotion_workflow.index("gh pr list")
+), "A rerun must verify current main before it reuses or creates a release pull request."
 
 for required in (
     "release_source_commit:",
