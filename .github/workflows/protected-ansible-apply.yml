@@ -108,13 +108,16 @@ jobs:
             exit 1
           fi
 
-          python3 ansible/scripts/promote_nutsnews_release.py \
+          release_state="$(python3 ansible/scripts/promote_nutsnews_release.py \
             --verify \
             --manifest ansible/inventories/production/host_vars/vps.nutsnews.com.yml \
             --image-repository ghcr.io/ramideltoro/nutsnews \
             --image-digest "$RELEASE_IMAGE_DIGEST" \
             --source-commit "$RELEASE_SOURCE_COMMIT" \
-            --build-id "$RELEASE_BUILD_ID"
+            --build-id "$RELEASE_BUILD_ID")"
+          release_deployment_target="$(python3 -c 'import json, sys; print(json.load(sys.stdin)["deployment_target"])' <<<"$release_state")"
+          printf 'RELEASE_DEPLOYMENT_TARGET=%s\n' "$release_deployment_target" >> "$GITHUB_ENV"
+          echo "Verified reviewed production deployment target: $release_deployment_target"
 
       - name: Validate dispatch inputs
         shell: bash
@@ -710,15 +713,21 @@ jobs:
         env:
           RELEASE_SOURCE_COMMIT: ${{ inputs.release_source_commit }}
           RELEASE_BUILD_ID: ${{ inputs.release_build_id }}
+          RELEASE_DEPLOYMENT_TARGET: ${{ env.RELEASE_DEPLOYMENT_TARGET }}
         run: |
           set -euo pipefail
 
           node --input-type=module <<'NODE'
           const sourceCommit = process.env.RELEASE_SOURCE_COMMIT ?? "";
           const buildId = process.env.RELEASE_BUILD_ID ?? "";
+          const deploymentTarget = process.env.RELEASE_DEPLOYMENT_TARGET ?? "";
           const delay = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 
-          if (!/^[0-9a-f]{40}$/.test(sourceCommit) || !/^\d+-\d+$/.test(buildId)) {
+          if (
+            !/^[0-9a-f]{40}$/.test(sourceCommit) ||
+            !/^\d+-\d+$/.test(buildId) ||
+            deploymentTarget !== "production-vps"
+          ) {
             throw new Error("Automated release health verification received invalid expected identity values.");
           }
 
@@ -737,10 +746,10 @@ jobs:
                 payload?.service === "nutsnews-web" &&
                 payload?.sourceCommit === sourceCommit &&
                 payload?.buildId === buildId &&
-                payload?.deploymentTarget === "vps" &&
+                payload?.deploymentTarget === deploymentTarget &&
                 response.headers.get("x-nutsnews-source-commit") === sourceCommit &&
                 response.headers.get("x-nutsnews-build-id") === buildId &&
-                response.headers.get("x-nutsnews-deployment-target") === "vps";
+                response.headers.get("x-nutsnews-deployment-target") === deploymentTarget;
               if (valid) {
                 console.log(`Verified public VPS health identity for ${sourceCommit}.`);
                 process.exit(0);
