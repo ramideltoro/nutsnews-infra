@@ -756,6 +756,33 @@ vps_service_foundation_nutsnews_environment_names:
   - staging
 vps_service_foundation_nutsnews_deployment_environments:
   - production
+# Same-host staging budget, measured 2026-07-13. These are ceilings, not
+# estimates. A staging deployment remains disabled until the later runtime,
+# credential, route, and qualification work explicitly permits it.
+vps_service_foundation_nutsnews_staging_production_reserve:
+  cpu_cores: 3
+  memory_mib: 4096
+  root_disk_gib: 20
+  root_inode_count: 1000000
+vps_service_foundation_nutsnews_staging_resource_budget:
+  cpu_limit: 1
+  cpu_shares: 256
+  memory_limit_mib: 512
+  memory_reservation_mib: 256
+  pids_limit: 128
+  log_max_size: 10m
+  log_max_file: 3
+  # Docker's portable local-volume driver has no hard quota on this ext4/
+  # overlayfs host. The later staging deploy workflow must preflight this
+  # budget and remove the staging cache volume when qualification expires.
+  image_and_cache_disk_preflight_mib: 1024
+vps_service_foundation_nutsnews_staging_test_budget:
+  max_concurrent_workers: 2
+  max_requests_per_second: 5
+  max_total_requests: 300
+  max_duration_seconds: 300
+  qualification_ttl_hours: 24
+  scale_down_after_qualification_expiry: true
 vps_service_foundation_nutsnews_app_runtime_owner: root
 vps_service_foundation_nutsnews_app_runtime_group: root
 vps_service_foundation_nutsnews_environments:
@@ -789,6 +816,15 @@ vps_service_foundation_nutsnews_environments:
     network_name: nutsnews-edge
     network_alias: nutsnews-app
     cache_volume_name: nutsnews-app-cache
+    # This matches the four-vCPU host allocation, so it does not reduce the
+    # existing production app's available CPU capacity.
+    cpu_limit: "{{ vps_baseline_vcpu | default(4) }}"
+    cpu_shares: 1024
+    memory_limit_mib: 768
+    memory_reservation_mib: 512
+    pids_limit: 256
+    log_max_size: 10m
+    log_max_file: 3
     envs: "{{ vps_service_foundation_nutsnews_app_envs }}"
     vercel_envs: "{{ vps_service_foundation_nutsnews_app_vercel_envs }}"
     secret_env_keys: "{{ vps_service_foundation_nutsnews_app_secret_env_keys }}"
@@ -823,6 +859,13 @@ vps_service_foundation_nutsnews_environments:
     network_name: nutsnews-edge-staging
     network_alias: nutsnews-app-staging
     cache_volume_name: nutsnews-app-staging-cache
+    cpu_limit: "{{ vps_service_foundation_nutsnews_staging_resource_budget.cpu_limit }}"
+    cpu_shares: "{{ vps_service_foundation_nutsnews_staging_resource_budget.cpu_shares }}"
+    memory_limit_mib: "{{ vps_service_foundation_nutsnews_staging_resource_budget.memory_limit_mib }}"
+    memory_reservation_mib: "{{ vps_service_foundation_nutsnews_staging_resource_budget.memory_reservation_mib }}"
+    pids_limit: "{{ vps_service_foundation_nutsnews_staging_resource_budget.pids_limit }}"
+    log_max_size: "{{ vps_service_foundation_nutsnews_staging_resource_budget.log_max_size }}"
+    log_max_file: "{{ vps_service_foundation_nutsnews_staging_resource_budget.log_max_file }}"
     envs: {}
     vercel_envs: {}
     secret_env_keys: []

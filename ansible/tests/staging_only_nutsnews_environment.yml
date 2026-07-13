@@ -41,6 +41,13 @@
       network_name: nutsnews-edge-staging
       network_alias: nutsnews-app-staging
       cache_volume_name: nutsnews-app-staging-cache
+      cpu_limit: 1
+      cpu_shares: 256
+      memory_limit_mib: 512
+      memory_reservation_mib: 256
+      pids_limit: 128
+      log_max_size: 10m
+      log_max_file: 3
       envs: {}
       vercel_envs: {}
       secret_env_keys: []

@@ -29,6 +29,12 @@
           - vps_service_foundation_nutsnews_environments.production.enabled | bool
           - vps_service_foundation_nutsnews_environments.production.project_name == 'nutsnews-app'
           - vps_service_foundation_nutsnews_environments.production.network_name == 'nutsnews-edge'
+          - vps_service_foundation_nutsnews_environments.production.cpu_limit | int == 4
+          - vps_service_foundation_nutsnews_environments.production.memory_limit_mib | int == 768
+          - vps_service_foundation_nutsnews_environments.production.memory_reservation_mib | int == 512
+          - vps_service_foundation_nutsnews_environments.production.pids_limit | int == 256
+          - vps_service_foundation_nutsnews_environments.production.log_max_size == '10m'
+          - vps_service_foundation_nutsnews_environments.production.log_max_file | int == 3
           - >-
             vps_service_foundation_nutsnews_environments.production.image
             == (
@@ -44,6 +50,23 @@
           - not (vps_service_foundation_nutsnews_environments.staging.enabled | bool)
           - not (vps_service_foundation_nutsnews_environments.staging.staged_route_enabled | bool)
           - not (vps_service_foundation_nutsnews_environments.staging.public_route_enabled | bool)
+          - vps_service_foundation_nutsnews_environments.staging.cpu_limit | int == 1
+          - vps_service_foundation_nutsnews_environments.staging.cpu_shares | int == 256
+          - vps_service_foundation_nutsnews_environments.staging.memory_limit_mib | int == 512
+          - vps_service_foundation_nutsnews_environments.staging.memory_reservation_mib | int == 256
+          - vps_service_foundation_nutsnews_environments.staging.pids_limit | int == 128
+          - vps_service_foundation_nutsnews_environments.staging.log_max_size == '10m'
+          - vps_service_foundation_nutsnews_environments.staging.log_max_file | int == 3
+          - vps_service_foundation_nutsnews_staging_production_reserve.cpu_cores | int == 3
+          - vps_service_foundation_nutsnews_staging_production_reserve.memory_mib | int == 4096
+          - vps_service_foundation_nutsnews_staging_production_reserve.root_disk_gib | int == 20
+          - vps_service_foundation_nutsnews_staging_production_reserve.root_inode_count | int == 1000000
+          - vps_service_foundation_nutsnews_staging_test_budget.max_concurrent_workers | int == 2
+          - vps_service_foundation_nutsnews_staging_test_budget.max_requests_per_second | int == 5
+          - vps_service_foundation_nutsnews_staging_test_budget.max_total_requests | int == 300
+          - vps_service_foundation_nutsnews_staging_test_budget.max_duration_seconds | int == 300
+          - vps_service_foundation_nutsnews_staging_test_budget.qualification_ttl_hours | int == 24
+          - vps_service_foundation_nutsnews_staging_test_budget.scale_down_after_qualification_expiry | bool
           - >-
             vps_service_foundation_nutsnews_environments.staging.network_name
             != vps_service_foundation_nutsnews_environments.production.network_name

@@ -33,6 +33,16 @@
       - "nutsnews_environment.release_manifest_file is match('^/.+$')"
       - "nutsnews_environment.apply_marker_file is match('^/.+$')"
       - "nutsnews_environment.last_known_good_state_file is match('^/.+$')"
+      - nutsnews_environment.cpu_limit | float > 0
+      - nutsnews_environment.cpu_shares | int > 0
+      - nutsnews_environment.memory_limit_mib | int > 0
+      - nutsnews_environment.memory_reservation_mib | int > 0
+      - >-
+        (nutsnews_environment.memory_reservation_mib | int) <=
+        (nutsnews_environment.memory_limit_mib | int)
+      - nutsnews_environment.pids_limit | int > 0
+      - nutsnews_environment.log_max_size is match('^[1-9][0-9]*[mM]$')
+      - nutsnews_environment.log_max_file | int > 0
       - >-
         not (nutsnews_environment.enabled | bool) or
         (
@@ -47,11 +57,25 @@
         (
           not (nutsnews_environment.enabled | bool) and
           not (nutsnews_environment.staged_route_enabled | bool) and
-          not (nutsnews_environment.public_route_enabled | bool)
+          not (nutsnews_environment.public_route_enabled | bool) and
+          (nutsnews_environment.cpu_limit | float) <=
+          (vps_service_foundation_nutsnews_staging_resource_budget.cpu_limit | float) and
+          (nutsnews_environment.cpu_shares | int) <=
+          (vps_service_foundation_nutsnews_staging_resource_budget.cpu_shares | int) and
+          (nutsnews_environment.memory_limit_mib | int) <=
+          (vps_service_foundation_nutsnews_staging_resource_budget.memory_limit_mib | int) and
+          (nutsnews_environment.memory_reservation_mib | int) <=
+          (vps_service_foundation_nutsnews_staging_resource_budget.memory_reservation_mib | int) and
+          (nutsnews_environment.pids_limit | int) <=
+          (vps_service_foundation_nutsnews_staging_resource_budget.pids_limit | int) and
+          (nutsnews_environment.log_max_size == vps_service_foundation_nutsnews_staging_resource_budget.log_max_size) and
+          (nutsnews_environment.log_max_file | int) <=
+          (vps_service_foundation_nutsnews_staging_resource_budget.log_max_file | int)
         )
     fail_msg: >-
       NutsNews {{ nutsnews_environment.name }} must use a reviewed immutable
-      ghcr.io/ramideltoro/nutsnews@sha256 digest. Mutable tags and an enabled
-      staging runtime are rejected before Compose can run.
+      ghcr.io/ramideltoro/nutsnews@sha256 digest. Runtime resource values must
+      be positive and bounded. Mutable tags and an enabled staging runtime are
+      rejected before Compose can run.
     success_msg: NutsNews {{ nutsnews_environment.name }} runtime inputs are valid.
   no_log: true
