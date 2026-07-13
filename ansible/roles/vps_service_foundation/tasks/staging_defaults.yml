@@ -1,0 +1,9 @@
+---
+# This intentionally has no mutable task. Its static import gives the fixed
+# staging play access to this role's low-precedence defaults before preflight.
+- name: Confirm service-foundation staging defaults are available
+  ansible.builtin.assert:
+    that:
+      - vps_service_foundation_nutsnews_environments is mapping
+      - vps_service_foundation_nutsnews_staging_deploy_authorized is defined
+    quiet: true

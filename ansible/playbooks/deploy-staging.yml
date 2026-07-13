@@ -12,6 +12,18 @@
     - nutsnews-staging-deploy
 
   pre_tasks:
+    # Importing this no-op role entry point makes its defaults available at
+    # their native low precedence before the fixed staging assertions below.
+    # The play-level staging selection therefore cannot be overridden by the
+    # role's production default.
+    - name: Load reviewed service-foundation defaults for staging safeguards
+      ansible.builtin.import_role:
+        name: vps_service_foundation
+        tasks_from: staging_defaults.yml
+        public: true
+      tags:
+        - nutsnews-staging-deploy
+
     - name: Refuse anything except the fixed staging inventory alias
       ansible.builtin.assert:
         that:
