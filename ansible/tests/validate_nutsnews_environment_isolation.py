@@ -105,6 +105,20 @@ with tempfile.TemporaryDirectory(prefix="nutsnews-runtime-isolation-") as tempor
     assert production_config["networks"]["environment"]["name"] != staging_config["networks"]["environment"]["name"]
     assert production_config["volumes"]["app-cache"]["name"] != staging_config["volumes"]["app-cache"]["name"]
     assert not production_service.get("ports") and not staging_service.get("ports")
+    assert production_service["cpus"] == 4.0
+    assert production_service["cpu_shares"] == 1024
+    assert production_service["mem_limit"] == "805306368"
+    assert production_service["mem_reservation"] == "536870912"
+    assert production_service["pids_limit"] == 256
+    assert production_service["logging"]["driver"] == "json-file"
+    assert production_service["logging"]["options"] == {"max-file": "3", "max-size": "10m"}
+    assert staging_service["cpus"] == 1.0
+    assert staging_service["cpu_shares"] == 256
+    assert staging_service["mem_limit"] == "536870912"
+    assert staging_service["mem_reservation"] == "268435456"
+    assert staging_service["pids_limit"] == 128
+    assert staging_service["logging"]["driver"] == "json-file"
+    assert staging_service["logging"]["options"] == {"max-file": "3", "max-size": "10m"}
     assert production["env"] != staging["env"]
     for key in (
         "app_dir",
@@ -160,6 +174,9 @@ assert "vps_service_foundation_nutsnews_deployment_environments" in main_tasks
 assert "NUTSNEWS_APP_PROJECT_NAME" in app_compose
 assert "NUTSNEWS_APP_NETWORK_NAME" in app_compose
 assert "NUTSNEWS_APP_CACHE_VOLUME_NAME" in app_compose
+assert "NUTSNEWS_APP_CPU_LIMIT" in app_compose
+assert "NUTSNEWS_APP_MEMORY_LIMIT_MIB" in app_compose
+assert "NUTSNEWS_APP_LOG_MAX_SIZE" in app_compose
 assert "nutsnews-edge-staging" not in caddy_compose
 assert caddy_compose.count("networks:\n      - edge") == 2
 assert "com.docker.compose.network=edge" in caddy_compose

@@ -38,6 +38,13 @@
         network_name: nutsnews-edge
         network_alias: nutsnews-app
         cache_volume_name: nutsnews-app-cache
+        cpu_limit: 4
+        cpu_shares: 1024
+        memory_limit_mib: 768
+        memory_reservation_mib: 512
+        pids_limit: 256
+        log_max_size: 10m
+        log_max_file: 3
         envs: {}
       staging:
         name: staging
@@ -68,6 +75,13 @@
         network_name: "nutsnews-edge-staging-{{ staging_suffix }}"
         network_alias: "nutsnews-app-staging-{{ staging_suffix }}"
         cache_volume_name: "nutsnews-app-staging-cache-{{ staging_suffix }}"
+        cpu_limit: 1
+        cpu_shares: 256
+        memory_limit_mib: 512
+        memory_reservation_mib: 256
+        pids_limit: 128
+        log_max_size: 10m
+        log_max_file: 3
         envs: {}
   tasks:
     - name: Create isolated fixture directories

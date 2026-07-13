@@ -22,8 +22,18 @@ services:
       - type: volume
         source: app-cache
         target: /tmp/nutsnews-cache
-    mem_limit: 768m
-    pids_limit: 256
+    # Values are rendered per runtime by Ansible. Keeping them in the Compose
+    # contract makes the staging ceiling enforceable by the Docker Engine.
+    cpus: ${NUTSNEWS_APP_CPU_LIMIT:?NUTSNEWS_APP_CPU_LIMIT is required}
+    cpu_shares: ${NUTSNEWS_APP_CPU_SHARES:?NUTSNEWS_APP_CPU_SHARES is required}
+    mem_limit: ${NUTSNEWS_APP_MEMORY_LIMIT_MIB:?NUTSNEWS_APP_MEMORY_LIMIT_MIB is required}m
+    mem_reservation: ${NUTSNEWS_APP_MEMORY_RESERVATION_MIB:?NUTSNEWS_APP_MEMORY_RESERVATION_MIB is required}m
+    pids_limit: ${NUTSNEWS_APP_PIDS_LIMIT:?NUTSNEWS_APP_PIDS_LIMIT is required}
+    logging:
+      driver: json-file
+      options:
+        max-size: ${NUTSNEWS_APP_LOG_MAX_SIZE:?NUTSNEWS_APP_LOG_MAX_SIZE is required}
+        max-file: ${NUTSNEWS_APP_LOG_MAX_FILE:?NUTSNEWS_APP_LOG_MAX_FILE is required}
     healthcheck:
       test:
         - CMD

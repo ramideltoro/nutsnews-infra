@@ -81,6 +81,13 @@ jobs:
           export NUTSNEWS_APP_NETWORK_NAME=nutsnews-edge
           export NUTSNEWS_APP_NETWORK_ALIAS=nutsnews-app
           export NUTSNEWS_APP_CACHE_VOLUME_NAME=nutsnews-app-cache
+          export NUTSNEWS_APP_CPU_LIMIT=4
+          export NUTSNEWS_APP_CPU_SHARES=1024
+          export NUTSNEWS_APP_MEMORY_LIMIT_MIB=768
+          export NUTSNEWS_APP_MEMORY_RESERVATION_MIB=512
+          export NUTSNEWS_APP_PIDS_LIMIT=256
+          export NUTSNEWS_APP_LOG_MAX_SIZE=10m
+          export NUTSNEWS_APP_LOG_MAX_FILE=3
           cat > "$NUTSNEWS_OPS_PORTAL_AUTH_ENV_FILE" <<'EOF'
           GOOGLE_CLIENT_ID=dummy
           GOOGLE_CLIENT_SECRET=dummy

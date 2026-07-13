@@ -6,10 +6,17 @@ digest, and `nutsnews-edge` Caddy network. Staging has separate Compose,
 application, environment, manifest, marker, last-known-good, cache-volume, and
 network identities.
 
-Staging remains disabled by default because issue #118 has not supplied the
-measured VPS resource budget required to qualify a second runtime. Do not
-enable it or add a staging deploy workflow, credentials, route, TLS boundary,
-or promotion process through this configuration.
+Staging remains disabled by default. Issue #118 records the measured same-host
+capacity contract, but it does not authorize this configuration to enable a
+staging deploy workflow, credentials, route, TLS boundary, or promotion
+process. See `ramideltoro/nutsnews-docs`:
+`NUTSNEWS_VPS_STAGING_CAPACITY.md`.
+
+The shared app Compose contract renders per-runtime CPU, memory reservation and
+limit, PID, and `json-file` log caps. Staging is fixed at one CPU, 512 MiB
+memory maximum, 256 MiB reservation, 128 PIDs, and 10 MiB x three logs. Keep
+the later staging qualifier within its documented test budget and scale it down
+after the 24-hour qualification expiry.
 
 Every configured image must be a reviewed
 `ghcr.io/ramideltoro/nutsnews@sha256:<digest>` reference. Mutable tags fail
