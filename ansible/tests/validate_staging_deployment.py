@@ -189,6 +189,9 @@ assert workflow.index("Verify trusted source commit and OCI provenance") < workf
 
 for required in (
     "hosts: nutsnews_staging_vps",
+    "Load reviewed service-foundation defaults for staging safeguards",
+    "tasks_from: staging_defaults.yml",
+    "public: true",
     "vps_service_foundation_nutsnews_deployment_environments:",
     "- staging",
     "nutsnews-staging-deploy",
@@ -199,6 +202,10 @@ for required in (
 ):
     assert required in playbook, f"Staging-only play is missing {required}"
 
+assert (
+    playbook.index("tasks_from: staging_defaults.yml")
+    < playbook.index("Refuse anything except the fixed staging inventory alias")
+)
 assert "nutsnews-app'" in playbook
 assert "vps_baseline_vps" not in playbook
 assert "production/hosts.yml" not in playbook
