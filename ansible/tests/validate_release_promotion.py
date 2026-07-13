@@ -65,13 +65,14 @@ with tempfile.TemporaryDirectory() as temporary_directory:
     assert values["vps_service_foundation_nutsnews_app_build_id"] == "202-3"
     assert values["vps_service_foundation_nutsnews_app_last_known_good_digest"] == old_digest
 
-    module.verify_manifest(
+    verified = module.verify_manifest(
         path,
         "ghcr.io/ramideltoro/nutsnews",
         new_digest,
         new_commit,
         "202-3",
     )
+    assert verified["deployment_target"] == "production-vps"
 
     original = path.read_text(encoding="utf-8")
     for invalid_digest, invalid_commit, invalid_build_id in (
@@ -130,10 +131,15 @@ for required in (
     "release_image_digest:",
     "release_build_id:",
     "Validate requested automated release identity",
+    "RELEASE_DEPLOYMENT_TARGET",
     "Verify released Docker image over SSH",
     "Verify released public health identity",
 ):
     assert required in protected_workflow, f"Protected apply is missing required release verification: {required}"
+
+assert 'payload?.deploymentTarget === deploymentTarget' in protected_workflow
+assert 'response.headers.get("x-nutsnews-deployment-target") === deploymentTarget' in protected_workflow
+assert 'payload?.deploymentTarget === "vps"' not in protected_workflow
 
 assert "NUTSNEWS_APP_IMAGE_TAG" not in promotion_workflow
 assert ":latest" not in promotion_workflow.lower()

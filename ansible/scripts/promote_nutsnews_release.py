@@ -70,6 +70,7 @@ def validate_manifest(values: dict[str, str]) -> dict[str, str]:
         raise PromotionError("Manifest deployment target must be production-vps.")
     if last_known_good:
         require_match(SHA256_RE, last_known_good, "Last-known-good image digest")
+    release["deployment_target"] = deployment_target
     release["last_known_good_digest"] = last_known_good
     return release
 
