@@ -69,4 +69,18 @@ require(
     "Legacy NEXT_PUBLIC_SUPABASE_URL must not be rendered into the VPS runtime environment.",
 )
 
+runtime_safety_destinations = {
+    "NUTSNEWS_DATA_ENVIRONMENT": "NUTSNEWS_DATA_ENVIRONMENT",
+    "NUTSNEWS_PRODUCTION_SUPABASE_PROJECT_REF": "NUTSNEWS_PRODUCTION_SUPABASE_PROJECT_REF",
+    "NUTSNEWS_RUNTIME_ENV": "NUTSNEWS_RUNTIME_ENV",
+    "NUTSNEWS_SIDE_EFFECTS_MODE": "NUTSNEWS_SIDE_EFFECTS_MODE",
+    "NUTSNEWS_SUPABASE_CREDENTIALS_ENV": "NUTSNEWS_SUPABASE_CREDENTIALS_ENV",
+    "NUTSNEWS_SUPABASE_PROJECT_REF": "NUTSNEWS_SUPABASE_PROJECT_REF",
+}
+for source, destination in runtime_safety_destinations.items():
+    require(
+        mapping["variables"].get(source, {}).get("destination") == destination,
+        f"{source} must remain an explicitly synchronized runtime safety identity.",
+    )
+
 print("Vercel-to-VPS environment sync guardrails passed.")

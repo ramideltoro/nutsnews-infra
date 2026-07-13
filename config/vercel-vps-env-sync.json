@@ -144,6 +144,12 @@
       "destination": "NUTSNEWS_DATA_ENV",
       "reason": "Declared non-secret data-environment identity for runtime validation."
     },
+    "NUTSNEWS_DATA_ENVIRONMENT": {
+      "category": "safe_to_synchronize",
+      "sync": true,
+      "destination": "NUTSNEWS_DATA_ENVIRONMENT",
+      "reason": "Declared non-secret data-environment identity required by the runtime safety policy."
+    },
     "NUTSNEWS_PRODUCTION_SUPABASE_PROJECT_REF": {
       "category": "safe_to_synchronize",
       "sync": true,

@@ -53,6 +53,7 @@ CURRENT_VERCEL_PRODUCTION_NAMES = {
     "NEXT_PUBLIC_VERCEL_GIT_COMMIT_SHA",
     "NUTSNEWS_EDGE_FEED_SNAPSHOT_URL",
     "NUTSNEWS_DATA_ENV",
+    "NUTSNEWS_DATA_ENVIRONMENT",
     "NUTSNEWS_PRODUCTION_SUPABASE_PROJECT_REF",
     "NUTSNEWS_RUNTIME_ENV",
     "NUTSNEWS_SIDE_EFFECTS_MODE",
@@ -159,9 +160,27 @@ class VercelVpsEnvSyncTests(unittest.TestCase):
         self.assertEqual(
             selected,
             {
-                "NEXT_PUBLIC_SUPABASE_URL": "https://example.supabase.co",
+                "NUTSNEWS_PUBLIC_SUPABASE_URL": "https://example.supabase.co",
                 "SUPABASE_URL": "https://example.supabase.co",
             },
+        )
+
+    def test_runtime_data_environment_is_synchronized(self) -> None:
+        selected, _ = sync.classify_records(
+            [
+                {
+                    "key": "NUTSNEWS_DATA_ENVIRONMENT",
+                    "target": ["production"],
+                    "type": "plain",
+                    "decrypted": True,
+                    "value": "production",
+                }
+            ],
+            self.mapping,
+        )
+        self.assertEqual(
+            selected,
+            {"NUTSNEWS_DATA_ENVIRONMENT": "production"},
         )
 
     def test_synchronized_server_secret_is_not_reported_as_excluded(self) -> None:
