@@ -263,6 +263,7 @@ jobs:
         run: |
           set -euo pipefail
 
+          dispatch_started_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           gh workflow run protected-ansible-apply.yml \
             --repo "$GITHUB_REPOSITORY" \
             --ref main \
@@ -284,9 +285,9 @@ jobs:
               --event workflow_dispatch \
               --branch main \
               --limit 30 \
-              --json databaseId,displayTitle,status \
+              --json databaseId,displayTitle,status,createdAt \
               > "$runs_file"
-            run_id="$(python3 -c 'import json, sys; print(next((str(run["databaseId"]) for run in json.load(open(sys.argv[1], encoding="utf-8")) if run.get("displayTitle") == sys.argv[2]), ""))' "$runs_file" "$release_title")"
+            run_id="$(python3 -c 'import json, sys; print(next((str(run["databaseId"]) for run in json.load(open(sys.argv[1], encoding="utf-8")) if run.get("displayTitle") == sys.argv[2] and run.get("createdAt", "") >= sys.argv[3]), ""))' "$runs_file" "$release_title" "$dispatch_started_at")"
             if [[ -n "$run_id" ]]; then
               break
             fi
