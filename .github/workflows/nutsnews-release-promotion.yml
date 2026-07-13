@@ -100,6 +100,24 @@ jobs:
           set -euo pipefail
 
           release_branch="release/vps-${SOURCE_COMMIT}"
+          current_manifest="$RUNNER_TEMP/current-vps-release.yml"
+          git fetch origin main --prune
+          git show "origin/main:ansible/inventories/production/host_vars/vps.nutsnews.com.yml" \
+            > "$current_manifest"
+
+          if python3 ansible/scripts/promote_nutsnews_release.py \
+            --verify \
+            --manifest "$current_manifest" \
+            --image-repository "$IMAGE_REPOSITORY" \
+            --image-digest "$IMAGE_DIGEST" \
+            --source-commit "$SOURCE_COMMIT" \
+            --build-id "$BUILD_ID" >/dev/null 2>&1; then
+            echo "The current infrastructure manifest already matches this release."
+            echo "pr_url=" >> "$GITHUB_OUTPUT"
+            echo "release_branch=$release_branch" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
           existing_pr="$(gh pr list \
             --repo "$GITHUB_REPOSITORY" \
             --head "$release_branch" \
@@ -113,7 +131,7 @@ jobs:
             exit 0
           fi
 
-          git switch -c "$release_branch"
+          git switch -c "$release_branch" origin/main
           python3 ansible/scripts/promote_nutsnews_release.py \
             --write \
             --manifest ansible/inventories/production/host_vars/vps.nutsnews.com.yml \
