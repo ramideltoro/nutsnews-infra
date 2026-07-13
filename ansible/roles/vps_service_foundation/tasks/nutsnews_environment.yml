@@ -1,0 +1,176 @@
+---
+- name: Validate runtime environment before materialization {{ nutsnews_environment.name }}
+  ansible.builtin.include_tasks: nutsnews_environment_validate.yml
+
+- name: Normalize runtime environment values for {{ nutsnews_environment.name }}
+  ansible.builtin.set_fact:
+    vps_service_foundation_nutsnews_environment_runtime: >-
+      {{
+        nutsnews_environment
+        | combine(
+            {
+              'envs': nutsnews_environment.envs | combine(nutsnews_environment.vercel_envs | default({}), recursive=false),
+              'secret_env_keys': nutsnews_environment.secret_env_keys | default([]) | map('string') | unique | list,
+              'required_secret_keys': nutsnews_environment.required_secrets | default([]) | map('string') | unique | list
+            },
+            recursive=false
+          )
+      }}
+  no_log: true
+
+- name: Validate runtime secret declarations for {{ nutsnews_environment.name }}
+  ansible.builtin.assert:
+    that:
+      - vps_service_foundation_nutsnews_environment_runtime.envs is mapping
+      - vps_service_foundation_nutsnews_environment_runtime.secret_env_keys is iterable
+      - vps_service_foundation_nutsnews_environment_runtime.required_secret_keys is iterable
+      - >-
+        (vps_service_foundation_nutsnews_environment_runtime.required_secret_keys
+        | difference(vps_service_foundation_nutsnews_environment_runtime.secret_env_keys))
+        | length == 0
+      - >-
+        (vps_service_foundation_nutsnews_environment_runtime.required_secret_keys
+        | difference(vps_service_foundation_nutsnews_environment_runtime.envs.keys() | list))
+        | length == 0
+    fail_msg: >-
+      Required NutsNews {{ nutsnews_environment.name }} secret declarations
+      are missing from the environment map.
+  when: nutsnews_environment.enabled | bool
+  no_log: true
+
+- name: Validate runtime secret values for {{ nutsnews_environment.name }}
+  ansible.builtin.assert:
+    that:
+      - "vps_service_foundation_nutsnews_environment_runtime.envs[item] is defined"
+      - "(vps_service_foundation_nutsnews_environment_runtime.envs[item] | trim | length) > 0"
+    fail_msg: >-
+      Required NutsNews {{ nutsnews_environment.name }} secret '{{ item }}' is empty.
+  loop: "{{ vps_service_foundation_nutsnews_environment_runtime.required_secret_keys | default([]) }}"
+  loop_control:
+    label: "{{ item }}"
+  when: nutsnews_environment.enabled | bool
+  no_log: true
+
+- name: Create runtime directories for {{ nutsnews_environment.name }}
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ vps_service_foundation_nutsnews_app_runtime_owner }}"
+    group: "{{ vps_service_foundation_nutsnews_app_runtime_group }}"
+    mode: "0750"
+  loop:
+    - "{{ vps_service_foundation_nutsnews_environment_runtime.app_dir }}"
+    - "{{ vps_service_foundation_nutsnews_environment_runtime.state_dir }}"
+
+- name: Install NutsNews Compose file for {{ nutsnews_environment.name }}
+  ansible.builtin.copy:
+    src: "{{ vps_service_foundation_nutsnews_environment_runtime.source_compose_file }}"
+    dest: "{{ vps_service_foundation_nutsnews_environment_runtime.compose_file }}"
+    owner: "{{ vps_service_foundation_nutsnews_app_runtime_owner }}"
+    group: "{{ vps_service_foundation_nutsnews_app_runtime_group }}"
+    mode: "0644"
+
+- name: Install NutsNews environment for {{ nutsnews_environment.name }}
+  ansible.builtin.template:
+    src: nutsnews-app.env.j2
+    dest: "{{ vps_service_foundation_nutsnews_environment_runtime.env_file }}"
+    owner: "{{ vps_service_foundation_nutsnews_app_runtime_owner }}"
+    group: "{{ vps_service_foundation_nutsnews_app_runtime_group }}"
+    mode: "0600"
+  vars:
+    nutsnews_environment: "{{ vps_service_foundation_nutsnews_environment_runtime }}"
+  no_log: true
+
+- name: Install release manifest for {{ nutsnews_environment.name }}
+  ansible.builtin.template:
+    src: nutsnews-app-release.json.j2
+    dest: "{{ vps_service_foundation_nutsnews_environment_runtime.release_manifest_file }}"
+    owner: "{{ vps_service_foundation_nutsnews_app_runtime_owner }}"
+    group: "{{ vps_service_foundation_nutsnews_app_runtime_group }}"
+    mode: "0644"
+  vars:
+    nutsnews_environment: "{{ vps_service_foundation_nutsnews_environment_runtime }}"
+
+- name: Read rendered environment names for sync verification {{ nutsnews_environment.name }}
+  ansible.builtin.command:
+    argv:
+      - awk
+      - -F=
+      - '/^[A-Za-z_][A-Za-z0-9_]*=/{print $1}'
+      - "{{ vps_service_foundation_nutsnews_environment_runtime.env_file }}"
+  register: vps_service_foundation_nutsnews_environment_rendered_env_names
+  changed_when: false
+  when:
+    - not ansible_check_mode
+    - vps_service_foundation_nutsnews_environment_runtime.enabled | bool
+    - vps_service_foundation_nutsnews_environment_runtime.vercel_envs | length > 0
+
+- name: Verify synchronized environment names for {{ nutsnews_environment.name }}
+  ansible.builtin.assert:
+    that:
+      - >-
+        (
+          vps_service_foundation_nutsnews_environment_runtime.vercel_envs.keys() | list
+          | difference(vps_service_foundation_nutsnews_environment_rendered_env_names.stdout_lines | default([]))
+        )
+        | length == 0
+    fail_msg: >-
+      One or more reviewed Vercel environment destinations were not rendered
+      into the {{ nutsnews_environment.name }} NutsNews environment file.
+  when:
+    - not ansible_check_mode
+    - vps_service_foundation_nutsnews_environment_runtime.enabled | bool
+    - vps_service_foundation_nutsnews_environment_runtime.vercel_envs | length > 0
+  no_log: true
+
+- name: Validate NutsNews Compose configuration for {{ nutsnews_environment.name }}
+  ansible.builtin.command:
+    argv:
+      - docker
+      - compose
+      - --project-name
+      - "{{ vps_service_foundation_nutsnews_environment_runtime.project_name }}"
+      - --project-directory
+      - "{{ vps_service_foundation_nutsnews_environment_runtime.app_dir }}"
+      - --env-file
+      - "{{ vps_service_foundation_nutsnews_environment_runtime.env_file }}"
+      - -f
+      - "{{ vps_service_foundation_nutsnews_environment_runtime.compose_file }}"
+      - config
+      - --quiet
+  changed_when: false
+  when:
+    - not ansible_check_mode
+    - vps_service_foundation_nutsnews_environment_runtime.image_digest | length > 0
+
+- name: Start NutsNews service layer when enabled for {{ nutsnews_environment.name }}
+  ansible.builtin.command:
+    argv:
+      - docker
+      - compose
+      - --project-name
+      - "{{ vps_service_foundation_nutsnews_environment_runtime.project_name }}"
+      - --project-directory
+      - "{{ vps_service_foundation_nutsnews_environment_runtime.app_dir }}"
+      - --env-file
+      - "{{ vps_service_foundation_nutsnews_environment_runtime.env_file }}"
+      - -f
+      - "{{ vps_service_foundation_nutsnews_environment_runtime.compose_file }}"
+      - up
+      - -d
+      - --remove-orphans
+      - --pull
+      - always
+  register: vps_service_foundation_nutsnews_environment_compose_up
+  when:
+    - not ansible_check_mode
+    - vps_service_foundation_nutsnews_environment_runtime.enabled | bool
+  changed_when: >-
+    'Created' in vps_service_foundation_nutsnews_environment_compose_up.stdout
+    or 'Created' in vps_service_foundation_nutsnews_environment_compose_up.stderr
+    or 'Recreated' in vps_service_foundation_nutsnews_environment_compose_up.stdout
+    or 'Recreated' in vps_service_foundation_nutsnews_environment_compose_up.stderr
+    or 'Started' in vps_service_foundation_nutsnews_environment_compose_up.stdout
+    or 'Started' in vps_service_foundation_nutsnews_environment_compose_up.stderr
+    or 'Pulling' in vps_service_foundation_nutsnews_environment_compose_up.stdout
+    or 'Pulling' in vps_service_foundation_nutsnews_environment_compose_up.stderr

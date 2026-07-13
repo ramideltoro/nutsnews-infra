@@ -330,6 +330,7 @@ jobs:
           python3 ansible/tests/validate_no_backup_secrets.py
           python3 ansible/tests/validate_no_app_secrets.py
           python3 ansible/tests/validate_app_deployment.py
+          python3 ansible/tests/validate_nutsnews_environment_isolation.py
           python3 ansible/tests/validate_release_promotion.py
           python3 ansible/tests/test_free_tier_usage.py
           python3 ansible/tests/test_ops_portal_reporter.py

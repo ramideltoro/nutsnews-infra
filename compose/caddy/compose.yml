@@ -25,7 +25,7 @@ services:
       retries: 3
       start_period: 10s
     networks:
-      - edge
+      - production
 
   caddy:
     build:
@@ -75,8 +75,10 @@ services:
       ops-auth:
         condition: service_healthy
     networks:
-      - edge
+      - production
 
 networks:
-  edge:
+  # Caddy is deliberately attached only to the production app network. A
+  # staging app gets its own network and cannot become this route's upstream.
+  production:
     name: nutsnews-edge

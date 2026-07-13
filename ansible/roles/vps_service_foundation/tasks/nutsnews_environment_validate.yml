@@ -1,0 +1,57 @@
+- name: Validate NutsNews runtime environment {{ nutsnews_environment.name }}
+  ansible.builtin.assert:
+    that:
+      - nutsnews_environment.name in vps_service_foundation_nutsnews_environment_names
+      - nutsnews_environment.project_name is match('^[a-z0-9][a-z0-9_-]*$')
+      - nutsnews_environment.container_name is match('^[a-z0-9][a-z0-9._-]*$')
+      - nutsnews_environment.network_alias is match('^[a-z0-9][a-z0-9._-]*$')
+      - nutsnews_environment.container_port | int > 0
+      - nutsnews_environment.health_path == '/healthz'
+      - nutsnews_environment.image_repo == 'ghcr.io/ramideltoro/nutsnews'
+      - nutsnews_environment.image_review_status in ['reviewed', 'unreviewed']
+      - >-
+        (nutsnews_environment.image_digest | length == 0) or
+        (nutsnews_environment.image_digest is match('^sha256:[0-9a-f]{64}$'))
+      - >-
+        (nutsnews_environment.image | length == 0) or
+        (
+          (nutsnews_environment.image_digest is match('^sha256:[0-9a-f]{64}$')) and
+          (nutsnews_environment.image == (nutsnews_environment.image_repo ~ '@' ~ nutsnews_environment.image_digest))
+        )
+      - >-
+        (nutsnews_environment.image_digest | length == 0) or
+        (nutsnews_environment.image_review_status == 'reviewed')
+      - >-
+        (nutsnews_environment.last_known_good_digest | length == 0) or
+        (nutsnews_environment.last_known_good_digest is match('^sha256:[0-9a-f]{64}$'))
+      - >-
+        (nutsnews_environment.source_commit | length == 0) or
+        (nutsnews_environment.source_commit is match('^[0-9a-f]{40}$'))
+      - "nutsnews_environment.app_dir is match('^/.+$')"
+      - "nutsnews_environment.env_file is match('^/.+$')"
+      - "nutsnews_environment.state_dir is match('^/.+$')"
+      - "nutsnews_environment.release_manifest_file is match('^/.+$')"
+      - "nutsnews_environment.apply_marker_file is match('^/.+$')"
+      - "nutsnews_environment.last_known_good_state_file is match('^/.+$')"
+      - >-
+        not (nutsnews_environment.enabled | bool) or
+        (
+          (nutsnews_environment.image_digest is match('^sha256:[0-9a-f]{64}$')) and
+          (nutsnews_environment.image_review_status == 'reviewed') and
+          (nutsnews_environment.image == (nutsnews_environment.image_repo ~ '@' ~ nutsnews_environment.image_digest)) and
+          (nutsnews_environment.source_commit is match('^[0-9a-f]{40}$')) and
+          (nutsnews_environment.build_id | length > 0)
+        )
+      - >-
+        not (nutsnews_environment.name == 'staging') or
+        (
+          not (nutsnews_environment.enabled | bool) and
+          not (nutsnews_environment.staged_route_enabled | bool) and
+          not (nutsnews_environment.public_route_enabled | bool)
+        )
+    fail_msg: >-
+      NutsNews {{ nutsnews_environment.name }} must use a reviewed immutable
+      ghcr.io/ramideltoro/nutsnews@sha256 digest. Mutable tags and an enabled
+      staging runtime are rejected before Compose can run.
+    success_msg: NutsNews {{ nutsnews_environment.name }} runtime inputs are valid.
+  no_log: true

@@ -1,0 +1,52 @@
+---
+- name: Check the staging-only NutsNews runtime path
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  become: false
+  vars:
+    fixture_root: "{{ lookup('ansible.builtin.env', 'NUTSNEWS_STAGING_ONLY_ROOT') }}"
+    vps_service_foundation_nutsnews_environment_names:
+      - production
+      - staging
+    vps_service_foundation_nutsnews_app_runtime_owner: "{{ lookup('ansible.builtin.env', 'USER') }}"
+    vps_service_foundation_nutsnews_app_runtime_group: "{{ lookup('ansible.builtin.env', 'NUTSNEWS_STAGING_ONLY_GROUP') }}"
+    nutsnews_environment:
+      name: staging
+      enabled: false
+      project_name: nutsnews-staging
+      app_dir: "{{ fixture_root }}/apps/nutsnews-staging"
+      compose_file: "{{ fixture_root }}/apps/nutsnews-staging/compose.yml"
+      source_compose_file: "{{ playbook_dir }}/../../compose/nutsnews/compose.yml"
+      env_file: "{{ fixture_root }}/etc/nutsnews-staging-app.env"
+      state_dir: "{{ fixture_root }}/ops/apps/staging"
+      release_manifest_file: "{{ fixture_root }}/ops/apps/staging/release.json"
+      apply_marker_file: "{{ fixture_root }}/ops/apps/staging/last-apply.json"
+      last_known_good_state_file: "{{ fixture_root }}/ops/apps/staging/last-known-good.json"
+      container_name: nutsnews-app-staging
+      container_port: 3000
+      health_path: /healthz
+      image_repo: ghcr.io/ramideltoro/nutsnews
+      image_digest: ""
+      image: ""
+      image_review_status: unreviewed
+      source_commit: ""
+      build_id: ""
+      deployment_target: staging-vps
+      last_known_good_digest: ""
+      staged_route_enabled: false
+      route_path: /app-stage
+      public_route_enabled: false
+      public_domain: ""
+      network_name: nutsnews-edge-staging
+      network_alias: nutsnews-app-staging
+      cache_volume_name: nutsnews-app-staging-cache
+      envs: {}
+      vercel_envs: {}
+      secret_env_keys: []
+      required_secrets: []
+  tasks:
+    - name: Include the staging runtime tasks only
+      ansible.builtin.include_role:
+        name: vps_service_foundation
+        tasks_from: nutsnews_environment.yml

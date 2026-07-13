@@ -1,14 +1,12 @@
-{% if vps_service_foundation_nutsnews_app_staged_route_enabled | bool %}
-handle {{ vps_service_foundation_nutsnews_app_route_path | regex_replace('/+$', '') }}{{ vps_service_foundation_nutsnews_app_health_path }} {
+{% set nutsnews_environment = vps_service_foundation_nutsnews_environments.production %}
+{% if nutsnews_environment.staged_route_enabled | bool %}
+handle {{ nutsnews_environment.route_path | regex_replace('/+$', '') }}{{ nutsnews_environment.health_path }} {
   # This private loopback route is a health-only gate, not proof that the app works under a path prefix.
-  uri strip_prefix {{ vps_service_foundation_nutsnews_app_route_path | regex_replace('/+$', '') }}
-  reverse_proxy {{ vps_service_foundation_nutsnews_app_container_name }}:{{ vps_service_foundation_nutsnews_app_container_port }} {
-    health_uri {{ vps_service_foundation_nutsnews_app_health_path | default('/healthz') }}
+  uri strip_prefix {{ nutsnews_environment.route_path | regex_replace('/+$', '') }}
+  reverse_proxy {{ nutsnews_environment.network_alias }}:{{ nutsnews_environment.container_port }} {
+    health_uri {{ nutsnews_environment.health_path | default('/healthz') }}
   }
 }
 {% else %}
-# App route staging is currently disabled.
-# To stage this in a future PR, set:
-# vps_service_foundation_nutsnews_app_staged_route_enabled: true
-# vps_service_foundation_nutsnews_app_route_path: "/app-stage"
+# Production app route staging is currently disabled.
 {% endif %}
