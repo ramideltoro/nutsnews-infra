@@ -104,6 +104,8 @@ for required in (
     "git fetch origin main --prune",
     "current-vps-release.yml",
     'git switch -c "$release_branch" origin/main',
+    'dispatch_started_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"',
+    "--json databaseId,displayTitle,status,createdAt",
     "Wait for promotion checks to pass and merge",
     "gh pr checks \"$PR_URL\" --json name,bucket",
     "Promotion checks did not pass before the timeout.",
@@ -119,6 +121,9 @@ assert (
     promotion_workflow.index("current-vps-release.yml")
     < promotion_workflow.index("gh pr list")
 ), "A rerun must verify current main before it reuses or creates a release pull request."
+assert "run.get(\"createdAt\", \"\") >= sys.argv[3]" in promotion_workflow, (
+    "The release workflow must select only a protected apply started by its own dispatch."
+)
 
 for required in (
     "release_source_commit:",
