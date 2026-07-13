@@ -47,3 +47,43 @@
           - >-
             vps_service_foundation_nutsnews_environments.staging.network_name
             != vps_service_foundation_nutsnews_environments.production.network_name
+
+    - name: Assert every isolated runtime identity is distinct by default
+      ansible.builtin.assert:
+        that:
+          - >-
+            vps_service_foundation_nutsnews_environments.production.project_name
+            != vps_service_foundation_nutsnews_environments.staging.project_name
+          - >-
+            vps_service_foundation_nutsnews_environments.production.app_dir
+            != vps_service_foundation_nutsnews_environments.staging.app_dir
+          - >-
+            vps_service_foundation_nutsnews_environments.production.compose_file
+            != vps_service_foundation_nutsnews_environments.staging.compose_file
+          - >-
+            vps_service_foundation_nutsnews_environments.production.env_file
+            != vps_service_foundation_nutsnews_environments.staging.env_file
+          - >-
+            vps_service_foundation_nutsnews_environments.production.state_dir
+            != vps_service_foundation_nutsnews_environments.staging.state_dir
+          - >-
+            vps_service_foundation_nutsnews_environments.production.release_manifest_file
+            != vps_service_foundation_nutsnews_environments.staging.release_manifest_file
+          - >-
+            vps_service_foundation_nutsnews_environments.production.apply_marker_file
+            != vps_service_foundation_nutsnews_environments.staging.apply_marker_file
+          - >-
+            vps_service_foundation_nutsnews_environments.production.last_known_good_state_file
+            != vps_service_foundation_nutsnews_environments.staging.last_known_good_state_file
+          - >-
+            vps_service_foundation_nutsnews_environments.production.container_name
+            != vps_service_foundation_nutsnews_environments.staging.container_name
+          - >-
+            vps_service_foundation_nutsnews_environments.production.network_name
+            != vps_service_foundation_nutsnews_environments.staging.network_name
+          - >-
+            vps_service_foundation_nutsnews_environments.production.network_alias
+            != vps_service_foundation_nutsnews_environments.staging.network_alias
+          - >-
+            vps_service_foundation_nutsnews_environments.production.cache_volume_name
+            != vps_service_foundation_nutsnews_environments.staging.cache_volume_name

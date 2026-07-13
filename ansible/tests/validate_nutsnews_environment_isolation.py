@@ -106,7 +106,14 @@ with tempfile.TemporaryDirectory(prefix="nutsnews-runtime-isolation-") as tempor
     assert production_config["volumes"]["app-cache"]["name"] != staging_config["volumes"]["app-cache"]["name"]
     assert not production_service.get("ports") and not staging_service.get("ports")
     assert production["env"] != staging["env"]
-    for key in ("app_dir", "env_file", "release_manifest_file", "apply_marker_file", "last_known_good_state_file"):
+    for key in (
+        "app_dir",
+        "env_file",
+        "state_dir",
+        "release_manifest_file",
+        "apply_marker_file",
+        "last_known_good_state_file",
+    ):
         assert production_manifest[key] != staging_manifest[key], f"Runtime state collision: {key}"
 
     # Only the staging fixture changes; production artifacts must remain byte-identical.
