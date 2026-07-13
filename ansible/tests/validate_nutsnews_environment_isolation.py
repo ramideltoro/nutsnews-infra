@@ -161,6 +161,8 @@ assert "NUTSNEWS_APP_PROJECT_NAME" in app_compose
 assert "NUTSNEWS_APP_NETWORK_NAME" in app_compose
 assert "NUTSNEWS_APP_CACHE_VOLUME_NAME" in app_compose
 assert "nutsnews-edge-staging" not in caddy_compose
-assert "- production" in caddy_compose
+assert caddy_compose.count("networks:\n      - edge") == 2
+assert "com.docker.compose.network=edge" in caddy_compose
+assert "\n  edge:\n    name: nutsnews-edge" in caddy_compose
 
 print("NutsNews production/staging runtime isolation regression coverage passed.")
