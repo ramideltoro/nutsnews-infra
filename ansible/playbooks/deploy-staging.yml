@@ -1,0 +1,96 @@
+---
+- name: Deploy only the immutable NutsNews staging runtime
+  hosts: nutsnews_staging_vps
+  gather_facts: true
+  become: true
+  vars:
+    # The play never loops or accepts a target environment.  Its only mutable
+    # runtime is staging, even when an operator supplies additional vars.
+    vps_service_foundation_nutsnews_deployment_environments:
+      - staging
+  tags:
+    - nutsnews-staging-deploy
+
+  pre_tasks:
+    - name: Refuse anything except the fixed staging inventory alias
+      ansible.builtin.assert:
+        that:
+          - inventory_hostname == 'staging-vps'
+          - group_names == ['nutsnews_staging_vps']
+          - vps_service_foundation_nutsnews_deployment_environments == ['staging']
+          - vps_service_foundation_nutsnews_staging_deploy_authorized | bool
+          - vps_service_foundation_nutsnews_environments.staging.name == 'staging'
+          - vps_service_foundation_nutsnews_environments.staging.enabled | bool
+          - vps_service_foundation_nutsnews_environments.staging.deployment_target == 'vps-staging'
+          - not (vps_service_foundation_nutsnews_environments.staging.staged_route_enabled | bool)
+          - not (vps_service_foundation_nutsnews_environments.staging.public_route_enabled | bool)
+          - vps_service_foundation_nutsnews_environments.staging.project_name == 'nutsnews-staging'
+          - vps_service_foundation_nutsnews_environments.staging.container_name == 'nutsnews-app-staging'
+          - vps_service_foundation_nutsnews_environments.staging.network_name == 'nutsnews-edge-staging'
+          - vps_service_foundation_nutsnews_environments.production.project_name == 'nutsnews-app'
+          - vps_service_foundation_nutsnews_environments.production.container_name == 'nutsnews-app'
+          - vps_service_foundation_nutsnews_environments.production.network_name == 'nutsnews-edge'
+        fail_msg: >-
+          This play is permanently staging-only. It refuses the production
+          inventory, production app identity, routes, and network before any
+          Docker or file mutation can begin.
+      tags:
+        - nutsnews-staging-deploy
+
+  tasks:
+    - name: Materialize staging runtime with a host mutation lock
+      tags:
+        - nutsnews-staging-deploy
+      block:
+        - name: Acquire the staging host mutation lock
+          ansible.builtin.command:
+            argv:
+              - mkdir
+              - "{{ vps_service_foundation_nutsnews_staging_mutation_lock }}"
+          register: staging_mutation_lock
+          changed_when: staging_mutation_lock.rc == 0
+          failed_when: staging_mutation_lock.rc != 0
+          when: not ansible_check_mode
+
+        - name: Ensure the staging-only Docker network exists
+          ansible.builtin.command:
+            argv:
+              - docker
+              - network
+              - create
+              - --label
+              - com.nutsnews.runtime=staging
+              - nutsnews-edge-staging
+          register: staging_network_create
+          changed_when: staging_network_create.rc == 0
+          failed_when:
+            - staging_network_create.rc != 0
+            - "'already exists' not in (staging_network_create.stderr | lower)"
+          when: not ansible_check_mode
+
+        - name: Render and validate only the staging runtime
+          ansible.builtin.include_role:
+            name: vps_service_foundation
+            tasks_from: nutsnews_environment.yml
+          vars:  # noqa var-naming[no-role-prefix]
+            nutsnews_environment: "{{ vps_service_foundation_nutsnews_environments.staging }}"
+
+        - name: Verify only the staging container state
+          ansible.builtin.include_role:
+            name: vps_service_foundation
+            tasks_from: nutsnews_environment_apply_state.yml
+          vars:  # noqa var-naming[no-role-prefix]
+            nutsnews_environment: "{{ vps_service_foundation_nutsnews_environments.staging }}"
+          when: not ansible_check_mode
+      always:
+        - name: Release the staging host mutation lock
+          ansible.builtin.command:
+            argv:
+              - rmdir
+              - "{{ vps_service_foundation_nutsnews_staging_mutation_lock }}"
+          changed_when: false
+          failed_when: false
+          when:
+            - not ansible_check_mode
+            - staging_mutation_lock is defined
+            - staging_mutation_lock.rc | default(1) == 0

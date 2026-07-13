@@ -55,9 +55,20 @@
       - >-
         not (nutsnews_environment.name == 'staging') or
         (
-          not (nutsnews_environment.enabled | bool) and
           not (nutsnews_environment.staged_route_enabled | bool) and
           not (nutsnews_environment.public_route_enabled | bool) and
+          (
+            not (nutsnews_environment.enabled | bool) or
+            (
+              (vps_service_foundation_nutsnews_staging_deploy_authorized | bool) and
+              (nutsnews_environment.deployment_target == 'vps-staging') and
+              (nutsnews_environment.deployment_id is match('^stg-[0-9a-f]{24}$')) and
+              (nutsnews_environment.config_generation is match('^staging-stg-[0-9a-f]{24}-[0-9a-f]{12}$')) and
+              (nutsnews_environment.source_commit is match('^[0-9a-f]{40}$')) and
+              (nutsnews_environment.build_id is match('^[1-9][0-9]{0,19}-[1-9][0-9]{0,5}$')) and
+              (nutsnews_environment.schema_version is match('^[0-9]{14}$'))
+            )
+          ) and
           (nutsnews_environment.cpu_limit | float) <=
           (vps_service_foundation_nutsnews_staging_resource_budget.cpu_limit | float) and
           (nutsnews_environment.cpu_shares | int) <=
@@ -75,7 +86,7 @@
     fail_msg: >-
       NutsNews {{ nutsnews_environment.name }} must use a reviewed immutable
       ghcr.io/ramideltoro/nutsnews@sha256 digest. Runtime resource values must
-      be positive and bounded. Mutable tags and an enabled staging runtime are
-      rejected before Compose can run.
+      be positive and bounded. Mutable tags and a staging runtime without the
+      fixed staging deployment authorization are rejected before Compose can run.
     success_msg: NutsNews {{ nutsnews_environment.name }} runtime inputs are valid.
   no_log: true

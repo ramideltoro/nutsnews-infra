@@ -736,6 +736,9 @@ vps_service_foundation_nutsnews_app_source_commit: ""
 vps_service_foundation_nutsnews_app_build_id: ""
 vps_service_foundation_nutsnews_app_deployment_target: production-vps
 vps_service_foundation_nutsnews_app_last_known_good_digest: ""
+vps_service_foundation_nutsnews_app_config_generation: ""
+vps_service_foundation_nutsnews_app_deployment_id: ""
+vps_service_foundation_nutsnews_app_schema_version: ""
 vps_service_foundation_nutsnews_app_staged_route_enabled: false
 vps_service_foundation_nutsnews_app_route_path: /app-stage
 vps_service_foundation_nutsnews_app_public_route_enabled: false
@@ -785,6 +788,19 @@ vps_service_foundation_nutsnews_staging_test_budget:
   scale_down_after_qualification_expiry: true
 vps_service_foundation_nutsnews_app_runtime_owner: root
 vps_service_foundation_nutsnews_app_runtime_group: root
+# These values stay disabled unless the fixed staging-only play receives a
+# candidate already validated by the workflow's no-environment preflight job.
+# They are intentionally not sourced from repository_dispatch fields directly.
+vps_service_foundation_nutsnews_staging_deploy_authorized: false
+vps_service_foundation_nutsnews_staging_enabled: false
+vps_service_foundation_nutsnews_staging_image_digest: ""
+vps_service_foundation_nutsnews_staging_source_commit: ""
+vps_service_foundation_nutsnews_staging_build_id: ""
+vps_service_foundation_nutsnews_staging_schema_version: ""
+vps_service_foundation_nutsnews_staging_deployment_id: ""
+vps_service_foundation_nutsnews_staging_config_generation: ""
+vps_service_foundation_nutsnews_staging_app_envs: {}
+vps_service_foundation_nutsnews_staging_mutation_lock: /var/lock/nutsnews-staging-deploy.lock
 vps_service_foundation_nutsnews_environments:
   production:
     name: production
@@ -809,6 +825,9 @@ vps_service_foundation_nutsnews_environments:
     build_id: "{{ vps_service_foundation_nutsnews_app_build_id }}"
     deployment_target: "{{ vps_service_foundation_nutsnews_app_deployment_target }}"
     last_known_good_digest: "{{ vps_service_foundation_nutsnews_app_last_known_good_digest }}"
+    config_generation: "{{ vps_service_foundation_nutsnews_app_config_generation }}"
+    deployment_id: "{{ vps_service_foundation_nutsnews_app_deployment_id }}"
+    schema_version: "{{ vps_service_foundation_nutsnews_app_schema_version }}"
     staged_route_enabled: "{{ vps_service_foundation_nutsnews_app_staged_route_enabled | bool }}"
     route_path: "{{ vps_service_foundation_nutsnews_app_route_path }}"
     public_route_enabled: "{{ vps_service_foundation_nutsnews_app_public_route_enabled | bool }}"
@@ -831,7 +850,7 @@ vps_service_foundation_nutsnews_environments:
     required_secrets: "{{ vps_service_foundation_nutsnews_app_required_secrets }}"
   staging:
     name: staging
-    enabled: false
+    enabled: "{{ vps_service_foundation_nutsnews_staging_enabled | bool }}"
     project_name: nutsnews-staging
     app_dir: "{{ vps_service_foundation_apps_dir }}/nutsnews-staging"
     compose_file: "{{ vps_service_foundation_apps_dir }}/nutsnews-staging/compose.yml"
@@ -845,13 +864,22 @@ vps_service_foundation_nutsnews_environments:
     container_port: 3000
     health_path: /healthz
     image_repo: ghcr.io/ramideltoro/nutsnews
-    image_digest: ""
-    image: ""
-    image_review_status: unreviewed
-    source_commit: ""
-    build_id: ""
-    deployment_target: staging-vps
+    image_digest: "{{ vps_service_foundation_nutsnews_staging_image_digest }}"
+    image: >-
+      {{
+        ('ghcr.io/ramideltoro/nutsnews@' ~ vps_service_foundation_nutsnews_staging_image_digest)
+        if (vps_service_foundation_nutsnews_staging_image_digest | length > 0)
+        else ''
+      }}
+    image_review_status: >-
+      {{ (vps_service_foundation_nutsnews_staging_deploy_authorized | bool) | ternary('reviewed', 'unreviewed') }}
+    source_commit: "{{ vps_service_foundation_nutsnews_staging_source_commit }}"
+    build_id: "{{ vps_service_foundation_nutsnews_staging_build_id }}"
+    deployment_target: vps-staging
     last_known_good_digest: ""
+    config_generation: "{{ vps_service_foundation_nutsnews_staging_config_generation }}"
+    deployment_id: "{{ vps_service_foundation_nutsnews_staging_deployment_id }}"
+    schema_version: "{{ vps_service_foundation_nutsnews_staging_schema_version }}"
     staged_route_enabled: false
     route_path: /app-stage
     public_route_enabled: false
@@ -866,7 +894,19 @@ vps_service_foundation_nutsnews_environments:
     pids_limit: "{{ vps_service_foundation_nutsnews_staging_resource_budget.pids_limit }}"
     log_max_size: "{{ vps_service_foundation_nutsnews_staging_resource_budget.log_max_size }}"
     log_max_file: "{{ vps_service_foundation_nutsnews_staging_resource_budget.log_max_file }}"
-    envs: {}
+    envs: >-
+      {{
+        vps_service_foundation_nutsnews_staging_app_envs
+        | combine(
+            {
+              'NUTSNEWS_RUNTIME_ENV': 'staging',
+              'NUTSNEWS_SIDE_EFFECTS_MODE': 'disabled',
+              'NUTSNEWS_DATA_ENVIRONMENT': 'staging',
+              'NUTSNEWS_SUPABASE_CREDENTIALS_ENV': 'staging'
+            },
+            recursive=false
+          )
+      }}
     vercel_envs: {}
     secret_env_keys: []
     required_secrets: []

@@ -1,0 +1,310 @@
+name: Deploy Verified NutsNews Staging Candidate
+
+on:
+  repository_dispatch:
+    types:
+      - nutsnews-staging-release
+  workflow_dispatch:
+    inputs:
+      candidate_json:
+        description: Exact staging candidate JSON for a validation-only rehearsal.
+        required: true
+        type: string
+      rehearsal_confirmation:
+        description: Type rehearse-staging-candidate. This path never attaches staging secrets or applies.
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nutsnews-staging-deploy
+  cancel-in-progress: false
+
+jobs:
+  preflight:
+    name: Verify trusted source commit and OCI provenance
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    outputs:
+      deployment_id: ${{ steps.candidate.outputs.deployment_id }}
+      source_commit: ${{ steps.candidate.outputs.source_commit }}
+      image_repository: ${{ steps.candidate.outputs.image_repository }}
+      image_digest: ${{ steps.candidate.outputs.image_digest }}
+      build_id: ${{ steps.candidate.outputs.build_id }}
+      source_workflow_run_id: ${{ steps.candidate.outputs.source_workflow_run_id }}
+      schema_version: ${{ steps.candidate.outputs.schema_version }}
+
+    steps:
+      - name: Checkout reviewed staging automation
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Verify trusted source commit and OCI provenance
+        id: candidate
+        shell: bash
+        env:
+          NUTSNEWS_STAGING_CANDIDATE_JSON: ${{ inputs.candidate_json }}
+          NUTSNEWS_STAGING_REHEARSAL_CONFIRMATION: ${{ inputs.rehearsal_confirmation }}
+        run: |
+          set -euo pipefail
+          umask 077
+          python3 ansible/scripts/validate_staging_candidate.py \
+            --event-path "$GITHUB_EVENT_PATH" \
+            --event-name "$GITHUB_EVENT_NAME" \
+            --output "$RUNNER_TEMP/nutsnews-staging-candidate.json" \
+            --github-output "$GITHUB_OUTPUT"
+
+      - name: Summarize safe preflight result
+        shell: bash
+        env:
+          DEPLOYMENT_ID: ${{ steps.candidate.outputs.deployment_id }}
+          SOURCE_COMMIT: ${{ steps.candidate.outputs.source_commit }}
+          IMAGE_DIGEST: ${{ steps.candidate.outputs.image_digest }}
+        run: |
+          set -euo pipefail
+          {
+            echo "## Verified staging candidate"
+            echo
+            echo "- Deployment ID: \`${DEPLOYMENT_ID}\`"
+            echo "- Source commit: \`${SOURCE_COMMIT}\`"
+            echo "- Requested digest: \`${IMAGE_DIGEST}\`"
+            echo "- Staging environment secrets and SSH were not available to this job."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  rehearsal:
+    name: Complete controlled rehearsal
+    needs: preflight
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Confirm validation-only rehearsal
+        shell: bash
+        env:
+          DEPLOYMENT_ID: ${{ needs.preflight.outputs.deployment_id }}
+        run: |
+          set -euo pipefail
+          {
+            echo "## Staging rehearsal complete"
+            echo
+            echo "Candidate \`${DEPLOYMENT_ID}\` passed the same schema, source-main, and OCI provenance checks."
+            echo "This controlled manual path does not attach staging-vps, read any staging secret, open SSH, or apply Ansible."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  deploy:
+    name: Check and deploy approved staging candidate
+    needs: preflight
+    if: github.event_name == 'repository_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    environment: staging-vps
+    permissions:
+      contents: read
+      deployments: write
+
+    steps:
+      - name: Checkout reviewed staging automation
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Revalidate preflight outputs into a private candidate file
+        shell: bash
+        env:
+          STAGING_SCHEMA_VERSION: ${{ needs.preflight.outputs.schema_version }}
+          STAGING_SOURCE_REPOSITORY: ramideltoro/nutsnews
+          STAGING_SOURCE_COMMIT: ${{ needs.preflight.outputs.source_commit }}
+          STAGING_IMAGE_REPOSITORY: ${{ needs.preflight.outputs.image_repository }}
+          STAGING_IMAGE_DIGEST: ${{ needs.preflight.outputs.image_digest }}
+          STAGING_BUILD_ID: ${{ needs.preflight.outputs.build_id }}
+          STAGING_SOURCE_WORKFLOW_RUN_ID: ${{ needs.preflight.outputs.source_workflow_run_id }}
+        run: |
+          set -euo pipefail
+          umask 077
+          python3 ansible/scripts/write_staging_candidate_file.py \
+            --output "$RUNNER_TEMP/nutsnews-staging-candidate.json"
+
+      - name: Run repository staging guardrails
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 ansible/tests/validate_staging_deployment.py
+          git diff --check
+
+      - name: Install Ansible and collections
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m pip install --user ansible-core
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          cd ansible
+          ansible-galaxy collection install -r requirements.yml
+          ansible-playbook playbooks/deploy-staging.yml \
+            --inventory inventories/staging/hosts.yml \
+            --syntax-check
+
+      - name: Validate required staging environment secrets
+        shell: bash
+        env:
+          NUTSNEWS_STAGING_VPS_SSH_PRIVATE_KEY: ${{ secrets.NUTSNEWS_STAGING_VPS_SSH_PRIVATE_KEY }}
+          NUTSNEWS_STAGING_VPS_KNOWN_HOSTS: ${{ secrets.NUTSNEWS_STAGING_VPS_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          missing=0
+          for secret_name in \
+            NUTSNEWS_STAGING_VPS_SSH_PRIVATE_KEY \
+            NUTSNEWS_STAGING_VPS_KNOWN_HOSTS
+          do
+            if [[ -z "${!secret_name}" ]]; then
+              echo "Missing required staging-vps environment secret: ${secret_name}" >&2
+              missing=1
+            fi
+          done
+          exit "$missing"
+
+      - name: Prepare isolated staging SSH credentials
+        shell: bash
+        env:
+          NUTSNEWS_STAGING_VPS_SSH_PRIVATE_KEY: ${{ secrets.NUTSNEWS_STAGING_VPS_SSH_PRIVATE_KEY }}
+          NUTSNEWS_STAGING_VPS_KNOWN_HOSTS: ${{ secrets.NUTSNEWS_STAGING_VPS_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          umask 077
+          install -m 0700 -d "$HOME/.ssh"
+          printf '%s\n' "$NUTSNEWS_STAGING_VPS_SSH_PRIVATE_KEY" > "$HOME/.ssh/nutsnews_staging_vps"
+          printf '%s\n' "$NUTSNEWS_STAGING_VPS_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          chmod 0600 "$HOME/.ssh/nutsnews_staging_vps" "$HOME/.ssh/known_hosts"
+          ssh-keygen -y -f "$HOME/.ssh/nutsnews_staging_vps" > /dev/null
+          ssh-keygen -F 65.75.202.112 -f "$HOME/.ssh/known_hosts" > /dev/null
+
+      - name: Render private staging-only Ansible variables
+        id: staging_vars
+        shell: bash
+        env:
+          NUTSNEWS_STAGING_APP_ENVS_JSON: ${{ secrets.NUTSNEWS_STAGING_APP_ENVS_JSON }}
+        run: |
+          set -euo pipefail
+          umask 077
+          python3 ansible/scripts/write_staging_ansible_vars.py \
+            --candidate-file "$RUNNER_TEMP/nutsnews-staging-candidate.json" \
+            --infra-commit "$GITHUB_SHA" \
+            --output "$RUNNER_TEMP/nutsnews-staging-vars.json" \
+            --github-output "$GITHUB_OUTPUT"
+
+      - name: Run fixed staging Ansible check mode
+        shell: bash
+        working-directory: ansible
+        run: |
+          set -euo pipefail
+          ansible-playbook playbooks/deploy-staging.yml \
+            --inventory inventories/staging/hosts.yml \
+            --limit staging-vps \
+            --tags nutsnews-staging-deploy \
+            --user nutsnews_ops \
+            --private-key "$HOME/.ssh/nutsnews_staging_vps" \
+            --extra-vars "@$RUNNER_TEMP/nutsnews-staging-vars.json" \
+            --ssh-common-args "-o UserKnownHostsFile=$HOME/.ssh/known_hosts -o StrictHostKeyChecking=yes -o IdentitiesOnly=yes" \
+            --check --diff
+
+      - name: Create auditable GitHub staging deployment record
+        id: deployment
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CONFIG_GENERATION: ${{ steps.staging_vars.outputs.config_generation }}
+        run: |
+          set -euo pipefail
+          python3 ansible/scripts/staging_deployment_audit.py \
+            --candidate-file "$RUNNER_TEMP/nutsnews-staging-candidate.json" \
+            --infra-commit "$GITHUB_SHA" \
+            --config-generation "$CONFIG_GENERATION" \
+            --github-run-id "$GITHUB_RUN_ID" \
+            --phase deployment \
+            --output "$RUNNER_TEMP/staging-deployment.json"
+          deployment_id="$(gh api \
+            --method POST \
+            "repos/${GITHUB_REPOSITORY}/deployments" \
+            --input "$RUNNER_TEMP/staging-deployment.json" \
+            --jq '.id')"
+          if [[ ! "$deployment_id" =~ ^[1-9][0-9]*$ ]]; then
+            echo "GitHub did not return a numeric staging deployment ID." >&2
+            exit 1
+          fi
+          printf 'deployment_id=%s\n' "$deployment_id" >> "$GITHUB_OUTPUT"
+          gh api \
+            --method POST \
+            "repos/${GITHUB_REPOSITORY}/deployments/${deployment_id}/statuses" \
+            -f state=in_progress \
+            -f description="Immutable staging candidate is applying" \
+            -f environment=staging \
+            -F auto_inactive=false > /dev/null
+
+      - name: Apply fixed staging Ansible play
+        shell: bash
+        working-directory: ansible
+        run: |
+          set -euo pipefail
+          ansible-playbook playbooks/deploy-staging.yml \
+            --inventory inventories/staging/hosts.yml \
+            --limit staging-vps \
+            --tags nutsnews-staging-deploy \
+            --user nutsnews_ops \
+            --private-key "$HOME/.ssh/nutsnews_staging_vps" \
+            --extra-vars "@$RUNNER_TEMP/nutsnews-staging-vars.json" \
+            --ssh-common-args "-o UserKnownHostsFile=$HOME/.ssh/known_hosts -o StrictHostKeyChecking=yes -o IdentitiesOnly=yes" \
+            --diff
+
+      - name: Wait for staging readiness and verify Docker digest
+        shell: bash
+        env:
+          CONFIG_GENERATION: ${{ steps.staging_vars.outputs.config_generation }}
+        run: |
+          set -euo pipefail
+          python3 ansible/scripts/verify_staging_runtime.py \
+            --candidate-file "$RUNNER_TEMP/nutsnews-staging-candidate.json" \
+            --config-generation "$CONFIG_GENERATION" \
+            --ssh-key "$HOME/.ssh/nutsnews_staging_vps" \
+            --known-hosts "$HOME/.ssh/known_hosts" \
+            --result-file "$RUNNER_TEMP/nutsnews-staging-runtime.json"
+
+      - name: Finalize staging Deployment status
+        if: ${{ always() && !cancelled() && steps.deployment.outputs.deployment_id != '' }}
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DEPLOYMENT_ID: ${{ steps.deployment.outputs.deployment_id }}
+          CONFIG_GENERATION: ${{ steps.staging_vars.outputs.config_generation }}
+          JOB_OUTCOME: ${{ job.status }}
+        run: |
+          set -euo pipefail
+          python3 ansible/scripts/staging_deployment_audit.py \
+            --candidate-file "$RUNNER_TEMP/nutsnews-staging-candidate.json" \
+            --infra-commit "$GITHUB_SHA" \
+            --config-generation "$CONFIG_GENERATION" \
+            --github-run-id "$GITHUB_RUN_ID" \
+            --phase status \
+            --job-outcome "$JOB_OUTCOME" \
+            --runtime-result "$RUNNER_TEMP/nutsnews-staging-runtime.json" \
+            --output "$RUNNER_TEMP/staging-deployment-status.json"
+          gh api \
+            --method POST \
+            "repos/${GITHUB_REPOSITORY}/deployments/${DEPLOYMENT_ID}/statuses" \
+            --input "$RUNNER_TEMP/staging-deployment-status.json" > /dev/null
+
+      - name: Remove staging credentials and temporary deployment files
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          set +e
+          rm -f \
+            "$HOME/.ssh/nutsnews_staging_vps" \
+            "$HOME/.ssh/known_hosts" \
+            "$RUNNER_TEMP/nutsnews-staging-candidate.json" \
+            "$RUNNER_TEMP/nutsnews-staging-vars.json" \
+            "$RUNNER_TEMP/nutsnews-staging-runtime.json" \
+            "$RUNNER_TEMP/staging-deployment.json" \
+            "$RUNNER_TEMP/staging-deployment-status.json"
