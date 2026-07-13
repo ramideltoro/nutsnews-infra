@@ -31,6 +31,9 @@
         build_id: fixture-production
         deployment_target: production-vps
         last_known_good_digest: ""
+        config_generation: ""
+        deployment_id: ""
+        schema_version: ""
         staged_route_enabled: true
         route_path: /app-stage
         public_route_enabled: true
@@ -66,8 +69,11 @@
         image_review_status: reviewed
         source_commit: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
         build_id: fixture-staging
-        deployment_target: staging-vps
+        deployment_target: vps-staging
         last_known_good_digest: ""
+        config_generation: ""
+        deployment_id: ""
+        schema_version: ""
         staged_route_enabled: false
         route_path: /app-stage
         public_route_enabled: false

@@ -1,0 +1,9 @@
+{
+  "schema_version": "20260712170000",
+  "source_repository": "ramideltoro/nutsnews",
+  "source_commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "image_repository": "ghcr.io/ramideltoro/nutsnews",
+  "image_digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "build_id": "123456789-2",
+  "source_workflow_run_id": "123456789"
+}
