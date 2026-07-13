@@ -25,7 +25,7 @@ services:
       retries: 3
       start_period: 10s
     networks:
-      - production
+      - edge
 
   caddy:
     build:
@@ -75,10 +75,11 @@ services:
       ops-auth:
         condition: service_healthy
     networks:
-      - production
+      - edge
 
 networks:
-  # Caddy is deliberately attached only to the production app network. A
-  # staging app gets its own network and cannot become this route's upstream.
-  production:
+  # Keep the deployed Compose network key so its Docker label remains
+  # com.docker.compose.network=edge. This is the production app network only;
+  # a staging app gets its own network and cannot become Caddy's upstream.
+  edge:
     name: nutsnews-edge

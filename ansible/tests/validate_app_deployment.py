@@ -90,7 +90,9 @@ assert "nutsnews_environment.name == 'staging'" in environment_validation_tasks
 assert "image_review_status == 'reviewed'" in environment_validation_tasks
 assert "last_known_good_state_file" in state_tasks
 
-assert "networks:\n      - production" in caddy_compose
+assert caddy_compose.count("networks:\n      - edge") == 2
+assert "com.docker.compose.network=edge" in caddy_compose
+assert "\n  edge:\n    name: nutsnews-edge" in caddy_compose
 assert "name: nutsnews-edge" in caddy_compose
 assert "nutsnews-edge-staging" not in caddy_compose
 assert "vps_service_foundation_nutsnews_environments.production" in staged_route
