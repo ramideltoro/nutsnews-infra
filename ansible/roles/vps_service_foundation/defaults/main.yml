@@ -725,6 +725,7 @@ vps_service_foundation_nutsnews_app_container_port: 3000
 vps_service_foundation_nutsnews_app_health_path: /healthz
 vps_service_foundation_nutsnews_app_image_repo: ghcr.io/ramideltoro/nutsnews
 vps_service_foundation_nutsnews_app_image_digest: ""
+vps_service_foundation_nutsnews_app_image_review_status: unreviewed
 vps_service_foundation_nutsnews_app_image: >-
   {{
     (vps_service_foundation_nutsnews_app_image_repo ~ '@' ~ vps_service_foundation_nutsnews_app_image_digest)
@@ -745,6 +746,87 @@ vps_service_foundation_nutsnews_app_envs: {}
 vps_service_foundation_nutsnews_app_vercel_envs: {}
 vps_service_foundation_nutsnews_app_secret_env_keys: []
 vps_service_foundation_nutsnews_app_required_secrets: []
+
+# The legacy production inputs above remain the reviewed release-manifest
+# interface used by the existing promotion workflow. Runtime deployment uses
+# the explicit two-environment model below so that the current production
+# identity stays migration-compatible while staging has no shared state.
+vps_service_foundation_nutsnews_environment_names:
+  - production
+  - staging
+vps_service_foundation_nutsnews_deployment_environments:
+  - production
+vps_service_foundation_nutsnews_app_runtime_owner: root
+vps_service_foundation_nutsnews_app_runtime_group: root
+vps_service_foundation_nutsnews_environments:
+  production:
+    name: production
+    enabled: "{{ vps_service_foundation_nutsnews_app_enabled | bool }}"
+    project_name: nutsnews-app
+    app_dir: "{{ vps_service_foundation_nutsnews_app_dir }}"
+    compose_file: "{{ vps_service_foundation_nutsnews_app_compose_file }}"
+    source_compose_file: "{{ vps_service_foundation_nutsnews_app_source_compose_file }}"
+    env_file: "{{ vps_service_foundation_nutsnews_app_env_file }}"
+    state_dir: "{{ vps_service_foundation_ops_dir }}/apps/production"
+    release_manifest_file: "{{ vps_service_foundation_ops_dir }}/apps/production/release.json"
+    apply_marker_file: "{{ vps_service_foundation_nutsnews_app_apply_marker_file }}"
+    last_known_good_state_file: "{{ vps_service_foundation_ops_dir }}/apps/production/last-known-good.json"
+    container_name: "{{ vps_service_foundation_nutsnews_app_container_name }}"
+    container_port: "{{ vps_service_foundation_nutsnews_app_container_port }}"
+    health_path: "{{ vps_service_foundation_nutsnews_app_health_path }}"
+    image_repo: "{{ vps_service_foundation_nutsnews_app_image_repo }}"
+    image_digest: "{{ vps_service_foundation_nutsnews_app_image_digest }}"
+    image: "{{ vps_service_foundation_nutsnews_app_image }}"
+    image_review_status: "{{ vps_service_foundation_nutsnews_app_image_review_status }}"
+    source_commit: "{{ vps_service_foundation_nutsnews_app_source_commit }}"
+    build_id: "{{ vps_service_foundation_nutsnews_app_build_id }}"
+    deployment_target: "{{ vps_service_foundation_nutsnews_app_deployment_target }}"
+    last_known_good_digest: "{{ vps_service_foundation_nutsnews_app_last_known_good_digest }}"
+    staged_route_enabled: "{{ vps_service_foundation_nutsnews_app_staged_route_enabled | bool }}"
+    route_path: "{{ vps_service_foundation_nutsnews_app_route_path }}"
+    public_route_enabled: "{{ vps_service_foundation_nutsnews_app_public_route_enabled | bool }}"
+    public_domain: "{{ vps_service_foundation_nutsnews_app_public_domain }}"
+    network_name: nutsnews-edge
+    network_alias: nutsnews-app
+    cache_volume_name: nutsnews-app-cache
+    envs: "{{ vps_service_foundation_nutsnews_app_envs }}"
+    vercel_envs: "{{ vps_service_foundation_nutsnews_app_vercel_envs }}"
+    secret_env_keys: "{{ vps_service_foundation_nutsnews_app_secret_env_keys }}"
+    required_secrets: "{{ vps_service_foundation_nutsnews_app_required_secrets }}"
+  staging:
+    name: staging
+    enabled: false
+    project_name: nutsnews-staging
+    app_dir: "{{ vps_service_foundation_apps_dir }}/nutsnews-staging"
+    compose_file: "{{ vps_service_foundation_apps_dir }}/nutsnews-staging/compose.yml"
+    source_compose_file: "{{ vps_service_foundation_nutsnews_app_source_compose_file }}"
+    env_file: "{{ vps_service_foundation_private_config_dir }}/nutsnews-staging-app.env"
+    state_dir: "{{ vps_service_foundation_ops_dir }}/apps/staging"
+    release_manifest_file: "{{ vps_service_foundation_ops_dir }}/apps/staging/release.json"
+    apply_marker_file: "{{ vps_service_foundation_ops_dir }}/apps/staging/last-apply.json"
+    last_known_good_state_file: "{{ vps_service_foundation_ops_dir }}/apps/staging/last-known-good.json"
+    container_name: nutsnews-app-staging
+    container_port: 3000
+    health_path: /healthz
+    image_repo: ghcr.io/ramideltoro/nutsnews
+    image_digest: ""
+    image: ""
+    image_review_status: unreviewed
+    source_commit: ""
+    build_id: ""
+    deployment_target: staging-vps
+    last_known_good_digest: ""
+    staged_route_enabled: false
+    route_path: /app-stage
+    public_route_enabled: false
+    public_domain: ""
+    network_name: nutsnews-edge-staging
+    network_alias: nutsnews-app-staging
+    cache_volume_name: nutsnews-app-staging-cache
+    envs: {}
+    vercel_envs: {}
+    secret_env_keys: []
+    required_secrets: []
 
 vps_service_foundation_repo_root: "{{ playbook_dir }}/../.."
 vps_service_foundation_source_compose_file: "{{ vps_service_foundation_repo_root }}/compose/caddy/compose.yml"
@@ -964,10 +1046,6 @@ vps_service_foundation_directories:
     owner: "{{ vps_service_foundation_caddy_user }}"
     group: "{{ vps_service_foundation_caddy_group }}"
     mode: "0750"
-  - path: "{{ vps_service_foundation_nutsnews_app_dir }}"
-    owner: root
-    group: root
-    mode: "0755"
   - path: "{{ vps_service_foundation_data_dir }}"
     owner: root
     group: root

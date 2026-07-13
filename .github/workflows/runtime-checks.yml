@@ -74,6 +74,13 @@ jobs:
           export NUTSNEWS_OPS_PORTAL_AUTH_ENV_FILE="$RUNNER_TEMP/ops-portal-auth.env"
           NUTSNEWS_APP_IMAGE="ghcr.io/ramideltoro/nutsnews@sha256:$(printf '0%.0s' {1..64})"
           export NUTSNEWS_APP_IMAGE
+          export NUTSNEWS_APP_PROJECT_NAME=nutsnews-app
+          export NUTSNEWS_APP_CONTAINER_NAME=nutsnews-app
+          export NUTSNEWS_APP_CONTAINER_PORT=3000
+          export NUTSNEWS_APP_ENV_FILE=/dev/null
+          export NUTSNEWS_APP_NETWORK_NAME=nutsnews-edge
+          export NUTSNEWS_APP_NETWORK_ALIAS=nutsnews-app
+          export NUTSNEWS_APP_CACHE_VOLUME_NAME=nutsnews-app-cache
           cat > "$NUTSNEWS_OPS_PORTAL_AUTH_ENV_FILE" <<'EOF'
           GOOGLE_CLIENT_ID=dummy
           GOOGLE_CLIENT_SECRET=dummy

@@ -273,6 +273,7 @@
         group: root
         mode: "0644"
       register: vps_service_foundation_caddy_route_install
+      when: "'production' in vps_service_foundation_nutsnews_deployment_environments"
 
     - name: Install Caddy public app route template
       ansible.builtin.template:
@@ -282,6 +283,7 @@
         group: root
         mode: "0644"
       register: vps_service_foundation_caddy_public_route_install
+      when: "'production' in vps_service_foundation_nutsnews_deployment_environments"
 
     - name: Validate operations portal Google OAuth configuration
       ansible.builtin.assert:
@@ -330,165 +332,75 @@
           caddy-oauth-routing-v1
       register: vps_service_foundation_caddy_oauth_reload_marker_install
 
-    - name: Validate app deployment inputs
+    - name: Validate the explicit NutsNews runtime environment model
       ansible.builtin.assert:
         that:
-          - "vps_service_foundation_nutsnews_app_container_name is match('^[a-z0-9][a-z0-9._-]*$')"
-          - "vps_service_foundation_nutsnews_app_container_port | int > 0"
-          - vps_service_foundation_nutsnews_app_health_path == '/healthz'
-          - vps_service_foundation_nutsnews_app_route_path == '/app-stage'
-          - vps_service_foundation_nutsnews_app_public_domain == 'vps.nutsnews.com'
-          - vps_service_foundation_nutsnews_app_image_repo == 'ghcr.io/ramideltoro/nutsnews'
+          - vps_service_foundation_nutsnews_environment_names == ['production', 'staging']
+          - vps_service_foundation_nutsnews_environments is mapping
+          - (vps_service_foundation_nutsnews_environments.keys() | list | sort) == ['production', 'staging']
+          - vps_service_foundation_nutsnews_deployment_environments is iterable
+          - (vps_service_foundation_nutsnews_deployment_environments | difference(vps_service_foundation_nutsnews_environment_names)) | length == 0
           - >-
-            (vps_service_foundation_nutsnews_app_image_digest | length == 0) or
-            (vps_service_foundation_nutsnews_app_image_digest is match('^sha256:[0-9a-f]{64}$'))
+            (vps_service_foundation_nutsnews_deployment_environments | unique | list | length)
+            == (vps_service_foundation_nutsnews_deployment_environments | length)
+          - vps_service_foundation_nutsnews_environments.production.name == 'production'
+          - vps_service_foundation_nutsnews_environments.production.project_name == 'nutsnews-app'
+          - vps_service_foundation_nutsnews_environments.production.network_name == 'nutsnews-edge'
+          - vps_service_foundation_nutsnews_environments.staging.name == 'staging'
+          - not (vps_service_foundation_nutsnews_environments.staging.enabled | bool)
+          - not (vps_service_foundation_nutsnews_environments.staging.staged_route_enabled | bool)
+          - not (vps_service_foundation_nutsnews_environments.staging.public_route_enabled | bool)
           - >-
-            (vps_service_foundation_nutsnews_app_last_known_good_digest | length == 0) or
-            (vps_service_foundation_nutsnews_app_last_known_good_digest is match('^sha256:[0-9a-f]{64}$'))
+            vps_service_foundation_nutsnews_environments.production.project_name
+            != vps_service_foundation_nutsnews_environments.staging.project_name
           - >-
-            (vps_service_foundation_nutsnews_app_source_commit | length == 0) or
-            (vps_service_foundation_nutsnews_app_source_commit is match('^[0-9a-f]{40}$'))
+            vps_service_foundation_nutsnews_environments.production.app_dir
+            != vps_service_foundation_nutsnews_environments.staging.app_dir
           - >-
-            not (vps_service_foundation_nutsnews_app_staged_route_enabled | bool) or
-            (vps_service_foundation_nutsnews_app_enabled | bool)
+            vps_service_foundation_nutsnews_environments.production.compose_file
+            != vps_service_foundation_nutsnews_environments.staging.compose_file
           - >-
-            not (vps_service_foundation_nutsnews_app_public_route_enabled | bool) or
-            (
-              (vps_service_foundation_nutsnews_app_enabled | bool) and
-              (vps_service_foundation_nutsnews_app_staged_route_enabled | bool)
-            )
+            vps_service_foundation_nutsnews_environments.production.env_file
+            != vps_service_foundation_nutsnews_environments.staging.env_file
           - >-
-            not (vps_service_foundation_nutsnews_app_enabled | bool) or
-            (
-              (vps_service_foundation_nutsnews_app_image_digest is match('^sha256:[0-9a-f]{64}$')) and
-              (vps_service_foundation_nutsnews_app_image == (
-                vps_service_foundation_nutsnews_app_image_repo ~ '@' ~
-                vps_service_foundation_nutsnews_app_image_digest
-              )) and
-              (vps_service_foundation_nutsnews_app_source_commit is match('^[0-9a-f]{40}$')) and
-              (vps_service_foundation_nutsnews_app_build_id | length > 0)
-            )
-          - "'latest' not in vps_service_foundation_nutsnews_app_image"
-          - vps_service_foundation_nutsnews_app_deployment_target == 'production-vps'
-          - "vps_service_foundation_nutsnews_app_env_file is match('^/.+$')"
+            vps_service_foundation_nutsnews_environments.production.state_dir
+            != vps_service_foundation_nutsnews_environments.staging.state_dir
+          - >-
+            vps_service_foundation_nutsnews_environments.production.release_manifest_file
+            != vps_service_foundation_nutsnews_environments.staging.release_manifest_file
+          - >-
+            vps_service_foundation_nutsnews_environments.production.apply_marker_file
+            != vps_service_foundation_nutsnews_environments.staging.apply_marker_file
+          - >-
+            vps_service_foundation_nutsnews_environments.production.last_known_good_state_file
+            != vps_service_foundation_nutsnews_environments.staging.last_known_good_state_file
+          - >-
+            vps_service_foundation_nutsnews_environments.production.container_name
+            != vps_service_foundation_nutsnews_environments.staging.container_name
+          - >-
+            vps_service_foundation_nutsnews_environments.production.network_name
+            != vps_service_foundation_nutsnews_environments.staging.network_name
+          - >-
+            vps_service_foundation_nutsnews_environments.production.network_alias
+            != vps_service_foundation_nutsnews_environments.staging.network_alias
+          - >-
+            vps_service_foundation_nutsnews_environments.production.cache_volume_name
+            != vps_service_foundation_nutsnews_environments.staging.cache_volume_name
         fail_msg: >-
-          App deployment settings are incomplete or mutable. Enabled app releases
-          require the reviewed GHCR sha256 digest, full source commit, build ID,
-          production target, and staged-before-public route ordering.
-        success_msg: NutsNews app deployment inputs are valid.
-
-    - name: Validate app env dict type
-      ansible.builtin.assert:
-        that:
-          - vps_service_foundation_nutsnews_app_envs is mapping
-          - vps_service_foundation_nutsnews_app_vercel_envs is mapping
-          - vps_service_foundation_nutsnews_app_secret_env_keys is iterable
-          - vps_service_foundation_nutsnews_app_required_secrets is iterable
-        fail_msg: "NutsNews app env or app secret key lists are not valid types."
-      when: vps_service_foundation_nutsnews_app_enabled | bool
+          NutsNews supports exactly the isolated production and staging runtime
+          environments. Staging must remain disabled and cannot be attached to
+          the production Caddy network or route.
+        success_msg: NutsNews runtime environment identities are isolated.
       no_log: true
 
-    - name: Merge reviewed Vercel environment values over VPS-only app values
-      ansible.builtin.set_fact:
-        vps_service_foundation_nutsnews_app_envs: >-
-          {{
-            vps_service_foundation_nutsnews_app_envs
-            | combine(vps_service_foundation_nutsnews_app_vercel_envs | default({}), recursive=false)
-          }}
-      when: vps_service_foundation_nutsnews_app_enabled | bool
-      no_log: true
-
-    - name: Normalize app secret key lists
-      ansible.builtin.set_fact:
-        vps_service_foundation_nutsnews_app_secret_env_keys: "{{
-          vps_service_foundation_nutsnews_app_secret_env_keys | default([]) | map('string') | unique | list
-        }}"
-        vps_service_foundation_nutsnews_app_required_secret_keys: "{{
-          vps_service_foundation_nutsnews_app_required_secrets | default([]) | map('string') | unique | list
-        }}"
-      when: vps_service_foundation_nutsnews_app_enabled | bool
-
-    - name: Validate required app secret declarations
-      ansible.builtin.assert:
-        that:
-          - "{{ (vps_service_foundation_nutsnews_app_required_secret_keys | difference(vps_service_foundation_nutsnews_app_secret_env_keys)) | length == 0 }}"
-          - >-
-            {{
-              (vps_service_foundation_nutsnews_app_required_secret_keys
-              | difference(vps_service_foundation_nutsnews_app_envs.keys() | list))
-              | length == 0
-            }}
-        fail_msg: >-
-          App secrets are required for app deployment, but required secret keys are
-          missing from vps_service_foundation_nutsnews_app_secret_env_keys or app env values.
-          Add the key names to vps_service_foundation_nutsnews_app_secret_env_keys and
-          ensure vps_service_foundation_nutsnews_app_envs has them with non-empty values.
-      when: vps_service_foundation_nutsnews_app_enabled | bool
-      no_log: true
-
-    - name: Validate required app secret values
-      ansible.builtin.assert:
-        that:
-          - "vps_service_foundation_nutsnews_app_envs[item] is defined"
-          - "(vps_service_foundation_nutsnews_app_envs[item] | trim | length) > 0"
-        fail_msg: "Required app secret '{{ item }}' is empty. Set it in vps_service_foundation_nutsnews_app_envs."
-      loop: "{{ vps_service_foundation_nutsnews_app_required_secret_keys | default([]) }}"
+    - name: Preflight selected NutsNews runtime environments
+      ansible.builtin.include_tasks: nutsnews_environment_validate.yml
+      loop: "{{ vps_service_foundation_nutsnews_deployment_environments }}"
       loop_control:
-        label: "{{ item }}"
-      when: vps_service_foundation_nutsnews_app_enabled | bool and vps_service_foundation_nutsnews_app_required_secret_keys | length > 0
-      no_log: true
-
-    - name: Install NutsNews app Compose file
-      ansible.builtin.copy:
-        src: "{{ vps_service_foundation_nutsnews_app_source_compose_file }}"
-        dest: "{{ vps_service_foundation_nutsnews_app_compose_file }}"
-        owner: root
-        group: root
-        mode: "0644"
-
-    - name: Install NutsNews app environment
-      ansible.builtin.template:
-        src: nutsnews-app.env.j2
-        dest: "{{ vps_service_foundation_nutsnews_app_env_file }}"
-        owner: root
-        group: root
-        mode: "0600"
-      no_log: true
-
-    - name: Read rendered NutsNews app environment names for sync verification
-      ansible.builtin.command:
-        argv:
-          - awk
-          - -F=
-          - '/^[A-Za-z_][A-Za-z0-9_]*=/{print $1}'
-          - "{{ vps_service_foundation_nutsnews_app_env_file }}"
-      register: vps_service_foundation_rendered_nutsnews_app_env_names
-      changed_when: false
-      when:
-        - not ansible_check_mode
-        - vps_service_foundation_nutsnews_app_enabled | bool
-        - vps_service_foundation_nutsnews_app_vercel_envs | length > 0
-
-    - name: Verify synchronized Vercel environment names were rendered
-      ansible.builtin.assert:
-        that:
-          - >-
-            {{
-              (
-                vps_service_foundation_nutsnews_app_vercel_envs.keys() | list
-                | difference(vps_service_foundation_rendered_nutsnews_app_env_names.stdout_lines | default([]))
-              )
-              | length == 0
-            }}
-        fail_msg: >-
-          One or more reviewed Vercel environment destinations were not rendered
-          into the VPS NutsNews app environment file.
-        success_msg: Reviewed Vercel environment destinations were rendered into the VPS app environment file.
-      when:
-        - not ansible_check_mode
-        - vps_service_foundation_nutsnews_app_enabled | bool
-        - vps_service_foundation_nutsnews_app_vercel_envs | length > 0
-      no_log: true
+        loop_var: nutsnews_environment_name
+        label: "{{ nutsnews_environment_name }}"
+      vars:
+        nutsnews_environment: "{{ vps_service_foundation_nutsnews_environments[nutsnews_environment_name] }}"
 
     - name: Install local health placeholder page
       ansible.builtin.copy:
@@ -1235,8 +1147,8 @@
         or vps_service_foundation_caddy_dockerfile_install.changed
         or vps_service_foundation_caddyfile_install.changed
         or vps_service_foundation_caddy_rate_limit_install.changed
-        or vps_service_foundation_caddy_route_install.changed
-        or vps_service_foundation_caddy_public_route_install.changed
+        or (vps_service_foundation_caddy_route_install.changed | default(false))
+        or (vps_service_foundation_caddy_public_route_install.changed | default(false))
         or vps_service_foundation_ops_auth_gateway_install.changed
         or vps_service_foundation_ops_auth_env_install.changed
         or vps_service_foundation_caddy_oauth_reload_marker_install.changed
@@ -1264,49 +1176,14 @@
         or 'Pulling' in vps_service_foundation_compose_up.stdout
         or 'Pulling' in vps_service_foundation_compose_up.stderr
 
-    - name: Validate NutsNews app Compose configuration
-      ansible.builtin.command:
-        argv:
-          - docker
-          - compose
-          - --project-directory
-          - "{{ vps_service_foundation_nutsnews_app_dir }}"
-          - --env-file
-          - "{{ vps_service_foundation_nutsnews_app_env_file }}"
-          - -f
-          - "{{ vps_service_foundation_nutsnews_app_compose_file }}"
-          - config
-          - --quiet
-      changed_when: false
-      when: vps_service_foundation_nutsnews_app_image_digest | length > 0
-
-    - name: Start NutsNews app service layer when enabled
-      ansible.builtin.command:
-        argv:
-          - docker
-          - compose
-          - --project-directory
-          - "{{ vps_service_foundation_nutsnews_app_dir }}"
-          - --env-file
-          - "{{ vps_service_foundation_nutsnews_app_env_file }}"
-          - -f
-          - "{{ vps_service_foundation_nutsnews_app_compose_file }}"
-          - up
-          - -d
-          - --remove-orphans
-          - --pull
-          - always
-      register: vps_service_foundation_nutsnews_app_compose_up
-      when: vps_service_foundation_nutsnews_app_enabled | bool
-      changed_when: >-
-        'Created' in vps_service_foundation_nutsnews_app_compose_up.stdout
-        or 'Created' in vps_service_foundation_nutsnews_app_compose_up.stderr
-        or 'Recreated' in vps_service_foundation_nutsnews_app_compose_up.stdout
-        or 'Recreated' in vps_service_foundation_nutsnews_app_compose_up.stderr
-        or 'Started' in vps_service_foundation_nutsnews_app_compose_up.stdout
-        or 'Started' in vps_service_foundation_nutsnews_app_compose_up.stderr
-        or 'Pulling' in vps_service_foundation_nutsnews_app_compose_up.stdout
-        or 'Pulling' in vps_service_foundation_nutsnews_app_compose_up.stderr
+    - name: Render and apply selected NutsNews runtime environments
+      ansible.builtin.include_tasks: nutsnews_environment.yml
+      loop: "{{ vps_service_foundation_nutsnews_deployment_environments }}"
+      loop_control:
+        loop_var: nutsnews_environment_name
+        label: "{{ nutsnews_environment_name }}"
+      vars:
+        nutsnews_environment: "{{ vps_service_foundation_nutsnews_environments[nutsnews_environment_name] }}"
 
     - name: Verify local Caddy health endpoint
       block:
@@ -1349,106 +1226,14 @@
           changed_when: false
           when: vps_service_foundation_apply_metadata_enabled | bool
 
-        - name: Verify app container health when enabled
-          ansible.builtin.command:
-            argv:
-              - docker
-              - inspect
-              - --format
-              - "{{ '{{.State.Running}}|{{.State.Health.Status}}' }}"
-              - "{{ vps_service_foundation_nutsnews_app_container_name }}"
-          register: vps_service_foundation_nutsnews_app_healthcheck
-          changed_when: false
-          when: vps_service_foundation_nutsnews_app_enabled | bool
-          failed_when: false
-          retries: 36
-          delay: 5
-          until:
-            - vps_service_foundation_nutsnews_app_healthcheck.rc == 0
-            # Keep the immutable deployment guard marker while accepting Docker's lowercase output.
-            # True\|healthy
-            - vps_service_foundation_nutsnews_app_healthcheck.stdout is search('(?i)true\\|healthy')
-
-        - name: Define app route health URL for staged rollout checks
-          ansible.builtin.set_fact:
-            vps_service_foundation_nutsnews_app_route_health_url: >-
-              {{
-                "http://127.0.0.1:8080/"
-                ~ (vps_service_foundation_nutsnews_app_route_path | regex_replace("^/+|/+$", ""))
-                ~ "/"
-                ~ (vps_service_foundation_nutsnews_app_health_path | regex_replace("^/+|/+$", ""))
-              }}
-          when: vps_service_foundation_nutsnews_app_enabled | bool
-
-        - name: Assert enabled app container health
-          ansible.builtin.assert:
-            that:
-              - vps_service_foundation_nutsnews_app_healthcheck.rc == 0
-              - vps_service_foundation_nutsnews_app_healthcheck.stdout is search('(?i)true\|healthy')
-            fail_msg: >-
-              The enabled app container must be running with a healthy Docker
-              health check before any route or deployment can be accepted.
-          when: vps_service_foundation_nutsnews_app_enabled | bool
-
-        - name: Wait for app route health endpoint when app route is enabled
-          ansible.builtin.uri:
-            url: "{{ vps_service_foundation_nutsnews_app_route_health_url }}"
-            return_content: true
-            status_code: 200
-          register: vps_service_foundation_nutsnews_app_route_health
-          changed_when: false
-          retries: 10
-          delay: 3
-          until:
-            - vps_service_foundation_nutsnews_app_route_health.status == 200
-            - '"ok" in vps_service_foundation_nutsnews_app_route_health.content | lower'
-          when: >-
-            (vps_service_foundation_nutsnews_app_enabled | bool) and
-            (vps_service_foundation_nutsnews_app_staged_route_enabled | bool)
-
-        - name: Wait for public app health endpoint when public route is enabled
-          ansible.builtin.uri:
-            url: >-
-              https://{{ vps_service_foundation_nutsnews_app_public_domain }}{{ vps_service_foundation_nutsnews_app_health_path }}
-            return_content: true
-            status_code: 200
-          register: vps_service_foundation_nutsnews_app_public_route_health
-          changed_when: false
-          retries: 10
-          delay: 3
-          until:
-            - vps_service_foundation_nutsnews_app_public_route_health.status == 200
-            - '"ok" in vps_service_foundation_nutsnews_app_public_route_health.content | lower'
-          when: >-
-            (vps_service_foundation_nutsnews_app_enabled | bool) and
-            (vps_service_foundation_nutsnews_app_public_route_enabled | bool)
-
-        - name: Write verified app deployment metadata marker
-          ansible.builtin.copy:
-            dest: "{{ vps_service_foundation_nutsnews_app_apply_marker_file }}"
-            owner: root
-            group: root
-            mode: "0644"
-            content: |
-              {{
-                {
-                  'status': (vps_service_foundation_nutsnews_app_enabled | ternary('enabled', 'disabled')),
-                  'deployment_result': 'succeeded',
-                  'staged_route_enabled': (vps_service_foundation_nutsnews_app_staged_route_enabled | bool),
-                  'public_route_enabled': (vps_service_foundation_nutsnews_app_public_route_enabled | bool),
-                  'route_path': vps_service_foundation_nutsnews_app_route_path,
-                  'image_repo': vps_service_foundation_nutsnews_app_image_repo,
-                  'image_digest': vps_service_foundation_nutsnews_app_image_digest,
-                  'source_commit': vps_service_foundation_nutsnews_app_source_commit,
-                  'build_id': vps_service_foundation_nutsnews_app_build_id,
-                  'deployment_target': vps_service_foundation_nutsnews_app_deployment_target,
-                  'last_known_good_digest': vps_service_foundation_nutsnews_app_last_known_good_digest,
-                  'recorded_at': ansible_date_time.iso8601,
-                  'container_name': vps_service_foundation_nutsnews_app_container_name,
-                }
-                | to_nice_json
-              }}
-          when: vps_service_foundation_apply_metadata_enabled | bool
+        - name: Verify selected NutsNews runtime environment state
+          ansible.builtin.include_tasks: nutsnews_environment_apply_state.yml
+          loop: "{{ vps_service_foundation_nutsnews_deployment_environments }}"
+          loop_control:
+            loop_var: nutsnews_environment_name
+            label: "{{ nutsnews_environment_name }}"
+          vars:
+            nutsnews_environment: "{{ vps_service_foundation_nutsnews_environments[nutsnews_environment_name] }}"
 
         - name: Wait for local Caddy health endpoint
           ansible.builtin.uri:

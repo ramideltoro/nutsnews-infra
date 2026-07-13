@@ -1,0 +1,118 @@
+---
+- name: Render isolated NutsNews runtime fixtures
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  become: false
+  vars:
+    render_root: "{{ lookup('ansible.builtin.env', 'NUTSNEWS_RENDER_ROOT') }}"
+    staging_suffix: "{{ lookup('ansible.builtin.env', 'NUTSNEWS_STAGING_SUFFIX') | default('base', true) }}"
+    source_compose_file: "{{ playbook_dir }}/../../compose/nutsnews/compose.yml"
+    environments:
+      production:
+        name: production
+        enabled: true
+        project_name: nutsnews-app
+        app_dir: "{{ render_root }}/apps/nutsnews"
+        compose_file: "{{ render_root }}/apps/nutsnews/compose.yml"
+        env_file: "{{ render_root }}/etc/nutsnews-app.env"
+        state_dir: "{{ render_root }}/ops/apps/production"
+        release_manifest_file: "{{ render_root }}/ops/apps/production/release.json"
+        apply_marker_file: "{{ render_root }}/ops/last-app-apply.json"
+        last_known_good_state_file: "{{ render_root }}/ops/apps/production/last-known-good.json"
+        container_name: nutsnews-app
+        container_port: 3000
+        health_path: /healthz
+        image_repo: ghcr.io/ramideltoro/nutsnews
+        image_digest: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        image: "ghcr.io/ramideltoro/nutsnews@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        image_review_status: reviewed
+        source_commit: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        build_id: fixture-production
+        deployment_target: production-vps
+        last_known_good_digest: ""
+        staged_route_enabled: true
+        route_path: /app-stage
+        public_route_enabled: true
+        public_domain: vps.nutsnews.com
+        network_name: nutsnews-edge
+        network_alias: nutsnews-app
+        cache_volume_name: nutsnews-app-cache
+        envs: {}
+      staging:
+        name: staging
+        enabled: false
+        project_name: "nutsnews-staging-{{ staging_suffix }}"
+        app_dir: "{{ render_root }}/apps/nutsnews-staging-{{ staging_suffix }}"
+        compose_file: "{{ render_root }}/apps/nutsnews-staging-{{ staging_suffix }}/compose.yml"
+        env_file: "{{ render_root }}/etc/nutsnews-staging-{{ staging_suffix }}.env"
+        state_dir: "{{ render_root }}/ops/apps/staging-{{ staging_suffix }}"
+        release_manifest_file: "{{ render_root }}/ops/apps/staging-{{ staging_suffix }}/release.json"
+        apply_marker_file: "{{ render_root }}/ops/apps/staging-{{ staging_suffix }}/last-apply.json"
+        last_known_good_state_file: "{{ render_root }}/ops/apps/staging-{{ staging_suffix }}/last-known-good.json"
+        container_name: "nutsnews-app-staging-{{ staging_suffix }}"
+        container_port: 3000
+        health_path: /healthz
+        image_repo: ghcr.io/ramideltoro/nutsnews
+        image_digest: "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        image: "ghcr.io/ramideltoro/nutsnews@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        image_review_status: reviewed
+        source_commit: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        build_id: fixture-staging
+        deployment_target: staging-vps
+        last_known_good_digest: ""
+        staged_route_enabled: false
+        route_path: /app-stage
+        public_route_enabled: false
+        public_domain: ""
+        network_name: "nutsnews-edge-staging-{{ staging_suffix }}"
+        network_alias: "nutsnews-app-staging-{{ staging_suffix }}"
+        cache_volume_name: "nutsnews-app-staging-cache-{{ staging_suffix }}"
+        envs: {}
+  tasks:
+    - name: Create isolated fixture directories
+      ansible.builtin.file:
+        path: "{{ item.value.app_dir }}"
+        state: directory
+        mode: "0750"
+      loop: "{{ environments | dict2items }}"
+
+    - name: Create isolated fixture state directories
+      ansible.builtin.file:
+        path: "{{ item.value.state_dir }}"
+        state: directory
+        mode: "0750"
+      loop: "{{ environments | dict2items }}"
+
+    - name: Create isolated fixture environment directories
+      ansible.builtin.file:
+        path: "{{ item.value.env_file | dirname }}"
+        state: directory
+        mode: "0750"
+      loop: "{{ environments | dict2items }}"
+
+    - name: Render fixture Compose files
+      ansible.builtin.copy:
+        src: "{{ source_compose_file }}"
+        dest: "{{ item.value.compose_file }}"
+        mode: "0644"
+      loop: "{{ environments | dict2items }}"
+
+    - name: Render fixture environment files
+      ansible.builtin.template:
+        src: "{{ playbook_dir }}/../roles/vps_service_foundation/templates/nutsnews-app.env.j2"
+        dest: "{{ item.value.env_file }}"
+        mode: "0600"
+      vars:
+        nutsnews_environment: "{{ item.value }}"
+      loop: "{{ environments | dict2items }}"
+      no_log: true
+
+    - name: Render fixture release manifests
+      ansible.builtin.template:
+        src: "{{ playbook_dir }}/../roles/vps_service_foundation/templates/nutsnews-app-release.json.j2"
+        dest: "{{ item.value.release_manifest_file }}"
+        mode: "0644"
+      vars:
+        nutsnews_environment: "{{ item.value }}"
+      loop: "{{ environments | dict2items }}"

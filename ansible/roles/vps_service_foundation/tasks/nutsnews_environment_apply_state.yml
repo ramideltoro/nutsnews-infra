@@ -1,0 +1,97 @@
+---
+- name: Verify app container health when enabled for {{ nutsnews_environment.name }}
+  ansible.builtin.command:
+    argv:
+      - docker
+      - inspect
+      - --format
+      - "{{ '{{.State.Running}}|{{.State.Health.Status}}' }}"
+      - "{{ nutsnews_environment.container_name }}"
+  register: vps_service_foundation_nutsnews_environment_healthcheck
+  changed_when: false
+  when: nutsnews_environment.enabled | bool
+  failed_when: false
+  retries: 36
+  delay: 5
+  until:
+    - vps_service_foundation_nutsnews_environment_healthcheck.rc == 0
+    - vps_service_foundation_nutsnews_environment_healthcheck.stdout is search('(?i)true\\|healthy')
+
+- name: Assert app container health for {{ nutsnews_environment.name }}
+  ansible.builtin.assert:
+    that:
+      - vps_service_foundation_nutsnews_environment_healthcheck.rc == 0
+      - vps_service_foundation_nutsnews_environment_healthcheck.stdout is search('(?i)true\|healthy')
+    fail_msg: >-
+      The enabled {{ nutsnews_environment.name }} app container must be running
+      with a healthy Docker health check before deployment is accepted.
+  when: nutsnews_environment.enabled | bool
+
+- name: Define production app route health URL
+  ansible.builtin.set_fact:
+    vps_service_foundation_nutsnews_environment_route_health_url: >-
+      {{
+        "http://127.0.0.1:8080/"
+        ~ (nutsnews_environment.route_path | regex_replace("^/+|/+$", ""))
+        ~ "/"
+        ~ (nutsnews_environment.health_path | regex_replace("^/+|/+$", ""))
+      }}
+  when:
+    - nutsnews_environment.name == 'production'
+    - nutsnews_environment.enabled | bool
+    - nutsnews_environment.staged_route_enabled | bool
+
+- name: Wait for production app staged route health endpoint
+  ansible.builtin.uri:
+    url: "{{ vps_service_foundation_nutsnews_environment_route_health_url }}"
+    return_content: true
+    status_code: 200
+  register: vps_service_foundation_nutsnews_environment_route_health
+  changed_when: false
+  retries: 10
+  delay: 3
+  until:
+    - vps_service_foundation_nutsnews_environment_route_health.status == 200
+    - '"ok" in vps_service_foundation_nutsnews_environment_route_health.content | lower'
+  when:
+    - nutsnews_environment.name == 'production'
+    - nutsnews_environment.enabled | bool
+    - nutsnews_environment.staged_route_enabled | bool
+
+- name: Wait for production public app health endpoint
+  ansible.builtin.uri:
+    url: "https://{{ nutsnews_environment.public_domain }}{{ nutsnews_environment.health_path }}"
+    return_content: true
+    status_code: 200
+  register: vps_service_foundation_nutsnews_environment_public_route_health
+  changed_when: false
+  retries: 10
+  delay: 3
+  until:
+    - vps_service_foundation_nutsnews_environment_public_route_health.status == 200
+    - '"ok" in vps_service_foundation_nutsnews_environment_public_route_health.content | lower'
+  when:
+    - nutsnews_environment.name == 'production'
+    - nutsnews_environment.enabled | bool
+    - nutsnews_environment.public_route_enabled | bool
+
+- name: Record last-known-good runtime state for {{ nutsnews_environment.name }}
+  ansible.builtin.copy:
+    src: "{{ nutsnews_environment.release_manifest_file }}"
+    dest: "{{ nutsnews_environment.last_known_good_state_file }}"
+    owner: "{{ vps_service_foundation_nutsnews_app_runtime_owner }}"
+    group: "{{ vps_service_foundation_nutsnews_app_runtime_group }}"
+    mode: "0644"
+    remote_src: true
+  when:
+    - nutsnews_environment.enabled | bool
+    - not ansible_check_mode
+
+- name: Write verified deployment metadata marker for {{ nutsnews_environment.name }}
+  ansible.builtin.template:
+    src: nutsnews-app-apply.json.j2
+    dest: "{{ nutsnews_environment.apply_marker_file }}"
+    owner: "{{ vps_service_foundation_nutsnews_app_runtime_owner }}"
+    group: "{{ vps_service_foundation_nutsnews_app_runtime_group }}"
+    mode: "0644"
+  when: vps_service_foundation_apply_metadata_enabled | bool

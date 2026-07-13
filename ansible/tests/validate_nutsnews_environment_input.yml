@@ -1,0 +1,52 @@
+---
+- name: Reject mutable NutsNews runtime image input
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  become: false
+  vars:
+    test_environment_name: "{{ lookup('ansible.builtin.env', 'NUTSNEWS_TEST_ENVIRONMENT') }}"
+    vps_service_foundation_nutsnews_environment_names:
+      - production
+      - staging
+    vps_service_foundation_nutsnews_app_runtime_owner: "{{ lookup('ansible.builtin.env', 'USER') }}"
+    vps_service_foundation_nutsnews_app_runtime_group: root
+    nutsnews_environment:
+      name: "{{ test_environment_name }}"
+      enabled: false
+      project_name: "nutsnews-{{ test_environment_name }}"
+      app_dir: "/tmp/nutsnews-{{ test_environment_name }}"
+      compose_file: "/tmp/nutsnews-{{ test_environment_name }}/compose.yml"
+      source_compose_file: "{{ playbook_dir }}/../../compose/nutsnews/compose.yml"
+      env_file: "/tmp/nutsnews-{{ test_environment_name }}.env"
+      state_dir: "/tmp/nutsnews-state-{{ test_environment_name }}"
+      release_manifest_file: "/tmp/nutsnews-state-{{ test_environment_name }}/release.json"
+      apply_marker_file: "/tmp/nutsnews-state-{{ test_environment_name }}/apply.json"
+      last_known_good_state_file: "/tmp/nutsnews-state-{{ test_environment_name }}/last-known-good.json"
+      container_name: "nutsnews-app-{{ test_environment_name }}"
+      container_port: 3000
+      health_path: /healthz
+      image_repo: ghcr.io/ramideltoro/nutsnews
+      image_digest: latest
+      image: ghcr.io/ramideltoro/nutsnews:latest
+      image_review_status: reviewed
+      source_commit: ""
+      build_id: ""
+      deployment_target: "{{ test_environment_name }}-vps"
+      last_known_good_digest: ""
+      staged_route_enabled: false
+      route_path: /app-stage
+      public_route_enabled: false
+      public_domain: ""
+      network_name: "nutsnews-edge-{{ test_environment_name }}"
+      network_alias: "nutsnews-app-{{ test_environment_name }}"
+      cache_volume_name: "nutsnews-app-{{ test_environment_name }}-cache"
+      envs: {}
+      vercel_envs: {}
+      secret_env_keys: []
+      required_secrets: []
+  tasks:
+    - name: Include the invalid runtime input
+      ansible.builtin.include_role:
+        name: vps_service_foundation
+        tasks_from: nutsnews_environment.yml

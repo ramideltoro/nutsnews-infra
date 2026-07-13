@@ -1,0 +1,19 @@
+{{
+  {
+    'environment': nutsnews_environment.name,
+    'status': (nutsnews_environment.enabled | bool) | ternary('enabled', 'disabled'),
+    'deployment_result': 'succeeded',
+    'project_name': nutsnews_environment.project_name,
+    'image_repo': nutsnews_environment.image_repo,
+    'image_digest': nutsnews_environment.image_digest,
+    'image_review_status': nutsnews_environment.image_review_status,
+    'source_commit': nutsnews_environment.source_commit,
+    'build_id': nutsnews_environment.build_id,
+    'deployment_target': nutsnews_environment.deployment_target,
+    'last_known_good_digest': nutsnews_environment.last_known_good_digest,
+    'container_name': nutsnews_environment.container_name,
+    'network_name': nutsnews_environment.network_name,
+    'recorded_at': ansible_date_time.iso8601
+  }
+  | to_nice_json
+}}

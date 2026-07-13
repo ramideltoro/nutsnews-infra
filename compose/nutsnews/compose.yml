@@ -1,9 +1,9 @@
-name: nutsnews-app
+name: ${NUTSNEWS_APP_PROJECT_NAME:?NUTSNEWS_APP_PROJECT_NAME is required}
 
 services:
   nutsnews-app:
     image: ${NUTSNEWS_APP_IMAGE:?Set NUTSNEWS_APP_IMAGE to a reviewed ghcr.io/ramideltoro/nutsnews@sha256 digest reference}
-    container_name: ${NUTSNEWS_APP_CONTAINER_NAME:-nutsnews-app}
+    container_name: ${NUTSNEWS_APP_CONTAINER_NAME:?NUTSNEWS_APP_CONTAINER_NAME is required}
     restart: unless-stopped
     init: true
     security_opt:
@@ -11,11 +11,17 @@ services:
     cap_drop:
       - ALL
     env_file:
-      - ${NUTSNEWS_APP_ENV_FILE:-/dev/null}
+      - ${NUTSNEWS_APP_ENV_FILE:?NUTSNEWS_APP_ENV_FILE is required}
     networks:
-      - edge
+      environment:
+        aliases:
+          - ${NUTSNEWS_APP_NETWORK_ALIAS:?NUTSNEWS_APP_NETWORK_ALIAS is required}
     expose:
-      - ${NUTSNEWS_APP_CONTAINER_PORT:-3000}
+      - ${NUTSNEWS_APP_CONTAINER_PORT:?NUTSNEWS_APP_CONTAINER_PORT is required}
+    volumes:
+      - type: volume
+        source: app-cache
+        target: /tmp/nutsnews-cache
     mem_limit: 768m
     pids_limit: 256
     healthcheck:
@@ -24,7 +30,7 @@ services:
         - node
         - -e
         - >-
-          fetch('http://127.0.0.1:${NUTSNEWS_APP_CONTAINER_PORT:-3000}${NUTSNEWS_APP_HEALTH_PATH:-/healthz}')
+          fetch('http://127.0.0.1:${NUTSNEWS_APP_CONTAINER_PORT}${NUTSNEWS_APP_HEALTH_PATH:-/healthz}')
           .then((response) => { if (!response.ok) process.exit(1); })
           .catch(() => process.exit(1))
       interval: 30s
@@ -33,6 +39,10 @@ services:
       start_period: 15s
 
 networks:
-  edge:
-    name: nutsnews-edge
+  environment:
+    name: ${NUTSNEWS_APP_NETWORK_NAME:?NUTSNEWS_APP_NETWORK_NAME is required}
     external: true
+
+volumes:
+  app-cache:
+    name: ${NUTSNEWS_APP_CACHE_VOLUME_NAME:?NUTSNEWS_APP_CACHE_VOLUME_NAME is required}

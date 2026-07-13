@@ -1,0 +1,89 @@
+---
+- name: Validate default NutsNews runtime environment model
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  become: false
+  vars:
+    vps_service_foundation_nutsnews_app_enabled: true
+    vps_service_foundation_nutsnews_app_image_digest: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    vps_service_foundation_nutsnews_app_image_review_status: reviewed
+    vps_service_foundation_nutsnews_app_source_commit: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    vps_service_foundation_nutsnews_app_build_id: fixture-production
+  tasks:
+    - name: Load service-foundation default environment model
+      ansible.builtin.include_vars: ../roles/vps_service_foundation/defaults/main.yml
+
+    - name: Set reviewed production fixture inputs
+      ansible.builtin.set_fact:
+        vps_service_foundation_nutsnews_app_enabled: true
+        vps_service_foundation_nutsnews_app_image_digest: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        vps_service_foundation_nutsnews_app_image_review_status: reviewed
+        vps_service_foundation_nutsnews_app_source_commit: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        vps_service_foundation_nutsnews_app_build_id: fixture-production
+
+    - name: Assert default production runtime inputs
+      ansible.builtin.assert:
+        that:
+          - vps_service_foundation_nutsnews_environments.production.name == 'production'
+          - vps_service_foundation_nutsnews_environments.production.enabled | bool
+          - vps_service_foundation_nutsnews_environments.production.project_name == 'nutsnews-app'
+          - vps_service_foundation_nutsnews_environments.production.network_name == 'nutsnews-edge'
+          - >-
+            vps_service_foundation_nutsnews_environments.production.image
+            == (
+              vps_service_foundation_nutsnews_environments.production.image_repo
+              ~ '@' ~ vps_service_foundation_nutsnews_environments.production.image_digest
+            )
+          - vps_service_foundation_nutsnews_environments.production.image_review_status == 'reviewed'
+
+    - name: Assert default disabled staging runtime inputs
+      ansible.builtin.assert:
+        that:
+          - vps_service_foundation_nutsnews_environments.staging.name == 'staging'
+          - not (vps_service_foundation_nutsnews_environments.staging.enabled | bool)
+          - not (vps_service_foundation_nutsnews_environments.staging.staged_route_enabled | bool)
+          - not (vps_service_foundation_nutsnews_environments.staging.public_route_enabled | bool)
+          - >-
+            vps_service_foundation_nutsnews_environments.staging.network_name
+            != vps_service_foundation_nutsnews_environments.production.network_name
+
+    - name: Assert every isolated runtime identity is distinct by default
+      ansible.builtin.assert:
+        that:
+          - >-
+            vps_service_foundation_nutsnews_environments.production.project_name
+            != vps_service_foundation_nutsnews_environments.staging.project_name
+          - >-
+            vps_service_foundation_nutsnews_environments.production.app_dir
+            != vps_service_foundation_nutsnews_environments.staging.app_dir
+          - >-
+            vps_service_foundation_nutsnews_environments.production.compose_file
+            != vps_service_foundation_nutsnews_environments.staging.compose_file
+          - >-
+            vps_service_foundation_nutsnews_environments.production.env_file
+            != vps_service_foundation_nutsnews_environments.staging.env_file
+          - >-
+            vps_service_foundation_nutsnews_environments.production.state_dir
+            != vps_service_foundation_nutsnews_environments.staging.state_dir
+          - >-
+            vps_service_foundation_nutsnews_environments.production.release_manifest_file
+            != vps_service_foundation_nutsnews_environments.staging.release_manifest_file
+          - >-
+            vps_service_foundation_nutsnews_environments.production.apply_marker_file
+            != vps_service_foundation_nutsnews_environments.staging.apply_marker_file
+          - >-
+            vps_service_foundation_nutsnews_environments.production.last_known_good_state_file
+            != vps_service_foundation_nutsnews_environments.staging.last_known_good_state_file
+          - >-
+            vps_service_foundation_nutsnews_environments.production.container_name
+            != vps_service_foundation_nutsnews_environments.staging.container_name
+          - >-
+            vps_service_foundation_nutsnews_environments.production.network_name
+            != vps_service_foundation_nutsnews_environments.staging.network_name
+          - >-
+            vps_service_foundation_nutsnews_environments.production.network_alias
+            != vps_service_foundation_nutsnews_environments.staging.network_alias
+          - >-
+            vps_service_foundation_nutsnews_environments.production.cache_volume_name
+            != vps_service_foundation_nutsnews_environments.staging.cache_volume_name

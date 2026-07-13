@@ -1,14 +1,15 @@
-{% if vps_service_foundation_nutsnews_app_public_route_enabled | bool %}
+{% set nutsnews_environment = vps_service_foundation_nutsnews_environments.production %}
+{% if nutsnews_environment.public_route_enabled | bool %}
 handle {
   # Caddy preserves the original Host and sets X-Forwarded-For by default.
   # Keep application response/security headers intact and stream responses.
-  reverse_proxy {{ vps_service_foundation_nutsnews_app_container_name }}:{{ vps_service_foundation_nutsnews_app_container_port }} {
+  reverse_proxy {{ nutsnews_environment.network_alias }}:{{ nutsnews_environment.container_port }} {
     header_up Host {host}
     header_up X-Forwarded-Host {host}
     header_up X-Forwarded-Proto {scheme}
     header_up X-Real-IP {remote_host}
     flush_interval -1
-    health_uri {{ vps_service_foundation_nutsnews_app_health_path | default('/healthz') }}
+    health_uri {{ nutsnews_environment.health_path | default('/healthz') }}
   }
 }
 {% else %}

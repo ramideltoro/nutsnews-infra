@@ -1,0 +1,27 @@
+{{
+  {
+    'environment': nutsnews_environment.name,
+    'project_name': nutsnews_environment.project_name,
+    'app_dir': nutsnews_environment.app_dir,
+    'env_file': nutsnews_environment.env_file,
+    'state_dir': nutsnews_environment.state_dir,
+    'release_manifest_file': nutsnews_environment.release_manifest_file,
+    'apply_marker_file': nutsnews_environment.apply_marker_file,
+    'last_known_good_state_file': nutsnews_environment.last_known_good_state_file,
+    'container_name': nutsnews_environment.container_name,
+    'container_port': nutsnews_environment.container_port,
+    'image_repo': nutsnews_environment.image_repo,
+    'image_digest': nutsnews_environment.image_digest,
+    'image_review_status': nutsnews_environment.image_review_status,
+    'source_commit': nutsnews_environment.source_commit,
+    'build_id': nutsnews_environment.build_id,
+    'deployment_target': nutsnews_environment.deployment_target,
+    'last_known_good_digest': nutsnews_environment.last_known_good_digest,
+    'network_name': nutsnews_environment.network_name,
+    'network_alias': nutsnews_environment.network_alias,
+    'cache_volume_name': nutsnews_environment.cache_volume_name,
+    'staged_route_enabled': (nutsnews_environment.staged_route_enabled | bool),
+    'public_route_enabled': (nutsnews_environment.public_route_enabled | bool)
+  }
+  | to_nice_json
+}}
