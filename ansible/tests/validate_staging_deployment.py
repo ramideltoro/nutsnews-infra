@@ -14,6 +14,7 @@ REPO = ROOT.parent
 FIXTURES = ROOT / "tests/fixtures/staging_candidate"
 VALIDATOR = ROOT / "scripts/validate_staging_candidate.py"
 WRITE_VARS = ROOT / "scripts/write_staging_ansible_vars.py"
+GATEWAY = ROOT / "scripts/staging_gateway_request.py"
 WORKFLOW = REPO / ".github/workflows/nutsnews-staging-deploy.yml"
 PLAYBOOK = ROOT / "playbooks/deploy-staging.yml"
 INVENTORY = ROOT / "inventories/staging/hosts.yml"
@@ -30,12 +31,21 @@ spec.loader.exec_module(module)
 write_vars_spec = importlib.util.spec_from_file_location("write_staging_ansible_vars", WRITE_VARS)
 assert write_vars_spec and write_vars_spec.loader
 write_vars_module = importlib.util.module_from_spec(write_vars_spec)
+sys.modules[write_vars_spec.name] = write_vars_module
 write_vars_spec.loader.exec_module(write_vars_module)
 
+gateway_spec = importlib.util.spec_from_file_location("staging_gateway_request", GATEWAY)
+assert gateway_spec and gateway_spec.loader
+gateway_module = importlib.util.module_from_spec(gateway_spec)
+gateway_spec.loader.exec_module(gateway_module)
+
 minimal_staging_env = {
+    "AUTH_GOOGLE_ID": "staging-google-client-id-fixture",
+    "AUTH_GOOGLE_SECRET": "staging-google-client-secret-fixture",
     "AUTH_SECRET": "staging-auth-secret-fixture",
     "NEXTAUTH_URL": "https://staging.nutsnews.com",
     "NUTSNEWS_EMAIL_MODE": "disabled",
+    "NUTSNEWS_OAUTH_CREDENTIALS_ENV": "staging",
     "NUTSNEWS_PRODUCTION_SUPABASE_PROJECT_REF": "production-project-ref",
     "NUTSNEWS_PUBLIC_SUPABASE_ANON_KEY": "staging-anon-key-fixture",
     "NUTSNEWS_PUBLIC_SUPABASE_URL": "https://staging-project-ref.supabase.co",
@@ -47,10 +57,48 @@ minimal_staging_env = {
 }
 assert write_vars_module.parse_staging_envs(json.dumps(minimal_staging_env)) == minimal_staging_env
 assert write_vars_module.STAGING_SECRET_ENV_KEYS & minimal_staging_env.keys() == {
+    "AUTH_GOOGLE_SECRET",
     "AUTH_SECRET",
     "NUTSNEWS_PUBLIC_SUPABASE_ANON_KEY",
     "SUPABASE_SERVICE_ROLE_KEY",
 }
+
+base_staging_env = {
+    key: value
+    for key, value in minimal_staging_env.items()
+    if key not in {"AUTH_GOOGLE_ID", "AUTH_GOOGLE_SECRET", "NUTSNEWS_OAUTH_CREDENTIALS_ENV"}
+}
+oauth_overrides = gateway_module.protected_staging_oauth_overrides(
+    {
+        "NUTSNEWS_STAGING_AUTH_GOOGLE_ID": "staging-google-client-id-fixture",
+        "NUTSNEWS_STAGING_AUTH_GOOGLE_SECRET": "staging-google-client-secret-fixture",
+    }
+)
+assert (
+    write_vars_module.parse_staging_envs(json.dumps(base_staging_env), oauth_overrides)
+    == minimal_staging_env
+)
+stale_oauth_env = {
+    **base_staging_env,
+    "AUTH_GOOGLE_ID": "must-be-replaced",
+    "AUTH_GOOGLE_SECRET": "must-be-replaced",
+    "NUTSNEWS_OAUTH_CREDENTIALS_ENV": "production",
+}
+assert (
+    write_vars_module.parse_staging_envs(json.dumps(stale_oauth_env), oauth_overrides)
+    == minimal_staging_env
+)
+for incomplete_oauth in (
+    {},
+    {"NUTSNEWS_STAGING_AUTH_GOOGLE_ID": "staging-google-client-id-fixture"},
+    {"NUTSNEWS_STAGING_AUTH_GOOGLE_SECRET": "staging-google-client-secret-fixture"},
+):
+    try:
+        gateway_module.protected_staging_oauth_overrides(incomplete_oauth)
+    except module.CandidateError:
+        pass
+    else:
+        raise AssertionError("Incomplete protected staging OAuth credentials must fail closed.")
 
 
 def fixture(name: str) -> dict[str, str]:
@@ -200,6 +248,8 @@ for required in (
     "rehearse-staging-candidate",
     "cancel-in-progress: false",
     "environment: staging-vps",
+    "NUTSNEWS_STAGING_AUTH_GOOGLE_ID",
+    "NUTSNEWS_STAGING_AUTH_GOOGLE_SECRET",
     "Verify trusted source commit and OCI provenance",
     "ansible-playbook",
     "for operation in check apply",
@@ -216,6 +266,9 @@ assert "production-vps" not in workflow
 assert "nutsnews-production-release" not in workflow
 assert "group: nutsnews-staging-deploy" in workflow
 assert workflow.index("Verify trusted source commit and OCI provenance") < workflow.index("environment: staging-vps")
+preflight_workflow = workflow.split("deploy:", 1)[0]
+assert "NUTSNEWS_STAGING_AUTH_GOOGLE_ID" not in preflight_workflow
+assert "NUTSNEWS_STAGING_AUTH_GOOGLE_SECRET" not in preflight_workflow
 
 for required in (
     "hosts: nutsnews_staging_vps",
