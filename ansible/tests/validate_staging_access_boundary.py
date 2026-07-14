@@ -51,6 +51,9 @@ assert disabled == base, "Disabled staging access must render the production Cad
 assert enabled.count("staging.nutsnews.com {") == 1
 assert "admin off" in enabled
 assert "forward_auth nutsnews-staging-access:8091" in enabled
+assert "uri /verify?" in enabled, "The verifier subrequest must discard OAuth callback query material."
+assert "uri /verify\n" not in enabled, "The verifier must not receive the original request query."
+assert "request>uri delete" in enabled, "Staging access logs must omit query-bearing request URIs."
 assert "reverse_proxy nutsnews-app-staging:3000" in enabled
 assert 'X-Robots-Tag "noindex, nofollow, noarchive, nosnippet"' in enabled
 assert enabled.replace(enabled[enabled.index("staging.nutsnews.com {") : enabled.index("ops.nutsnews.com {")], "") == base
@@ -155,6 +158,8 @@ for boundary_check in (
     "access_verifier_healthy",
 ):
     assert boundary_check in forced_command and boundary_check in workflow
+assert '"uri /verify?" in caddy_text' in forced_command
+assert '"request>uri delete" in caddy_text' in forced_command
 assert "TEST_USER" in write_vars and "staging-tests" in write_vars
 assert "NUTSNEWS_PRODUCTION_SUPABASE_PROJECT_REF" in write_vars
 

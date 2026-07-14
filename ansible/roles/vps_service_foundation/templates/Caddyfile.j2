@@ -43,7 +43,10 @@ staging.nutsnews.com {
 
   log {
     output stdout
-    format json
+    format filter {
+      request>uri delete
+      wrap json
+    }
   }
 
   header {
@@ -56,7 +59,7 @@ staging.nutsnews.com {
   }
 
   forward_auth nutsnews-staging-access:8091 {
-    uri /verify
+    uri /verify?
   }
 
   reverse_proxy nutsnews-app-staging:3000
