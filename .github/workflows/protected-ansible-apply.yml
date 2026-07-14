@@ -45,6 +45,14 @@ on:
         options:
           - "false"
           - "true"
+      enable_staging_access:
+        description: Materialize the reviewed staging hostname and origin Access boundary.
+        required: true
+        default: "false"
+        type: choice
+        options:
+          - "false"
+          - "true"
       release_source_commit:
         description: Optional verified app source commit for an automated release.
         required: false
@@ -197,6 +205,10 @@ jobs:
           NUTSNEWS_VERCEL_TEAM_ID: ${{ secrets.NUTSNEWS_VERCEL_TEAM_ID }}
           ENABLE_CLOUDFLARE_DDNS: ${{ inputs.enable_cloudflare_ddns }}
           ENABLE_GRAFANA_ALLOY: ${{ inputs.enable_grafana_alloy }}
+          ENABLE_STAGING_ACCESS: ${{ inputs.enable_staging_access }}
+          NUTSNEWS_STAGING_ACCESS_TEAM_DOMAIN: ${{ secrets.NUTSNEWS_STAGING_ACCESS_TEAM_DOMAIN }}
+          NUTSNEWS_STAGING_ACCESS_AUDIENCE: ${{ secrets.NUTSNEWS_STAGING_ACCESS_AUDIENCE }}
+          NUTSNEWS_STAGING_DEPLOY_PUBLIC_KEY: ${{ secrets.NUTSNEWS_STAGING_DEPLOY_PUBLIC_KEY }}
           SYNC_VERCEL_PRODUCTION: ${{ inputs.sync_vercel_production }}
         run: |
           set -euo pipefail
@@ -225,6 +237,19 @@ jobs:
               NUTSNEWS_GRAFANA_CLOUD_LOGS_URL \
               NUTSNEWS_GRAFANA_CLOUD_LOGS_USERNAME \
               NUTSNEWS_GRAFANA_CLOUD_ACCESS_POLICY_TOKEN
+            do
+              if [[ -z "${!secret_name}" ]]; then
+                echo "Missing required production-vps environment secret: $secret_name" >&2
+                missing=1
+              fi
+            done
+          fi
+
+          if [[ "$ENABLE_STAGING_ACCESS" == "true" ]]; then
+            for secret_name in \
+              NUTSNEWS_STAGING_ACCESS_TEAM_DOMAIN \
+              NUTSNEWS_STAGING_ACCESS_AUDIENCE \
+              NUTSNEWS_STAGING_DEPLOY_PUBLIC_KEY
             do
               if [[ -z "${!secret_name}" ]]; then
                 echo "Missing required production-vps environment secret: $secret_name" >&2
@@ -361,6 +386,10 @@ jobs:
           NUTSNEWS_GITHUB_USAGE_API_TOKEN: ${{ secrets.NUTSNEWS_GITHUB_USAGE_API_TOKEN }}
           NUTSNEWS_GITHUB_ACTIONS_USAGE_API_URL: ${{ secrets.NUTSNEWS_GITHUB_ACTIONS_USAGE_API_URL }}
           ENABLE_GRAFANA_ALLOY: ${{ inputs.enable_grafana_alloy }}
+          ENABLE_STAGING_ACCESS: ${{ inputs.enable_staging_access }}
+          NUTSNEWS_STAGING_ACCESS_TEAM_DOMAIN: ${{ secrets.NUTSNEWS_STAGING_ACCESS_TEAM_DOMAIN }}
+          NUTSNEWS_STAGING_ACCESS_AUDIENCE: ${{ secrets.NUTSNEWS_STAGING_ACCESS_AUDIENCE }}
+          NUTSNEWS_STAGING_DEPLOY_PUBLIC_KEY: ${{ secrets.NUTSNEWS_STAGING_DEPLOY_PUBLIC_KEY }}
           SYNC_VERCEL_PRODUCTION: ${{ inputs.sync_vercel_production }}
           NUTSNEWS_VERCEL_SYNC_ENVS_FILE: ${{ runner.temp }}/vercel-selected.json
           RUN_MODE: ${{ inputs.run_mode }}
@@ -522,6 +551,18 @@ jobs:
                   if not os.environ[name].strip().startswith("https://"):
                       raise SystemExit(f"{name} must start with https://.")
 
+          staging_access_enabled = truthy("ENABLE_STAGING_ACCESS")
+          staging_access_team_domain = os.environ.get("NUTSNEWS_STAGING_ACCESS_TEAM_DOMAIN", "").strip()
+          staging_access_audience = os.environ.get("NUTSNEWS_STAGING_ACCESS_AUDIENCE", "").strip()
+          staging_deploy_public_key = os.environ.get("NUTSNEWS_STAGING_DEPLOY_PUBLIC_KEY", "").strip()
+          if staging_access_enabled and (
+              not staging_access_team_domain or not staging_access_audience or not staging_deploy_public_key
+          ):
+              raise SystemExit(
+                  "Staging access requires NUTSNEWS_STAGING_ACCESS_TEAM_DOMAIN and "
+                  "NUTSNEWS_STAGING_ACCESS_AUDIENCE."
+              )
+
           repository = os.environ["GITHUB_REPOSITORY"]
           run_url = (
               f"{os.environ['GITHUB_SERVER_URL']}/{repository}"
@@ -639,6 +680,10 @@ jobs:
                   "NUTSNEWS_GRAFANA_CLOUD_ACCESS_POLICY_TOKEN",
                   "",
               ),
+              "vps_service_foundation_nutsnews_staging_access_enabled": staging_access_enabled,
+              "vps_service_foundation_nutsnews_staging_access_team_domain": staging_access_team_domain,
+              "vps_service_foundation_nutsnews_staging_access_audience": staging_access_audience,
+              "vps_service_foundation_nutsnews_staging_deploy_public_key": staging_deploy_public_key,
               "vps_service_foundation_apply_context": {
                   "status": "apply_started",
                   "repository": repository,

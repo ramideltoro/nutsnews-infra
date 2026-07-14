@@ -1,0 +1,42 @@
+name: nutsnews-staging-access
+
+services:
+  access-verifier:
+    image: python:3.13-alpine
+    container_name: nutsnews-staging-access-verifier
+    restart: unless-stopped
+    read_only: true
+    init: true
+    command: ["python", "/opt/nutsnews/staging-access/jwt_gateway.py"]
+    env_file:
+      - ${NUTSNEWS_STAGING_ACCESS_ENV_FILE:?NUTSNEWS_STAGING_ACCESS_ENV_FILE is required}
+    volumes:
+      - /opt/nutsnews/staging-access/jwt_gateway.py:/opt/nutsnews/staging-access/jwt_gateway.py:ro
+    tmpfs:
+      - /tmp:size=8m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 64m
+    pids_limit: 64
+    logging:
+      driver: json-file
+      options:
+        max-size: 5m
+        max-file: "2"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8091/healthz >/dev/null"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    networks:
+      staging:
+        aliases:
+          - nutsnews-staging-access
+
+networks:
+  staging:
+    name: nutsnews-edge-staging
+    external: true

@@ -19,6 +19,24 @@
       until apply mode creates them.
   when: ansible_check_mode
 
+- name: Validate opt-in staging access boundary inputs
+  ansible.builtin.assert:
+    that:
+      - vps_service_foundation_nutsnews_staging_access_domain == 'staging.nutsnews.com'
+      - vps_service_foundation_nutsnews_staging_access_team_domain is match('^[a-z0-9-]+\\.cloudflareaccess\\.com$')
+      - vps_service_foundation_nutsnews_staging_access_audience is match('^[A-Za-z0-9_-]{20,128}$')
+      - vps_service_foundation_nutsnews_staging_deploy_public_key is match('^(ssh-ed25519|ecdsa-sha2-nistp256) [A-Za-z0-9+/=]+(?: .*)?$')
+      - vps_service_foundation_deployed_infra_commit is match('^[0-9a-f]{40}$')
+      - vps_service_foundation_nutsnews_environments.staging.project_name == 'nutsnews-staging'
+      - vps_service_foundation_nutsnews_environments.staging.network_name == 'nutsnews-edge-staging'
+      - vps_service_foundation_nutsnews_environments.staging.network_alias == 'nutsnews-app-staging'
+    fail_msg: >-
+      Staging access is opt-in and requires the exact staging hostname, a
+      Cloudflare Access team domain and audience, and the reviewed isolated
+      staging runtime identities.
+  when: vps_service_foundation_nutsnews_staging_access_enabled | bool
+  no_log: true
+
 - name: Manage zram fallback configuration
   when: vps_service_foundation_zram_enabled | bool
   block:
@@ -219,9 +237,9 @@
         mode: "0644"
       register: vps_service_foundation_caddy_dockerfile_install
 
-    - name: Install Caddy placeholder config
-      ansible.builtin.copy:
-        src: "{{ vps_service_foundation_source_caddyfile }}"
+    - name: Install Caddy configuration
+      ansible.builtin.template:
+        src: Caddyfile.j2
         dest: "{{ vps_service_foundation_caddy_config_dir }}/Caddyfile"
         owner: root
         group: root
@@ -1175,6 +1193,10 @@
         or 'Started' in vps_service_foundation_compose_up.stderr
         or 'Pulling' in vps_service_foundation_compose_up.stdout
         or 'Pulling' in vps_service_foundation_compose_up.stderr
+
+    - name: Materialize the opt-in staging access boundary
+      ansible.builtin.include_tasks: staging_access.yml
+      when: vps_service_foundation_nutsnews_staging_access_enabled | bool
 
     - name: Render and apply selected NutsNews runtime environments
       ansible.builtin.include_tasks: nutsnews_environment.yml

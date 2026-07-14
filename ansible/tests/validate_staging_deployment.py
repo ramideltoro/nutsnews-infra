@@ -174,8 +174,10 @@ for required in (
     "environment: staging-vps",
     "Verify trusted source commit and OCI provenance",
     "ansible-playbook",
-    "--check",
-    "verify_staging_runtime.py",
+    "for operation in check apply",
+    "staging_gateway_request.py",
+    "nutsnews_staging_deploy@65.75.202.112",
+    "Prove the deployment key rejects arbitrary commands",
     "staging_deployment_audit.py",
     "always() && !cancelled()",
 ):

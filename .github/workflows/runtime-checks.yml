@@ -72,6 +72,7 @@ jobs:
           fi
 
           export NUTSNEWS_OPS_PORTAL_AUTH_ENV_FILE="$RUNNER_TEMP/ops-portal-auth.env"
+          export NUTSNEWS_STAGING_ACCESS_ENV_FILE=/dev/null
           NUTSNEWS_APP_IMAGE="ghcr.io/ramideltoro/nutsnews@sha256:$(printf '0%.0s' {1..64})"
           export NUTSNEWS_APP_IMAGE
           export NUTSNEWS_APP_PROJECT_NAME=nutsnews-app

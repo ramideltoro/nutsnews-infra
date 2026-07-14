@@ -1,0 +1,131 @@
+{
+  admin off
+}
+
+vps.nutsnews.com {
+  encode zstd gzip
+  import /etc/nutsnews/caddy/rate-limits
+
+  log {
+    output stdout
+    format json
+  }
+
+  handle /health {
+    header {
+      X-Content-Type-Options nosniff
+      Referrer-Policy no-referrer
+      X-Frame-Options DENY
+      Permissions-Policy "camera=(), microphone=(), geolocation=()"
+      Content-Security-Policy "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'"
+    }
+    reverse_proxy host.docker.internal:18080
+  }
+
+  import /etc/nutsnews/caddy/app.public.routes
+
+  handle {
+    header {
+      X-Content-Type-Options nosniff
+      Referrer-Policy no-referrer
+      X-Frame-Options DENY
+      Permissions-Policy "camera=(), microphone=(), geolocation=()"
+      Content-Security-Policy "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'"
+    }
+    respond 404
+  }
+}
+{% if vps_service_foundation_nutsnews_staging_access_enabled | bool %}
+
+staging.nutsnews.com {
+  encode zstd gzip
+  import /etc/nutsnews/caddy/rate-limits
+
+  log {
+    output stdout
+    format json
+  }
+
+  header {
+    X-Content-Type-Options nosniff
+    Referrer-Policy no-referrer
+    X-Frame-Options SAMEORIGIN
+    Permissions-Policy "camera=(), microphone=(), geolocation=()"
+    X-Robots-Tag "noindex, nofollow, noarchive, nosnippet"
+    Cache-Control "private, no-store, max-age=0"
+  }
+
+  forward_auth nutsnews-staging-access:8091 {
+    uri /verify
+  }
+
+  reverse_proxy nutsnews-app-staging:3000
+}
+{% endif %}
+
+ops.nutsnews.com {
+  encode zstd gzip
+  import /etc/nutsnews/caddy/rate-limits
+
+  log {
+    output stdout
+    format json
+  }
+
+  header {
+    X-Content-Type-Options nosniff
+    Referrer-Policy no-referrer
+    X-Frame-Options DENY
+    Permissions-Policy "camera=(), microphone=(), geolocation=()"
+    Content-Security-Policy "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+  }
+
+  handle /healthz {
+    respond "ok" 200
+  }
+
+  handle /api/auth/* {
+    reverse_proxy ops-auth:8090
+  }
+
+  handle {
+    reverse_proxy ops-auth:8090
+  }
+}
+
+:8080 {
+  bind 0.0.0.0
+  encode zstd gzip
+  import /etc/nutsnews/caddy/rate-limits
+
+  log {
+    output stdout
+    format json
+  }
+
+  header {
+    X-Content-Type-Options nosniff
+    Referrer-Policy no-referrer
+    X-Frame-Options DENY
+    Permissions-Policy "camera=(), microphone=(), geolocation=()"
+    Content-Security-Policy "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+  }
+
+  handle /healthz {
+    respond "ok" 200
+  }
+
+  handle /health {
+    reverse_proxy host.docker.internal:18080
+  }
+
+  handle /api/auth/* {
+    reverse_proxy ops-auth:8090
+  }
+
+  import /etc/nutsnews/caddy/app.routes
+
+  handle {
+    reverse_proxy ops-auth:8090
+  }
+}

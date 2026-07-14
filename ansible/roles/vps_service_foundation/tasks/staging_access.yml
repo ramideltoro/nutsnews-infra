@@ -1,0 +1,231 @@
+---
+- name: Install local staging deployment runtime
+  ansible.builtin.apt:
+    name:
+      - ansible-core
+    state: present
+
+- name: Create dedicated staging deployment identity
+  ansible.builtin.user:
+    name: "{{ vps_service_foundation_nutsnews_staging_deploy_user }}"
+    system: true
+    create_home: true
+    shell: /bin/sh
+    password_lock: true
+    state: present
+
+- name: Create restricted staging deployment SSH directory
+  ansible.builtin.file:
+    path: "/home/{{ vps_service_foundation_nutsnews_staging_deploy_user }}/.ssh"
+    state: directory
+    owner: "{{ vps_service_foundation_nutsnews_staging_deploy_user }}"
+    group: "{{ vps_service_foundation_nutsnews_staging_deploy_user }}"
+    mode: "0700"
+
+- name: Install fixed-purpose staging deployment key
+  ansible.builtin.copy:
+    dest: "/home/{{ vps_service_foundation_nutsnews_staging_deploy_user }}/.ssh/authorized_keys"
+    owner: "{{ vps_service_foundation_nutsnews_staging_deploy_user }}"
+    group: "{{ vps_service_foundation_nutsnews_staging_deploy_user }}"
+    mode: "0600"
+    content: >-
+      command="sudo -n {{ vps_service_foundation_nutsnews_staging_forced_command }}",restrict
+      {{ vps_service_foundation_nutsnews_staging_deploy_public_key | trim }}
+  no_log: true
+
+- name: Install root-owned forced staging deployment command
+  ansible.builtin.copy:
+    src: "{{ vps_service_foundation_source_staging_forced_command }}"
+    dest: "{{ vps_service_foundation_nutsnews_staging_forced_command }}"
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Restrict staging identity sudo to the forced command
+  ansible.builtin.copy:
+    dest: "{{ vps_service_foundation_nutsnews_staging_sudoers_file }}"
+    owner: root
+    group: root
+    mode: "0440"
+    validate: /usr/sbin/visudo -cf %s
+    content: >-
+      {{ vps_service_foundation_nutsnews_staging_deploy_user }} ALL=(root)
+      NOPASSWD: {{ vps_service_foundation_nutsnews_staging_forced_command }}
+
+- name: Create root-owned staging deployment bundle layout
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  loop:
+    - "{{ vps_service_foundation_nutsnews_staging_deploy_bundle_dir }}"
+    - "{{ vps_service_foundation_nutsnews_staging_deploy_bundle_dir }}/ansible"
+    - "{{ vps_service_foundation_nutsnews_staging_deploy_bundle_dir }}/ansible/inventories"
+    - "{{ vps_service_foundation_nutsnews_staging_deploy_bundle_dir }}/ansible/playbooks"
+    - "{{ vps_service_foundation_nutsnews_staging_deploy_bundle_dir }}/ansible/roles"
+    - "{{ vps_service_foundation_nutsnews_staging_deploy_bundle_dir }}/ansible/scripts"
+    - "{{ vps_service_foundation_nutsnews_staging_deploy_bundle_dir }}/compose"
+
+- name: Install reviewed staging deployment bundle directories
+  ansible.builtin.copy:
+    src: "{{ item.src }}"
+    dest: "{{ item.dest }}"
+    owner: root
+    group: root
+    mode: preserve
+  loop:
+    - src: "{{ vps_service_foundation_repo_root }}/ansible/inventories/staging"
+      dest: "{{ vps_service_foundation_nutsnews_staging_deploy_bundle_dir }}/ansible/inventories/"
+    - src: "{{ vps_service_foundation_repo_root }}/ansible/roles/vps_service_foundation"
+      dest: "{{ vps_service_foundation_nutsnews_staging_deploy_bundle_dir }}/ansible/roles/"
+    - src: "{{ vps_service_foundation_repo_root }}/ansible/scripts"
+      dest: "{{ vps_service_foundation_nutsnews_staging_deploy_bundle_dir }}/ansible/"
+    - src: "{{ vps_service_foundation_repo_root }}/compose/nutsnews"
+      dest: "{{ vps_service_foundation_nutsnews_staging_deploy_bundle_dir }}/compose/"
+  no_log: true
+
+- name: Install reviewed staging deployment playbook
+  ansible.builtin.copy:
+    src: "{{ vps_service_foundation_repo_root }}/ansible/playbooks/deploy-staging.yml"
+    dest: "{{ vps_service_foundation_nutsnews_staging_deploy_bundle_dir }}/ansible/playbooks/deploy-staging.yml"
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Bind staging deployment bundle to the reviewed infrastructure commit
+  ansible.builtin.copy:
+    dest: "{{ vps_service_foundation_nutsnews_staging_deploy_bundle_dir }}/infra-commit"
+    owner: root
+    group: root
+    mode: "0644"
+    content: "{{ vps_service_foundation_deployed_infra_commit }}\n"
+
+- name: Create staging access runtime directory
+  ansible.builtin.file:
+    path: "{{ vps_service_foundation_nutsnews_staging_access_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0750"
+
+- name: Ensure isolated staging network exists for the access boundary
+  ansible.builtin.command:
+    argv:
+      - docker
+      - network
+      - create
+      - --label
+      - com.nutsnews.runtime=staging
+      - nutsnews-edge-staging
+  register: vps_service_foundation_staging_access_network_create
+  changed_when: vps_service_foundation_staging_access_network_create.rc == 0
+  failed_when:
+    - vps_service_foundation_staging_access_network_create.rc != 0
+    - "'already exists' not in (vps_service_foundation_staging_access_network_create.stderr | lower)"
+
+- name: Install staging access Compose definition
+  ansible.builtin.copy:
+    src: "{{ vps_service_foundation_source_staging_access_compose_file }}"
+    dest: "{{ vps_service_foundation_nutsnews_staging_access_compose_file }}"
+    owner: root
+    group: root
+    mode: "0644"
+  register: vps_service_foundation_staging_access_compose_install
+
+- name: Install staging Access JWT verifier
+  ansible.builtin.copy:
+    src: "{{ vps_service_foundation_source_staging_access_gateway_file }}"
+    dest: "{{ vps_service_foundation_nutsnews_staging_access_gateway_file }}"
+    owner: root
+    group: root
+    mode: "0755"
+  register: vps_service_foundation_staging_access_gateway_install
+
+- name: Render root-only staging access environment
+  ansible.builtin.template:
+    src: nutsnews-staging-access.env.j2
+    dest: "{{ vps_service_foundation_nutsnews_staging_access_env_file }}"
+    owner: root
+    group: root
+    mode: "0600"
+  register: vps_service_foundation_staging_access_env_install
+  no_log: true
+
+- name: Validate staging access Compose configuration
+  ansible.builtin.command:
+    argv:
+      - docker
+      - compose
+      - --project-name
+      - "{{ vps_service_foundation_nutsnews_staging_access_project }}"
+      - --project-directory
+      - "{{ vps_service_foundation_nutsnews_staging_access_dir }}"
+      - --env-file
+      - "{{ vps_service_foundation_nutsnews_staging_access_env_file }}"
+      - -f
+      - "{{ vps_service_foundation_nutsnews_staging_access_compose_file }}"
+      - config
+      - --quiet
+  changed_when: false
+
+- name: Start isolated staging access verifier
+  ansible.builtin.command:
+    argv:
+      - docker
+      - compose
+      - --project-name
+      - "{{ vps_service_foundation_nutsnews_staging_access_project }}"
+      - --project-directory
+      - "{{ vps_service_foundation_nutsnews_staging_access_dir }}"
+      - --env-file
+      - "{{ vps_service_foundation_nutsnews_staging_access_env_file }}"
+      - -f
+      - "{{ vps_service_foundation_nutsnews_staging_access_compose_file }}"
+      - up
+      - -d
+      - --remove-orphans
+  register: vps_service_foundation_staging_access_compose_up
+  changed_when: >-
+    'Created' in vps_service_foundation_staging_access_compose_up.stdout
+    or 'Created' in vps_service_foundation_staging_access_compose_up.stderr
+    or 'Recreated' in vps_service_foundation_staging_access_compose_up.stdout
+    or 'Recreated' in vps_service_foundation_staging_access_compose_up.stderr
+    or 'Started' in vps_service_foundation_staging_access_compose_up.stdout
+    or 'Started' in vps_service_foundation_staging_access_compose_up.stderr
+
+- name: Inspect staging network membership
+  ansible.builtin.command:
+    argv:
+      - docker
+      - network
+      - inspect
+      - --format
+      - "{{ '{{json .Containers}}' }}"
+      - nutsnews-edge-staging
+  register: vps_service_foundation_staging_access_network_members
+  changed_when: false
+
+- name: Connect Caddy only to the isolated staging network
+  ansible.builtin.command:
+    argv:
+      - docker
+      - network
+      - connect
+      - nutsnews-edge-staging
+      - nutsnews-caddy
+  when: "'nutsnews-caddy' not in vps_service_foundation_staging_access_network_members.stdout"
+  changed_when: true
+
+- name: Reload Caddy after staging access becomes reachable
+  ansible.builtin.command:
+    argv:
+      - docker
+      - exec
+      - nutsnews-caddy
+      - caddy
+      - reload
+      - --config
+      - /etc/caddy/Caddyfile
+  changed_when: true

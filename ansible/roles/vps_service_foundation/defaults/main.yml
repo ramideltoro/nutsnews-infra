@@ -816,7 +816,23 @@ vps_service_foundation_nutsnews_staging_schema_version: ""
 vps_service_foundation_nutsnews_staging_deployment_id: ""
 vps_service_foundation_nutsnews_staging_config_generation: ""
 vps_service_foundation_nutsnews_staging_app_envs: {}
+vps_service_foundation_nutsnews_staging_secret_env_keys: []
+vps_service_foundation_nutsnews_staging_required_secrets: []
 vps_service_foundation_nutsnews_staging_mutation_lock: /var/lock/nutsnews-staging-deploy.lock
+vps_service_foundation_nutsnews_staging_access_enabled: false
+vps_service_foundation_nutsnews_staging_access_domain: staging.nutsnews.com
+vps_service_foundation_nutsnews_staging_access_team_domain: ""
+vps_service_foundation_nutsnews_staging_access_audience: ""
+vps_service_foundation_nutsnews_staging_access_dir: "{{ vps_service_foundation_root }}/staging-access"
+vps_service_foundation_nutsnews_staging_access_compose_file: "{{ vps_service_foundation_nutsnews_staging_access_dir }}/compose.yml"
+vps_service_foundation_nutsnews_staging_access_gateway_file: "{{ vps_service_foundation_nutsnews_staging_access_dir }}/jwt_gateway.py"
+vps_service_foundation_nutsnews_staging_access_env_file: "{{ vps_service_foundation_private_config_dir }}/nutsnews-staging-access.env"
+vps_service_foundation_nutsnews_staging_access_project: nutsnews-staging-access
+vps_service_foundation_nutsnews_staging_deploy_user: nutsnews_staging_deploy
+vps_service_foundation_nutsnews_staging_deploy_public_key: ""
+vps_service_foundation_nutsnews_staging_deploy_bundle_dir: "{{ vps_service_foundation_root }}/staging-deploy-bundle"
+vps_service_foundation_nutsnews_staging_forced_command: /usr/local/sbin/nutsnews-staging-forced-deploy
+vps_service_foundation_nutsnews_staging_sudoers_file: /etc/sudoers.d/nutsnews-staging-deploy
 vps_service_foundation_nutsnews_environments:
   production:
     name: production
@@ -927,13 +943,16 @@ vps_service_foundation_nutsnews_environments:
           )
       }}
     vercel_envs: {}
-    secret_env_keys: []
-    required_secrets: []
+    secret_env_keys: "{{ vps_service_foundation_nutsnews_staging_secret_env_keys }}"
+    required_secrets: "{{ vps_service_foundation_nutsnews_staging_required_secrets }}"
 
 vps_service_foundation_repo_root: "{{ playbook_dir }}/../.."
 vps_service_foundation_source_compose_file: "{{ vps_service_foundation_repo_root }}/compose/caddy/compose.yml"
 vps_service_foundation_source_caddy_dockerfile: "{{ vps_service_foundation_repo_root }}/compose/caddy/Dockerfile"
 vps_service_foundation_source_caddyfile: "{{ vps_service_foundation_repo_root }}/compose/caddy/Caddyfile"
+vps_service_foundation_source_staging_access_compose_file: "{{ vps_service_foundation_repo_root }}/compose/staging-access/compose.yml"
+vps_service_foundation_source_staging_access_gateway_file: "{{ vps_service_foundation_repo_root }}/staging-access/jwt_gateway.py"
+vps_service_foundation_source_staging_forced_command: "{{ vps_service_foundation_repo_root }}/ansible/scripts/staging_forced_deploy.py"
 vps_service_foundation_source_health_index: "{{ vps_service_foundation_repo_root }}/compose/health/index.html"
 vps_service_foundation_source_portal_auth_gateway: "{{ vps_service_foundation_repo_root }}/portal/auth_gateway.py"
 vps_service_foundation_source_portal_index: "{{ vps_service_foundation_repo_root }}/portal/index.html"

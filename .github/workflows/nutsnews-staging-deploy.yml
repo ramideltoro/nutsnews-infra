@@ -104,7 +104,7 @@ jobs:
     environment: staging-vps
     permissions:
       contents: read
-      deployments: write
+      deployments: write  # Required to record sanitized staging Deployment status.
 
     steps:
       - name: Checkout reviewed staging automation
@@ -135,7 +135,7 @@ jobs:
           python3 ansible/tests/validate_staging_deployment.py
           git diff --check
 
-      - name: Install Ansible and collections
+      - name: Validate staging Ansible syntax offline
         shell: bash
         run: |
           set -euo pipefail
@@ -152,12 +152,14 @@ jobs:
         env:
           NUTSNEWS_STAGING_VPS_SSH_PRIVATE_KEY: ${{ secrets.NUTSNEWS_STAGING_VPS_SSH_PRIVATE_KEY }}
           NUTSNEWS_STAGING_VPS_KNOWN_HOSTS: ${{ secrets.NUTSNEWS_STAGING_VPS_KNOWN_HOSTS }}
+          NUTSNEWS_STAGING_APP_ENVS_JSON: ${{ secrets.NUTSNEWS_STAGING_APP_ENVS_JSON }}
         run: |
           set -euo pipefail
           missing=0
           for secret_name in \
             NUTSNEWS_STAGING_VPS_SSH_PRIVATE_KEY \
-            NUTSNEWS_STAGING_VPS_KNOWN_HOSTS
+            NUTSNEWS_STAGING_VPS_KNOWN_HOSTS \
+            NUTSNEWS_STAGING_APP_ENVS_JSON
           do
             if [[ -z "${!secret_name}" ]]; then
               echo "Missing required staging-vps environment secret: ${secret_name}" >&2
@@ -181,34 +183,61 @@ jobs:
           ssh-keygen -y -f "$HOME/.ssh/nutsnews_staging_vps" > /dev/null
           ssh-keygen -F 65.75.202.112 -f "$HOME/.ssh/known_hosts" > /dev/null
 
-      - name: Render private staging-only Ansible variables
+      - name: Render private fixed-command staging requests
         id: staging_vars
         shell: bash
         env:
           NUTSNEWS_STAGING_APP_ENVS_JSON: ${{ secrets.NUTSNEWS_STAGING_APP_ENVS_JSON }}
+          STAGING_DEPLOYMENT_ID: ${{ needs.preflight.outputs.deployment_id }}
         run: |
           set -euo pipefail
           umask 077
-          python3 ansible/scripts/write_staging_ansible_vars.py \
+          config_generation="staging-${STAGING_DEPLOYMENT_ID}-${GITHUB_SHA:0:12}"
+          printf 'config_generation=%s\n' "$config_generation" >> "$GITHUB_OUTPUT"
+          for operation in check apply; do
+            python3 ansible/scripts/staging_gateway_request.py \
+              --operation "$operation" \
+              --candidate-file "$RUNNER_TEMP/nutsnews-staging-candidate.json" \
+              --infra-commit "$GITHUB_SHA" \
+              --output "$RUNNER_TEMP/nutsnews-staging-${operation}.json"
+          done
+          python3 ansible/scripts/staging_gateway_request.py \
+            --operation verify \
             --candidate-file "$RUNNER_TEMP/nutsnews-staging-candidate.json" \
             --infra-commit "$GITHUB_SHA" \
-            --output "$RUNNER_TEMP/nutsnews-staging-vars.json" \
-            --github-output "$GITHUB_OUTPUT"
+            --config-generation "$config_generation" \
+            --output "$RUNNER_TEMP/nutsnews-staging-verify.json"
 
-      - name: Run fixed staging Ansible check mode
+      - name: Prove the deployment key rejects arbitrary commands
         shell: bash
-        working-directory: ansible
         run: |
           set -euo pipefail
-          ansible-playbook playbooks/deploy-staging.yml \
-            --inventory inventories/staging/hosts.yml \
-            --limit staging-vps \
-            --tags nutsnews-staging-deploy \
-            --user nutsnews_ops \
-            --private-key "$HOME/.ssh/nutsnews_staging_vps" \
-            --extra-vars "@$RUNNER_TEMP/nutsnews-staging-vars.json" \
-            --ssh-common-args "-o UserKnownHostsFile=$HOME/.ssh/known_hosts -o StrictHostKeyChecking=yes -o IdentitiesOnly=yes" \
-            --check --diff
+          if ssh \
+            -i "$HOME/.ssh/nutsnews_staging_vps" \
+            -o "UserKnownHostsFile=$HOME/.ssh/known_hosts" \
+            -o StrictHostKeyChecking=yes \
+            -o IdentitiesOnly=yes \
+            nutsnews_staging_deploy@65.75.202.112 \
+            "uname -a" >/dev/null 2>&1
+          then
+            echo "The staging deployment key unexpectedly accepted an arbitrary command." >&2
+            exit 1
+          fi
+
+      - name: Run server-side fixed staging check mode
+        shell: bash
+        run: |
+          set -euo pipefail
+          ssh \
+            -i "$HOME/.ssh/nutsnews_staging_vps" \
+            -o "UserKnownHostsFile=$HOME/.ssh/known_hosts" \
+            -o StrictHostKeyChecking=yes \
+            -o IdentitiesOnly=yes \
+            nutsnews_staging_deploy@65.75.202.112 \
+            < "$RUNNER_TEMP/nutsnews-staging-check.json" \
+            > "$RUNNER_TEMP/nutsnews-staging-check-result.json"
+          python3 -c 'import json,sys; assert json.load(open(sys.argv[1])) == {"ok": True, "operation": "check"}' \
+            "$RUNNER_TEMP/nutsnews-staging-check-result.json"
 
       - name: Create auditable GitHub staging deployment record
         id: deployment
@@ -243,20 +272,20 @@ jobs:
             -f environment=staging \
             -F auto_inactive=false > /dev/null
 
-      - name: Apply fixed staging Ansible play
+      - name: Apply through the server-side fixed staging command
         shell: bash
-        working-directory: ansible
         run: |
           set -euo pipefail
-          ansible-playbook playbooks/deploy-staging.yml \
-            --inventory inventories/staging/hosts.yml \
-            --limit staging-vps \
-            --tags nutsnews-staging-deploy \
-            --user nutsnews_ops \
-            --private-key "$HOME/.ssh/nutsnews_staging_vps" \
-            --extra-vars "@$RUNNER_TEMP/nutsnews-staging-vars.json" \
-            --ssh-common-args "-o UserKnownHostsFile=$HOME/.ssh/known_hosts -o StrictHostKeyChecking=yes -o IdentitiesOnly=yes" \
-            --diff
+          ssh \
+            -i "$HOME/.ssh/nutsnews_staging_vps" \
+            -o "UserKnownHostsFile=$HOME/.ssh/known_hosts" \
+            -o StrictHostKeyChecking=yes \
+            -o IdentitiesOnly=yes \
+            nutsnews_staging_deploy@65.75.202.112 \
+            < "$RUNNER_TEMP/nutsnews-staging-apply.json" \
+            > "$RUNNER_TEMP/nutsnews-staging-apply-result.json"
+          python3 -c 'import json,sys; assert json.load(open(sys.argv[1])) == {"ok": True, "operation": "apply"}' \
+            "$RUNNER_TEMP/nutsnews-staging-apply-result.json"
 
       - name: Wait for staging readiness and verify Docker digest
         shell: bash
@@ -264,12 +293,16 @@ jobs:
           CONFIG_GENERATION: ${{ steps.staging_vars.outputs.config_generation }}
         run: |
           set -euo pipefail
-          python3 ansible/scripts/verify_staging_runtime.py \
-            --candidate-file "$RUNNER_TEMP/nutsnews-staging-candidate.json" \
-            --config-generation "$CONFIG_GENERATION" \
-            --ssh-key "$HOME/.ssh/nutsnews_staging_vps" \
-            --known-hosts "$HOME/.ssh/known_hosts" \
-            --result-file "$RUNNER_TEMP/nutsnews-staging-runtime.json"
+          ssh \
+            -i "$HOME/.ssh/nutsnews_staging_vps" \
+            -o "UserKnownHostsFile=$HOME/.ssh/known_hosts" \
+            -o StrictHostKeyChecking=yes \
+            -o IdentitiesOnly=yes \
+            nutsnews_staging_deploy@65.75.202.112 \
+            < "$RUNNER_TEMP/nutsnews-staging-verify.json" \
+            > "$RUNNER_TEMP/nutsnews-staging-runtime.json"
+          python3 -c 'import json,sys; result=json.load(open(sys.argv[1])); assert result.get("ok") is True and result.get("operation") == "verify"' \
+            "$RUNNER_TEMP/nutsnews-staging-runtime.json"
 
       - name: Finalize staging Deployment status
         if: ${{ always() && !cancelled() && steps.deployment.outputs.deployment_id != '' }}
@@ -304,7 +337,11 @@ jobs:
             "$HOME/.ssh/nutsnews_staging_vps" \
             "$HOME/.ssh/known_hosts" \
             "$RUNNER_TEMP/nutsnews-staging-candidate.json" \
-            "$RUNNER_TEMP/nutsnews-staging-vars.json" \
+            "$RUNNER_TEMP/nutsnews-staging-check.json" \
+            "$RUNNER_TEMP/nutsnews-staging-apply.json" \
+            "$RUNNER_TEMP/nutsnews-staging-verify.json" \
+            "$RUNNER_TEMP/nutsnews-staging-check-result.json" \
+            "$RUNNER_TEMP/nutsnews-staging-apply-result.json" \
             "$RUNNER_TEMP/nutsnews-staging-runtime.json" \
             "$RUNNER_TEMP/staging-deployment.json" \
             "$RUNNER_TEMP/staging-deployment-status.json"

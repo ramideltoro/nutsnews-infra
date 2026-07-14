@@ -84,6 +84,8 @@ Use [runbooks/VERCEL_VPS_ENV_SYNC.md](runbooks/VERCEL_VPS_ENV_SYNC.md) when sync
 
 Use [runbooks/VPS_SERVICE_FOUNDATION.md](runbooks/VPS_SERVICE_FOUNDATION.md) before applying or verifying the Docker and Caddy service foundation.
 
+Use [runbooks/NUTSNEWS_STAGING_ACCESS.md](runbooks/NUTSNEWS_STAGING_ACCESS.md) before onboarding or applying the isolated staging hostname, Access boundary, or restricted deployment identity.
+
 Use [runbooks/OPS_PORTAL.md](runbooks/OPS_PORTAL.md) before applying or verifying the read-only operations portal.
 
 Use the manual `Send VPS Health Report` workflow when you need an on-demand email report without opening an interactive SSH session.

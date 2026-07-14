@@ -1,0 +1,55 @@
+name: Staging Access Probe
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: staging-access-probe
+  cancel-in-progress: false
+
+jobs:
+  probe:
+    name: Verify anonymous denial and service-token access
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment: staging-tests
+
+    steps:
+      - name: Validate test-only access credentials
+        shell: bash
+        env:
+          CLIENT_ID: ${{ secrets.NUTSNEWS_STAGING_ACCESS_CLIENT_ID }}
+          CLIENT_SECRET: ${{ secrets.NUTSNEWS_STAGING_ACCESS_CLIENT_SECRET }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$CLIENT_ID" || -z "$CLIENT_SECRET" ]]; then
+            echo "staging-tests access credentials are not configured." >&2
+            exit 1
+          fi
+
+      - name: Probe without retaining bodies, cookies, or tokens
+        shell: bash
+        env:
+          CLIENT_ID: ${{ secrets.NUTSNEWS_STAGING_ACCESS_CLIENT_ID }}
+          CLIENT_SECRET: ${{ secrets.NUTSNEWS_STAGING_ACCESS_CLIENT_SECRET }}
+        run: |
+          set -euo pipefail
+          anonymous_status="$(curl --silent --show-error --output /dev/null --max-time 15 \
+            --write-out '%{http_code}' https://staging.nutsnews.com/healthz)"
+          if [[ "$anonymous_status" != "302" && "$anonymous_status" != "401" && "$anonymous_status" != "403" ]]; then
+            echo "Anonymous staging request was not denied by the Access boundary." >&2
+            exit 1
+          fi
+          authenticated_status="$(curl --silent --show-error --output /dev/null --max-time 15 \
+            --write-out '%{http_code}' \
+            --header "CF-Access-Client-Id: $CLIENT_ID" \
+            --header "CF-Access-Client-Secret: $CLIENT_SECRET" \
+            https://staging.nutsnews.com/healthz)"
+          if [[ "$authenticated_status" != "200" ]]; then
+            echo "Authenticated staging health probe did not return HTTP 200." >&2
+            exit 1
+          fi
+          echo "Anonymous denial and authenticated staging health were verified without retaining response data."
