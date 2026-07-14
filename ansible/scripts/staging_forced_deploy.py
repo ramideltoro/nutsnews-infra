@@ -18,14 +18,43 @@ MAX_REQUEST_BYTES = 1_048_576
 SHA = re.compile(r"^[0-9a-f]{40}$")
 DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
 TASK_LINE = re.compile(r"TASK \[([A-Za-z0-9 _./:()'=-]{1,200})\]")
+CONTROLLER_VERSION = re.compile(r"\[core ([0-9]+\.[0-9]+\.[0-9]+)\]")
+ERROR_CLASSES = (
+    ("invalid_yaml", ("unable to read either as json nor yaml", "syntax error while loading yaml")),
+    ("unsupported_option", ("invalid options for", "unsupported parameters for")),
+    ("missing_module", ("couldn't resolve module/action", "could not find the requested service")),
+    ("missing_role", ("the role ", " was not found")),
+    ("missing_file", ("could not find or access", "unable to retrieve file contents")),
+    ("undefined_variable", ("undefined variable", " is undefined")),
+    ("invalid_play_attribute", ("is not a valid attribute for a play",)),
+    ("conflicting_action", ("conflicting action statements",)),
+    ("callback_error", ("callback", "failed to load")),
+    ("controller_exception", ("unexpected exception", "traceback (most recent call last)")),
+)
 
 
-def fail(message: str, *, task: str = "") -> None:
+def fail(message: str, *, task: str = "", diagnostic: str = "", controller: str = "") -> None:
     response = {"ok": False, "code": message}
     if task:
         response["task"] = task
+    if diagnostic:
+        response["diagnostic"] = diagnostic
+    if controller:
+        response["controller"] = controller
     print(json.dumps(response, separators=(",", ":")))
     raise SystemExit(1)
+
+
+def classify_controller_output(output: str) -> str:
+    lowered = output.lower()
+    for name, fragments in ERROR_CLASSES:
+        if any(fragment in lowered for fragment in fragments):
+            return name
+    if not output.strip():
+        return "empty_controller_output"
+    if "error!" in lowered:
+        return "unclassified_controller_error"
+    return "unclassified_controller_failure"
 
 
 def read_request() -> dict[str, object]:
@@ -97,19 +126,46 @@ def run_deploy(request: dict[str, object], operation: str) -> None:
             "--extra-vars",
             f"@{vars_file}",
         ]
+        controller_environment = {
+            **os.environ,
+            "ANSIBLE_NOCOLOR": "1",
+            "ANSIBLE_STDOUT_CALLBACK": "default",
+            # Older controllers expose import_role defaults by default;
+            # this keeps the equivalent behavior explicit on 2.17+.
+            "ANSIBLE_PRIVATE_ROLE_VARS": "false",
+        }
+        version_result = subprocess.run(
+            ["ansible-playbook", "--version"],
+            cwd=BUNDLE / "ansible",
+            env=controller_environment,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            check=False,
+        )
+        version_match = CONTROLLER_VERSION.search(version_result.stdout)
+        controller = version_match.group(1) if version_match else "unknown"
+        syntax = subprocess.run(
+            [*command, "--syntax-check"],
+            cwd=BUNDLE / "ansible",
+            env=controller_environment,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            check=False,
+        )
+        if syntax.returncode:
+            fail(
+                "staging_syntax_failed",
+                diagnostic=classify_controller_output(syntax.stdout),
+                controller=controller,
+            )
         if operation == "check":
             command.extend(["--check", "--diff"])
         result = subprocess.run(
             command,
             cwd=BUNDLE / "ansible",
-            env={
-                **os.environ,
-                "ANSIBLE_NOCOLOR": "1",
-                "ANSIBLE_STDOUT_CALLBACK": "default",
-                # Older controllers expose import_role defaults by default;
-                # this keeps the equivalent behavior explicit on 2.17+.
-                "ANSIBLE_PRIVATE_ROLE_VARS": "false",
-            },
+            env=controller_environment,
             text=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
@@ -120,7 +176,12 @@ def run_deploy(request: dict[str, object], operation: str) -> None:
             # the forced-command boundary. Return only the last reviewed task
             # label so an operator can diagnose a failure without secrets.
             tasks = TASK_LINE.findall(result.stdout)
-            fail(f"staging_{operation}_failed", task=tasks[-1] if tasks else "")
+            fail(
+                f"staging_{operation}_failed",
+                task=tasks[-1] if tasks else "",
+                diagnostic=classify_controller_output(result.stdout),
+                controller=controller,
+            )
     print(json.dumps({"ok": True, "operation": operation}, separators=(",", ":")))
 
 
