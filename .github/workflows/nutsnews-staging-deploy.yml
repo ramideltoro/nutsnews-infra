@@ -251,12 +251,22 @@ jobs:
               raise SystemExit(0)
           code = result.get("code")
           task = result.get("task", "")
+          diagnostic = result.get("diagnostic", "")
+          controller = result.get("controller", "")
           if not isinstance(code, str) or not re.fullmatch(r"[a-z_]{1,80}", code):
               raise SystemExit("Staging gateway returned an invalid failure response.")
           if not isinstance(task, str) or (task and not re.fullmatch(r"[A-Za-z0-9 _./:()'=-]{1,200}", task)):
               raise SystemExit("Staging gateway returned an invalid task label.")
-          suffix = f" at reviewed task: {task}" if task else ""
-          raise SystemExit(f"Staging gateway failed with {code}{suffix}")
+          if not isinstance(diagnostic, str) or (diagnostic and not re.fullmatch(r"[a-z_]{1,80}", diagnostic)):
+              raise SystemExit("Staging gateway returned an invalid diagnostic class.")
+          if not isinstance(controller, str) or (controller != "unknown" and not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", controller)):
+              raise SystemExit("Staging gateway returned an invalid controller version.")
+          task_suffix = f" at reviewed task: {task}" if task else ""
+          diagnostic_suffix = f"; diagnostic={diagnostic}" if diagnostic else ""
+          controller_suffix = f"; controller={controller}" if controller else ""
+          raise SystemExit(
+              f"Staging gateway failed with {code}{task_suffix}{diagnostic_suffix}{controller_suffix}"
+          )
           PY
 
       - name: Create auditable GitHub staging deployment record

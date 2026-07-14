@@ -130,7 +130,11 @@ assert '"ANSIBLE_STDOUT_CALLBACK": "default"' in forced_command
 assert '"ANSIBLE_PRIVATE_ROLE_VARS": "false"' in forced_command
 assert "Ansible output can contain rendered diffs" in forced_command
 assert "Staging gateway returned an invalid task label." in workflow
+assert "Staging gateway returned an invalid diagnostic class." in workflow
+assert "Staging gateway returned an invalid controller version." in workflow
 assert "reviewed task" in workflow
+assert "staging_syntax_failed" in forced_command
+assert "classify_controller_output" in forced_command
 assert "TEST_USER" in write_vars and "staging-tests" in write_vars
 assert "NUTSNEWS_PRODUCTION_SUPABASE_PROJECT_REF" in write_vars
 
