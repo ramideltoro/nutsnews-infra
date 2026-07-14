@@ -181,15 +181,16 @@ for required in (
     "release_schema_version:",
     "release_supabase_project_ref:",
     "Validate requested automated release identity",
-    "RELEASE_DEPLOYMENT_TARGET",
+    "RELEASE_IMAGE_DEPLOYMENT_TARGET",
     "Verify released Docker image over SSH",
     "Verify released public health identity",
 ):
     assert required in protected_workflow, f"Protected apply is missing required release verification: {required}"
 
-assert 'payload?.deploymentTarget === deploymentTarget' in protected_workflow
-assert 'response.headers.get("x-nutsnews-deployment-target") === deploymentTarget' in protected_workflow
-assert 'payload?.deploymentTarget === "vps"' not in protected_workflow
+assert 'release_deployment_target" != "production-vps"' in protected_workflow
+assert 'imageDeploymentTarget !== "vps"' in protected_workflow
+assert 'payload?.deploymentTarget === imageDeploymentTarget' in protected_workflow
+assert 'response.headers.get("x-nutsnews-deployment-target") === imageDeploymentTarget' in protected_workflow
 
 assert "NUTSNEWS_APP_IMAGE_TAG" not in promotion_workflow
 assert ":latest" not in promotion_workflow.lower()
