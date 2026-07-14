@@ -122,6 +122,12 @@ assert 'mode: "0600"' in access_tasks and "no_log: true" in access_tasks
 assert 'SSH_ORIGINAL_COMMAND' in forced_command and 'arbitrary_command_rejected' in forced_command
 assert 'operation in {"check", "apply"}' in forced_command
 assert '"production"' not in forced_command
+assert "stdout=subprocess.PIPE" in forced_command
+assert "stderr=subprocess.STDOUT" in forced_command
+assert "TASK_LINE.findall(result.stdout)" in forced_command
+assert "Ansible output can contain rendered diffs" in forced_command
+assert "Staging gateway returned an invalid task label." in workflow
+assert "reviewed task" in workflow
 assert "TEST_USER" in write_vars and "staging-tests" in write_vars
 assert "NUTSNEWS_PRODUCTION_SUPABASE_PROJECT_REF" in write_vars
 
