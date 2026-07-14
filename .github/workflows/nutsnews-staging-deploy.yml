@@ -331,8 +331,41 @@ jobs:
             nutsnews_staging_deploy@65.75.202.112 \
             < "$RUNNER_TEMP/nutsnews-staging-verify.json" \
             > "$RUNNER_TEMP/nutsnews-staging-runtime.json"
-          python3 -c 'import json,sys; result=json.load(open(sys.argv[1])); assert result.get("ok") is True and result.get("operation") == "verify"' \
-            "$RUNNER_TEMP/nutsnews-staging-runtime.json"
+          python3 - "$RUNNER_TEMP/nutsnews-staging-runtime.json" <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          import sys
+
+          result = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+          expected_boundary = {
+              "staging_unpublished",
+              "compose_projects",
+              "immutable_digest",
+              "network_separation",
+              "resource_limits",
+              "log_limits",
+              "directory_separation",
+              "env_file_permissions",
+              "caddy_route",
+              "production_healthy",
+              "access_verifier_healthy",
+          }
+          boundary = result.get("boundary")
+          assert result.get("ok") is True and result.get("operation") == "verify"
+          assert isinstance(boundary, dict) and set(boundary) == expected_boundary
+          assert all(value is True for value in boundary.values())
+          with Path(os.environ["GITHUB_STEP_SUMMARY"]).open("a", encoding="utf-8") as summary:
+              summary.write("\n## Live staging runtime boundary\n\n")
+              summary.write("- Staging app and Access verifier publish no host ports.\n")
+              summary.write("- Compose project/container identities and production/staging networks are separated.\n")
+              summary.write("- Image digest is immutable and equals the approved candidate.\n")
+              summary.write("- Limits: 1 CPU, 256 CPU shares, 512 MiB memory, 256 MiB reservation, 128 PIDs.\n")
+              summary.write("- Logs: json-file, 10m maximum size, 3 files.\n")
+              summary.write("- Runtime/state directories are distinct and root-owned.\n")
+              summary.write("- Production, staging, and Access env files are root:root mode 0600; contents were not read.\n")
+              summary.write("- Active Caddy staging route, production health, and Access verifier health passed.\n")
+          PY
 
       - name: Finalize staging Deployment status
         if: ${{ always() && !cancelled() && steps.deployment.outputs.deployment_id != '' }}
