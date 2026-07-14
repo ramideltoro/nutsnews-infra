@@ -27,6 +27,7 @@ def manifest(
     build_id: str,
     migration_head: str,
     schema_version: str,
+    supabase_project_ref: str,
     last_known_good: str = "",
 ) -> str:
     return "\n".join(
@@ -41,6 +42,7 @@ def manifest(
             f'vps_service_foundation_nutsnews_app_config_generation: "production-{build_id}-{migration_head}"',
             f'vps_service_foundation_nutsnews_app_migration_head: "{migration_head}"',
             f'vps_service_foundation_nutsnews_app_schema_version: "{schema_version}"',
+            f'vps_service_foundation_nutsnews_app_supabase_project_ref: "{supabase_project_ref}"',
             "vps_service_foundation_nutsnews_app_deployment_target: production-vps",
             f'vps_service_foundation_nutsnews_app_last_known_good_digest: "{last_known_good}"',
             "vps_service_foundation_nutsnews_app_secret_env_keys: []",
@@ -56,10 +58,21 @@ old_commit = "a" * 40
 new_commit = "b" * 40
 migration_head = "20260713000000"
 schema_version = "20260712170000"
+supabase_project_ref = "mpqfulvvagyzqneiaqky"
 
 with tempfile.TemporaryDirectory() as temporary_directory:
     path = Path(temporary_directory) / "vps.nutsnews.com.yml"
-    path.write_text(manifest(old_digest, old_commit, "101-1", migration_head, schema_version), encoding="utf-8")
+    path.write_text(
+        manifest(
+            old_digest,
+            old_commit,
+            "101-1",
+            migration_head,
+            schema_version,
+            supabase_project_ref,
+        ),
+        encoding="utf-8",
+    )
 
     result = module.promote_manifest(
         path,
@@ -69,6 +82,7 @@ with tempfile.TemporaryDirectory() as temporary_directory:
         "202-3",
         migration_head,
         schema_version,
+        supabase_project_ref,
         write=True,
     )
     values = module.manifest_values(path.read_text(encoding="utf-8"))
@@ -80,6 +94,7 @@ with tempfile.TemporaryDirectory() as temporary_directory:
     assert values["vps_service_foundation_nutsnews_app_config_generation"] == f"production-202-3-{migration_head}"
     assert values["vps_service_foundation_nutsnews_app_migration_head"] == migration_head
     assert values["vps_service_foundation_nutsnews_app_schema_version"] == schema_version
+    assert values["vps_service_foundation_nutsnews_app_supabase_project_ref"] == supabase_project_ref
     assert values["vps_service_foundation_nutsnews_app_last_known_good_digest"] == old_digest
 
     verified = module.verify_manifest(
@@ -90,16 +105,18 @@ with tempfile.TemporaryDirectory() as temporary_directory:
         "202-3",
         migration_head,
         schema_version,
+        supabase_project_ref,
     )
     assert verified["deployment_target"] == "production-vps"
 
     original = path.read_text(encoding="utf-8")
-    for invalid_digest, invalid_commit, invalid_build_id, invalid_head, invalid_schema in (
-        ("latest", new_commit, "202-3", migration_head, schema_version),
-        (new_digest, "not-a-commit", "202-3", migration_head, schema_version),
-        (new_digest, new_commit, "build-202", migration_head, schema_version),
-        (new_digest, new_commit, "202-3", "latest", schema_version),
-        (new_digest, new_commit, "202-3", migration_head, "legacy"),
+    for invalid_digest, invalid_commit, invalid_build_id, invalid_head, invalid_schema, invalid_project_ref in (
+        ("latest", new_commit, "202-3", migration_head, schema_version, supabase_project_ref),
+        (new_digest, "not-a-commit", "202-3", migration_head, schema_version, supabase_project_ref),
+        (new_digest, new_commit, "build-202", migration_head, schema_version, supabase_project_ref),
+        (new_digest, new_commit, "202-3", "latest", schema_version, supabase_project_ref),
+        (new_digest, new_commit, "202-3", migration_head, "legacy", supabase_project_ref),
+        (new_digest, new_commit, "202-3", migration_head, schema_version, "staging"),
     ):
         try:
             module.promote_manifest(
@@ -110,6 +127,7 @@ with tempfile.TemporaryDirectory() as temporary_directory:
                 invalid_build_id,
                 invalid_head,
                 invalid_schema,
+                invalid_project_ref,
                 write=True,
             )
         except module.PromotionError:
@@ -140,8 +158,10 @@ for required in (
     "ansible/scripts/promote_nutsnews_release.py",
     "MIGRATION_HEAD",
     "SCHEMA_VERSION",
+    "SUPABASE_PROJECT_REF",
     "--migration-head",
     "--schema-version",
+    "--supabase-project-ref",
 ):
     assert required in promotion_workflow, f"Promotion workflow is missing required guardrail: {required}"
 
@@ -159,6 +179,7 @@ for required in (
     "release_build_id:",
     "release_migration_head:",
     "release_schema_version:",
+    "release_supabase_project_ref:",
     "Validate requested automated release identity",
     "RELEASE_DEPLOYMENT_TARGET",
     "Verify released Docker image over SSH",

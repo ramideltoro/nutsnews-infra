@@ -48,6 +48,11 @@
         (vps_service_foundation_nutsnews_environment_runtime.envs['NUTSNEWS_SUPABASE_PROJECT_REF']
         | string | trim)
       - >-
+        (vps_service_foundation_nutsnews_environment_runtime.envs['NUTSNEWS_PRODUCTION_SUPABASE_PROJECT_REF']
+        | string | trim) ==
+        (vps_service_foundation_nutsnews_environment_runtime.supabase_project_ref
+        | string | trim)
+      - >-
         (vps_service_foundation_nutsnews_environment_runtime.envs['NUTSNEWS_PUBLIC_SUPABASE_URL']
         | string | trim) is match(
           '^https://' ~
@@ -59,8 +64,8 @@
         (vps_service_foundation_nutsnews_environment_runtime.envs['NUTSNEWS_PUBLIC_SUPABASE_ANON_KEY']
         | string | trim | length) > 0
     fail_msg: >-
-      The enabled NutsNews production Supabase runtime identity is incomplete
-      or internally inconsistent.
+      The enabled NutsNews production Supabase runtime identity is incomplete,
+      internally inconsistent, or differs from the reviewed release project.
   when:
     - vps_service_foundation_nutsnews_environment_runtime.name == 'production'
     - vps_service_foundation_nutsnews_environment_runtime.enabled | bool
