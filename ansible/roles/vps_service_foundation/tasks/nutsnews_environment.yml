@@ -65,6 +65,15 @@
     - "{{ vps_service_foundation_nutsnews_environment_runtime.app_dir }}"
     - "{{ vps_service_foundation_nutsnews_environment_runtime.state_dir }}"
 
+- name: Inspect runtime directories after the non-mutating plan
+  ansible.builtin.stat:
+    path: "{{ item }}"
+  loop:
+    - "{{ vps_service_foundation_nutsnews_environment_runtime.app_dir }}"
+    - "{{ vps_service_foundation_nutsnews_environment_runtime.state_dir }}"
+  register: vps_service_foundation_nutsnews_environment_runtime_directories
+  when: ansible_check_mode
+
 - name: Install NutsNews Compose file for {{ nutsnews_environment.name }}
   ansible.builtin.copy:
     src: "{{ vps_service_foundation_nutsnews_environment_runtime.source_compose_file }}"
@@ -72,6 +81,9 @@
     owner: "{{ vps_service_foundation_nutsnews_app_runtime_owner }}"
     group: "{{ vps_service_foundation_nutsnews_app_runtime_group }}"
     mode: "0644"
+  when: >-
+    not ansible_check_mode or
+    (vps_service_foundation_nutsnews_environment_runtime_directories.results[0].stat.isdir | default(false))
 
 - name: Install NutsNews environment for {{ nutsnews_environment.name }}
   ansible.builtin.template:
@@ -93,6 +105,9 @@
     mode: "0644"
   vars:
     nutsnews_environment: "{{ vps_service_foundation_nutsnews_environment_runtime }}"
+  when: >-
+    not ansible_check_mode or
+    (vps_service_foundation_nutsnews_environment_runtime_directories.results[1].stat.isdir | default(false))
 
 - name: Read rendered environment names for sync verification {{ nutsnews_environment.name }}
   ansible.builtin.command:
