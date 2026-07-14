@@ -30,6 +30,27 @@ resource "cloudflare_zero_trust_access_policy" "qualifier" {
   session_duration = "1h"
 }
 
+resource "cloudflare_zero_trust_access_policy" "acme_challenge" {
+  account_id = var.cloudflare_account_id
+  name       = "NutsNews staging ACME challenge"
+  decision   = "bypass"
+  include = [{
+    everyone = {}
+  }]
+}
+
+resource "cloudflare_zero_trust_access_application" "acme_challenge" {
+  account_id           = var.cloudflare_account_id
+  name                 = "NutsNews staging ACME challenge"
+  type                 = "self_hosted"
+  domain               = "staging.nutsnews.com/.well-known/acme-challenge/*"
+  app_launcher_visible = false
+  policies = [{
+    id         = cloudflare_zero_trust_access_policy.acme_challenge.id
+    precedence = 1
+  }]
+}
+
 resource "cloudflare_zero_trust_access_application" "staging" {
   account_id                 = var.cloudflare_account_id
   name                       = "NutsNews staging"
