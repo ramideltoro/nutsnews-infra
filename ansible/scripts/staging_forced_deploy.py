@@ -102,7 +102,13 @@ def run_deploy(request: dict[str, object], operation: str) -> None:
         result = subprocess.run(
             command,
             cwd=BUNDLE / "ansible",
-            env={**os.environ, "ANSIBLE_NOCOLOR": "1"},
+            env={
+                **os.environ,
+                "ANSIBLE_NOCOLOR": "1",
+                # Older controllers expose import_role defaults by default;
+                # this keeps the equivalent behavior explicit on 2.17+.
+                "ANSIBLE_PRIVATE_ROLE_VARS": "false",
+            },
             text=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,

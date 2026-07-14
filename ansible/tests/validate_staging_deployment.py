@@ -221,7 +221,6 @@ for required in (
     "hosts: nutsnews_staging_vps",
     "Load reviewed service-foundation defaults for staging safeguards",
     "tasks_from: staging_defaults.yml",
-    "public: true",
     "vps_service_foundation_nutsnews_deployment_environments:",
     "- staging",
     "nutsnews-staging-deploy",
@@ -231,6 +230,8 @@ for required in (
     "Release the staging host mutation lock",
 ):
     assert required in playbook, f"Staging-only play is missing {required}"
+
+assert "public: true" not in playbook
 
 assert (
     playbook.index("tasks_from: staging_defaults.yml")
