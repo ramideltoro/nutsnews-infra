@@ -13,6 +13,18 @@ from validate_staging_candidate import CandidateError, validate_candidate
 from write_staging_ansible_vars import parse_staging_envs
 
 
+def protected_staging_oauth_overrides(env: dict[str, str]) -> dict[str, str]:
+    client_id = str(env.get("NUTSNEWS_STAGING_AUTH_GOOGLE_ID", "")).strip()
+    client_secret = str(env.get("NUTSNEWS_STAGING_AUTH_GOOGLE_SECRET", "")).strip()
+    if not client_id or not client_secret:
+        raise CandidateError("Dedicated staging OAuth credentials are incomplete.")
+    return {
+        "AUTH_GOOGLE_ID": client_id,
+        "AUTH_GOOGLE_SECRET": client_secret,
+        "NUTSNEWS_OAUTH_CREDENTIALS_ENV": "staging",
+    }
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--operation", choices=("check", "apply", "verify"), required=True)
@@ -35,7 +47,8 @@ def main() -> None:
     if arguments.operation in {"check", "apply"}:
         try:
             request["staging_app_envs"] = parse_staging_envs(
-                os.environ.get("NUTSNEWS_STAGING_APP_ENVS_JSON", "")
+                os.environ.get("NUTSNEWS_STAGING_APP_ENVS_JSON", ""),
+                protected_staging_oauth_overrides(os.environ),
             )
         except CandidateError as error:
             raise SystemExit(f"Cannot prepare staging gateway request: {error}") from error

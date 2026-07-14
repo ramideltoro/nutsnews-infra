@@ -153,13 +153,17 @@ jobs:
           NUTSNEWS_STAGING_VPS_SSH_PRIVATE_KEY: ${{ secrets.NUTSNEWS_STAGING_VPS_SSH_PRIVATE_KEY }}
           NUTSNEWS_STAGING_VPS_KNOWN_HOSTS: ${{ secrets.NUTSNEWS_STAGING_VPS_KNOWN_HOSTS }}
           NUTSNEWS_STAGING_APP_ENVS_JSON: ${{ secrets.NUTSNEWS_STAGING_APP_ENVS_JSON }}
+          NUTSNEWS_STAGING_AUTH_GOOGLE_ID: ${{ secrets.NUTSNEWS_STAGING_AUTH_GOOGLE_ID }}
+          NUTSNEWS_STAGING_AUTH_GOOGLE_SECRET: ${{ secrets.NUTSNEWS_STAGING_AUTH_GOOGLE_SECRET }}
         run: |
           set -euo pipefail
           missing=0
           for secret_name in \
             NUTSNEWS_STAGING_VPS_SSH_PRIVATE_KEY \
             NUTSNEWS_STAGING_VPS_KNOWN_HOSTS \
-            NUTSNEWS_STAGING_APP_ENVS_JSON
+            NUTSNEWS_STAGING_APP_ENVS_JSON \
+            NUTSNEWS_STAGING_AUTH_GOOGLE_ID \
+            NUTSNEWS_STAGING_AUTH_GOOGLE_SECRET
           do
             if [[ -z "${!secret_name}" ]]; then
               echo "Missing required staging-vps environment secret: ${secret_name}" >&2
@@ -188,6 +192,8 @@ jobs:
         shell: bash
         env:
           NUTSNEWS_STAGING_APP_ENVS_JSON: ${{ secrets.NUTSNEWS_STAGING_APP_ENVS_JSON }}
+          NUTSNEWS_STAGING_AUTH_GOOGLE_ID: ${{ secrets.NUTSNEWS_STAGING_AUTH_GOOGLE_ID }}
+          NUTSNEWS_STAGING_AUTH_GOOGLE_SECRET: ${{ secrets.NUTSNEWS_STAGING_AUTH_GOOGLE_SECRET }}
           STAGING_DEPLOYMENT_ID: ${{ needs.preflight.outputs.deployment_id }}
         run: |
           set -euo pipefail

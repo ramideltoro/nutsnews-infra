@@ -25,9 +25,12 @@ RESERVED_ENV_KEYS = {
     "NUTSNEWS_EXPECTED_SCHEMA_VERSION",
 }
 REQUIRED_STAGING_ENV_KEYS = {
+    "AUTH_GOOGLE_ID",
+    "AUTH_GOOGLE_SECRET",
     "AUTH_SECRET",
     "NEXTAUTH_URL",
     "NUTSNEWS_EMAIL_MODE",
+    "NUTSNEWS_OAUTH_CREDENTIALS_ENV",
     "NUTSNEWS_PRODUCTION_SUPABASE_PROJECT_REF",
     "NUTSNEWS_PUBLIC_SUPABASE_ANON_KEY",
     "NUTSNEWS_PUBLIC_SUPABASE_URL",
@@ -46,7 +49,9 @@ STAGING_SECRET_ENV_KEYS = {
 }
 
 
-def parse_staging_envs(raw: str) -> dict[str, str]:
+def parse_staging_envs(
+    raw: str, protected_overrides: dict[str, str] | None = None
+) -> dict[str, str]:
     if not raw.strip():
         return {}
     try:
@@ -55,6 +60,8 @@ def parse_staging_envs(raw: str) -> dict[str, str]:
         raise CandidateError("NUTSNEWS_STAGING_APP_ENVS_JSON must be valid JSON when configured.") from error
     if not isinstance(values, dict):
         raise CandidateError("NUTSNEWS_STAGING_APP_ENVS_JSON must be a JSON object of string values.")
+    if protected_overrides:
+        values = {**values, **protected_overrides}
     output: dict[str, str] = {}
     for key, value in values.items():
         if not isinstance(key, str) or not SAFE_ENV_KEY.fullmatch(key):
@@ -88,6 +95,8 @@ def parse_staging_envs(raw: str) -> dict[str, str]:
         raise CandidateError("Disabled staging email must not receive a Resend credential.")
     if output["NUTSNEWS_TELEMETRY_ENVIRONMENT"] != "staging":
         raise CandidateError("Staging telemetry must use the staging environment identity.")
+    if output["NUTSNEWS_OAUTH_CREDENTIALS_ENV"] != "staging":
+        raise CandidateError("Staging OAuth credentials must use the staging environment identity.")
     return output
 
 

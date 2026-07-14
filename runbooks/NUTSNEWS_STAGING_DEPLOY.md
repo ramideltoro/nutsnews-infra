@@ -17,6 +17,11 @@ staging credentials, run Ansible, or mutate a host.
 
 An approved dispatch uses only the `staging-vps` GitHub Environment and
 `ansible/playbooks/deploy-staging.yml` with the `nutsnews-staging-deploy` tag.
+The protected deploy job requires `NUTSNEWS_STAGING_AUTH_GOOGLE_ID` and
+`NUTSNEWS_STAGING_AUTH_GOOGLE_SECRET` together. It overlays them in memory onto
+the existing write-only `NUTSNEWS_STAGING_APP_ENVS_JSON` bundle and forces
+`NUTSNEWS_OAUTH_CREDENTIALS_ENV=staging`; neither value is logged or attached
+to preflight, rehearsal, summaries, deployment records, or artifacts.
 It serializes deployments, takes the staging host mutation lock, runs check
 mode before apply, waits for `/readyz`, verifies Docker's resolved digest, and
 writes a GitHub Deployment audit record. It never calls a production workflow
