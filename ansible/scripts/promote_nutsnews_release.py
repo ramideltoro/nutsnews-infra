@@ -13,6 +13,7 @@ IMAGE_REPOSITORY = "ghcr.io/ramideltoro/nutsnews"
 SHA256_RE = re.compile(r"sha256:[0-9a-f]{64}\Z")
 COMMIT_RE = re.compile(r"[0-9a-f]{40}\Z")
 BUILD_ID_RE = re.compile(r"[0-9]+-[0-9]+\Z")
+SCHEMA_VERSION_RE = re.compile(r"[0-9]{14}\Z")
 
 
 class PromotionError(ValueError):
@@ -46,14 +47,22 @@ def validate_release(
     image_digest: str,
     source_commit: str,
     build_id: str,
+    migration_head: str,
+    schema_version: str,
 ) -> dict[str, str]:
     if image_repository != IMAGE_REPOSITORY:
         raise PromotionError("Image repository is not the approved NutsNews GHCR repository.")
+    migration_head = require_match(SCHEMA_VERSION_RE, migration_head, "Migration head")
+    schema_version = require_match(SCHEMA_VERSION_RE, schema_version, "Schema version")
+    validated_build_id = require_match(BUILD_ID_RE, build_id, "Build ID")
     return {
         "image_repository": image_repository,
         "image_digest": require_match(SHA256_RE, image_digest, "Image digest"),
         "source_commit": require_match(COMMIT_RE, source_commit, "Source commit"),
-        "build_id": require_match(BUILD_ID_RE, build_id, "Build ID"),
+        "build_id": validated_build_id,
+        "migration_head": migration_head,
+        "schema_version": schema_version,
+        "config_generation": f"production-{validated_build_id}-{migration_head}",
     }
 
 
@@ -62,14 +71,19 @@ def validate_manifest(values: dict[str, str]) -> dict[str, str]:
     digest = required_value(values, "vps_service_foundation_nutsnews_app_image_digest")
     source_commit = required_value(values, "vps_service_foundation_nutsnews_app_source_commit")
     build_id = required_value(values, "vps_service_foundation_nutsnews_app_build_id")
+    migration_head = required_value(values, "vps_service_foundation_nutsnews_app_migration_head")
+    schema_version = required_value(values, "vps_service_foundation_nutsnews_app_schema_version")
+    config_generation = required_value(values, "vps_service_foundation_nutsnews_app_config_generation")
     deployment_target = required_value(values, "vps_service_foundation_nutsnews_app_deployment_target")
     last_known_good = values.get("vps_service_foundation_nutsnews_app_last_known_good_digest", "")
 
-    release = validate_release(repository, digest, source_commit, build_id)
+    release = validate_release(repository, digest, source_commit, build_id, migration_head, schema_version)
     if deployment_target != "production-vps":
         raise PromotionError("Manifest deployment target must be production-vps.")
     if last_known_good:
         require_match(SHA256_RE, last_known_good, "Last-known-good image digest")
+    if config_generation != release["config_generation"]:
+        raise PromotionError("Manifest config generation does not match its build and migration head.")
     release["deployment_target"] = deployment_target
     release["last_known_good_digest"] = last_known_good
     return release
@@ -89,10 +103,12 @@ def promote_manifest(
     image_digest: str,
     source_commit: str,
     build_id: str,
+    migration_head: str,
+    schema_version: str,
     *,
     write: bool,
 ) -> dict[str, str]:
-    release = validate_release(image_repository, image_digest, source_commit, build_id)
+    release = validate_release(image_repository, image_digest, source_commit, build_id, migration_head, schema_version)
     original = manifest_path.read_text(encoding="utf-8")
     current = validate_manifest(manifest_values(original))
 
@@ -106,6 +122,9 @@ def promote_manifest(
         ("vps_service_foundation_nutsnews_app_image_digest", release["image_digest"]),
         ("vps_service_foundation_nutsnews_app_source_commit", release["source_commit"]),
         ("vps_service_foundation_nutsnews_app_build_id", release["build_id"]),
+        ("vps_service_foundation_nutsnews_app_config_generation", release["config_generation"]),
+        ("vps_service_foundation_nutsnews_app_migration_head", release["migration_head"]),
+        ("vps_service_foundation_nutsnews_app_schema_version", release["schema_version"]),
         ("vps_service_foundation_nutsnews_app_deployment_target", "production-vps"),
         ("vps_service_foundation_nutsnews_app_last_known_good_digest", next_last_known_good),
     ):
@@ -128,8 +147,10 @@ def verify_manifest(
     image_digest: str,
     source_commit: str,
     build_id: str,
+    migration_head: str,
+    schema_version: str,
 ) -> dict[str, str]:
-    expected = validate_release(image_repository, image_digest, source_commit, build_id)
+    expected = validate_release(image_repository, image_digest, source_commit, build_id, migration_head, schema_version)
     actual = validate_manifest(manifest_values(manifest_path.read_text(encoding="utf-8")))
     for name, expected_value in expected.items():
         if actual[name] != expected_value:
@@ -143,6 +164,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--image-digest", required=True)
     parser.add_argument("--source-commit", required=True)
     parser.add_argument("--build-id", required=True)
+    parser.add_argument("--migration-head", required=True)
+    parser.add_argument("--schema-version", required=True)
     parser.add_argument("--manifest", type=Path)
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--validate-only", action="store_true")
@@ -162,6 +185,8 @@ def main() -> None:
             args.image_digest,
             args.source_commit,
             args.build_id,
+            args.migration_head,
+            args.schema_version,
         )
     elif args.verify:
         result = verify_manifest(
@@ -170,6 +195,8 @@ def main() -> None:
             args.image_digest,
             args.source_commit,
             args.build_id,
+            args.migration_head,
+            args.schema_version,
         )
     else:
         result = promote_manifest(
@@ -178,6 +205,8 @@ def main() -> None:
             args.image_digest,
             args.source_commit,
             args.build_id,
+            args.migration_head,
+            args.schema_version,
             write=True,
         )
     print(json.dumps(result, sort_keys=True))
