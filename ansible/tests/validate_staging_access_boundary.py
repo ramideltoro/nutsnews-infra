@@ -105,6 +105,7 @@ assert "production-vps" not in test_workflow and "staging-vps" not in test_workf
 assert "NUTSNEWS_STAGING_VPS_SSH_PRIVATE_KEY" not in test_workflow
 assert "NUTSNEWS_STAGING_APP_ENVS_JSON" not in test_workflow
 assert "returned HTTP ${authenticated_status}, expected 200" in test_workflow
+assert "for endpoint in healthz readyz" in test_workflow
 assert "environment: cloudflare-admin" in cloudflare_workflow
 assert "production-vps" not in cloudflare_workflow
 assert "staging-vps" not in cloudflare_workflow
@@ -136,6 +137,20 @@ assert "Staging gateway returned an invalid controller version." in workflow
 assert "reviewed task" in workflow
 assert "staging_syntax_failed" in forced_command
 assert "classify_controller_output" in forced_command
+for boundary_check in (
+    "staging_unpublished",
+    "compose_projects",
+    "immutable_digest",
+    "network_separation",
+    "resource_limits",
+    "log_limits",
+    "directory_separation",
+    "env_file_permissions",
+    "caddy_route",
+    "production_healthy",
+    "access_verifier_healthy",
+):
+    assert boundary_check in forced_command and boundary_check in workflow
 assert "TEST_USER" in write_vars and "staging-tests" in write_vars
 assert "NUTSNEWS_PRODUCTION_SUPABASE_PROJECT_REF" in write_vars
 

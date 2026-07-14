@@ -7,6 +7,7 @@ import json
 import os
 from pathlib import Path
 import re
+import stat
 import subprocess
 import sys
 import tempfile
@@ -55,6 +56,39 @@ def classify_controller_output(output: str) -> str:
     if "error!" in lowered:
         return "unclassified_controller_error"
     return "unclassified_controller_failure"
+
+
+def docker_inspect(container: str) -> dict[str, object]:
+    inspected = subprocess.run(
+        ["docker", "inspect", container],
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+        check=False,
+    )
+    try:
+        payload = json.loads(inspected.stdout)
+    except json.JSONDecodeError:
+        payload = []
+    if inspected.returncode or not isinstance(payload, list) or len(payload) != 1 or not isinstance(payload[0], dict):
+        fail("staging_boundary_inspect_failed")
+    return payload[0]
+
+
+def secure_root_file(path: Path) -> bool:
+    try:
+        metadata = path.stat()
+    except OSError:
+        return False
+    return metadata.st_uid == 0 and metadata.st_gid == 0 and stat.S_IMODE(metadata.st_mode) == 0o600
+
+
+def root_directory(path: Path) -> bool:
+    try:
+        metadata = path.stat()
+    except OSError:
+        return False
+    return path.is_dir() and metadata.st_uid == 0 and metadata.st_gid == 0
 
 
 def read_request() -> dict[str, object]:
@@ -200,22 +234,40 @@ def verify(request: dict[str, object]) -> None:
     build_id = candidate.get("build_id")
     if not isinstance(source_commit, str) or not SHA.fullmatch(source_commit) or not isinstance(build_id, str):
         fail("invalid_verify_identity")
-    inspect = subprocess.run(
-        [
-            "docker",
-            "inspect",
-            "--format",
-            "{{.Config.Image}}|{{.State.Running}}|{{if .State.Health}}{{.State.Health.Status}}{{else}}missing{{end}}",
-            "nutsnews-app-staging",
-        ],
+    expected_image = f"ghcr.io/ramideltoro/nutsnews@{digest}"
+    staging = docker_inspect("nutsnews-app-staging")
+    staging_config = staging.get("Config", {})
+    staging_state = staging.get("State", {})
+    if not isinstance(staging_config, dict) or not isinstance(staging_state, dict):
+        fail("staging_runtime_mismatch")
+    staging_health = staging_state.get("Health", {})
+    if (
+        staging_config.get("Image") != expected_image
+        or staging_state.get("Running") is not True
+        or not isinstance(staging_health, dict)
+        or staging_health.get("Status") != "healthy"
+    ):
+        fail("staging_runtime_mismatch")
+    image_identity = staging.get("Image")
+    image_inspect = subprocess.run(
+        ["docker", "image", "inspect", str(image_identity)],
         text=True,
         stdout=subprocess.PIPE,
         stderr=subprocess.DEVNULL,
         check=False,
     )
-    expected = f"ghcr.io/ramideltoro/nutsnews@{digest}|true|healthy"
-    if inspect.returncode or inspect.stdout.strip() != expected:
-        fail("staging_runtime_mismatch")
+    try:
+        image_payload = json.loads(image_inspect.stdout)
+    except json.JSONDecodeError:
+        image_payload = []
+    if (
+        image_inspect.returncode
+        or not isinstance(image_payload, list)
+        or len(image_payload) != 1
+        or not isinstance(image_payload[0], dict)
+        or expected_image not in image_payload[0].get("RepoDigests", [])
+    ):
+        fail("staging_image_digest_mismatch")
     probe_program = (
         "fetch('http://127.0.0.1:3000/readyz',{signal:AbortSignal.timeout(5000)})"
         ".then(async r=>{const b=await r.json().catch(()=>({}));console.log(JSON.stringify({"
@@ -252,9 +304,125 @@ def verify(request: dict[str, object]) -> None:
         "digest": digest,
     }:
         fail("staging_readiness_failed")
+
+    production = docker_inspect("nutsnews-app")
+    access = docker_inspect("nutsnews-staging-access-verifier")
+    caddy = docker_inspect("nutsnews-caddy")
+
+    def container_metadata(value: dict[str, object]) -> tuple[dict[str, object], dict[str, object], dict[str, object], dict[str, object]]:
+        config = value.get("Config", {})
+        state = value.get("State", {})
+        host = value.get("HostConfig", {})
+        network_settings = value.get("NetworkSettings", {})
+        if not all(isinstance(item, dict) for item in (config, state, host, network_settings)):
+            fail("staging_boundary_inspect_failed")
+        return config, state, host, network_settings
+
+    staging_config, staging_state, staging_host, staging_network_settings = container_metadata(staging)
+    production_config, production_state, _, production_network_settings = container_metadata(production)
+    access_config, access_state, access_host, access_network_settings = container_metadata(access)
+    caddy_config, caddy_state, _, caddy_network_settings = container_metadata(caddy)
+
+    def labels(config: dict[str, object]) -> dict[str, object]:
+        value = config.get("Labels", {})
+        return value if isinstance(value, dict) else {}
+
+    def networks(settings: dict[str, object]) -> set[str]:
+        value = settings.get("Networks", {})
+        return set(value) if isinstance(value, dict) else set()
+
+    def healthy(state: dict[str, object]) -> bool:
+        health = state.get("Health", {})
+        return state.get("Running") is True and isinstance(health, dict) and health.get("Status") == "healthy"
+
+    staging_labels = labels(staging_config)
+    production_labels = labels(production_config)
+    access_labels = labels(access_config)
+    caddy_labels = labels(caddy_config)
+    staging_networks = networks(staging_network_settings)
+    production_networks = networks(production_network_settings)
+    access_networks = networks(access_network_settings)
+    caddy_networks = networks(caddy_network_settings)
+    staging_log = staging_host.get("LogConfig", {})
+    staging_log_config = staging_log.get("Config", {}) if isinstance(staging_log, dict) else {}
+    staging_ports = staging_host.get("PortBindings")
+    access_ports = access_host.get("PortBindings")
+
+    staging_app_dir = Path("/opt/nutsnews/apps/nutsnews-staging")
+    staging_state_dir = Path("/opt/nutsnews/ops/apps/staging")
+    production_app_dir = Path("/opt/nutsnews/apps/nutsnews")
+    production_state_dir = Path("/opt/nutsnews/ops/apps/production")
+    staging_env = Path("/etc/nutsnews/nutsnews-staging-app.env")
+    access_env = Path("/etc/nutsnews/nutsnews-staging-access.env")
+    production_env = Path("/etc/nutsnews/nutsnews-app.env")
+    caddy_file = Path("/opt/nutsnews/config/caddy/Caddyfile")
+    try:
+        caddy_text = caddy_file.read_text(encoding="utf-8")
+    except OSError:
+        caddy_text = ""
+    caddy_mounts = caddy.get("Mounts", [])
+    caddyfile_mounted = any(
+        isinstance(mount, dict)
+        and mount.get("Source") == str(caddy_file)
+        and mount.get("Destination") == "/etc/caddy/Caddyfile"
+        and mount.get("RW") is False
+        for mount in caddy_mounts
+    ) if isinstance(caddy_mounts, list) else False
+
+    boundary = {
+        "staging_unpublished": staging_ports in (None, {}) and access_ports in (None, {}),
+        "compose_projects": (
+            staging_labels.get("com.docker.compose.project") == "nutsnews-staging"
+            and production_labels.get("com.docker.compose.project") == "nutsnews-app"
+            and access_labels.get("com.docker.compose.project") == "nutsnews-staging-access"
+            and caddy_labels.get("com.docker.compose.project") == "nutsnews-service-foundation"
+        ),
+        "immutable_digest": staging_config.get("Image") == expected_image,
+        "network_separation": (
+            staging_networks == {"nutsnews-edge-staging"}
+            and access_networks == {"nutsnews-edge-staging"}
+            and "nutsnews-edge" in production_networks
+            and "nutsnews-edge-staging" not in production_networks
+            and {"nutsnews-edge", "nutsnews-edge-staging"}.issubset(caddy_networks)
+        ),
+        "resource_limits": (
+            staging_host.get("NanoCpus") == 1_000_000_000
+            and staging_host.get("CpuShares") == 256
+            and staging_host.get("Memory") == 512 * 1024 * 1024
+            and staging_host.get("MemoryReservation") == 256 * 1024 * 1024
+            and staging_host.get("PidsLimit") == 128
+        ),
+        "log_limits": (
+            isinstance(staging_log_config, dict)
+            and staging_log_config.get("max-size") == "10m"
+            and staging_log_config.get("max-file") == "3"
+        ),
+        "directory_separation": (
+            all(root_directory(path) for path in (staging_app_dir, staging_state_dir, production_app_dir, production_state_dir))
+            and len({str(path.resolve()) for path in (staging_app_dir, staging_state_dir, production_app_dir, production_state_dir)}) == 4
+        ),
+        "env_file_permissions": all(secure_root_file(path) for path in (staging_env, access_env, production_env)),
+        "caddy_route": (
+            healthy(caddy_state)
+            and caddyfile_mounted
+            and "staging.nutsnews.com {" in caddy_text
+            and "forward_auth nutsnews-staging-access:8091" in caddy_text
+            and "reverse_proxy nutsnews-app-staging:3000" in caddy_text
+        ),
+        "production_healthy": healthy(production_state),
+        "access_verifier_healthy": healthy(access_state),
+    }
+    if not all(boundary.values()):
+        fail("staging_boundary_failed")
     print(
         json.dumps(
-            {"ok": True, "operation": "verify", "actual_digest": digest, "config_generation": config_generation},
+            {
+                "ok": True,
+                "operation": "verify",
+                "actual_digest": digest,
+                "config_generation": config_generation,
+                "boundary": boundary,
+            },
             separators=(",", ":"),
         )
     )

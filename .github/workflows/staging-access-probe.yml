@@ -43,13 +43,15 @@ jobs:
             echo "Anonymous staging request was not denied by the Access boundary." >&2
             exit 1
           fi
-          authenticated_status="$(curl --silent --show-error --output /dev/null --max-time 15 \
-            --write-out '%{http_code}' \
-            --header "CF-Access-Client-Id: $CLIENT_ID" \
-            --header "CF-Access-Client-Secret: $CLIENT_SECRET" \
-            https://staging.nutsnews.com/healthz)"
-          if [[ "$authenticated_status" != "200" ]]; then
-            echo "Authenticated staging health probe returned HTTP ${authenticated_status}, expected 200." >&2
-            exit 1
-          fi
-          echo "Anonymous denial and authenticated staging health were verified without retaining response data."
+          for endpoint in healthz readyz; do
+            authenticated_status="$(curl --silent --show-error --output /dev/null --max-time 15 \
+              --write-out '%{http_code}' \
+              --header "CF-Access-Client-Id: $CLIENT_ID" \
+              --header "CF-Access-Client-Secret: $CLIENT_SECRET" \
+              "https://staging.nutsnews.com/${endpoint}")"
+            if [[ "$authenticated_status" != "200" ]]; then
+              echo "Authenticated staging ${endpoint} probe returned HTTP ${authenticated_status}, expected 200." >&2
+              exit 1
+            fi
+          done
+          echo "Anonymous denial and authenticated staging health/readiness were verified without retaining response data."
