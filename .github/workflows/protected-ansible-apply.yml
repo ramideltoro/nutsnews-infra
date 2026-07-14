@@ -70,6 +70,11 @@ on:
         required: false
         default: ""
         type: string
+      release_supabase_project_ref:
+        description: Optional verified Supabase project reference for an automated release.
+        required: false
+        default: ""
+        type: string
 
 permissions:
   contents: read  # Required to check out the GitOps-managed Ansible playbooks.
@@ -103,11 +108,12 @@ jobs:
           RELEASE_BUILD_ID: ${{ inputs.release_build_id }}
           RELEASE_MIGRATION_HEAD: ${{ inputs.release_migration_head }}
           RELEASE_SCHEMA_VERSION: ${{ inputs.release_schema_version }}
+          RELEASE_SUPABASE_PROJECT_REF: ${{ inputs.release_supabase_project_ref }}
         run: |
           set -euo pipefail
 
           supplied=0
-          for value in "$RELEASE_SOURCE_COMMIT" "$RELEASE_IMAGE_DIGEST" "$RELEASE_BUILD_ID" "$RELEASE_MIGRATION_HEAD" "$RELEASE_SCHEMA_VERSION"; do
+          for value in "$RELEASE_SOURCE_COMMIT" "$RELEASE_IMAGE_DIGEST" "$RELEASE_BUILD_ID" "$RELEASE_MIGRATION_HEAD" "$RELEASE_SCHEMA_VERSION" "$RELEASE_SUPABASE_PROJECT_REF"; do
             if [[ -n "$value" ]]; then
               supplied=$((supplied + 1))
             fi
@@ -115,8 +121,8 @@ jobs:
           if [[ "$supplied" -eq 0 ]]; then
             exit 0
           fi
-          if [[ "$supplied" -ne 5 ]]; then
-            echo "Automated release verification requires source commit, image digest, build ID, migration head, and schema version together." >&2
+          if [[ "$supplied" -ne 6 ]]; then
+            echo "Automated release verification requires source commit, image digest, build ID, migration head, schema version, and Supabase project reference together." >&2
             exit 1
           fi
 
@@ -128,7 +134,8 @@ jobs:
             --source-commit "$RELEASE_SOURCE_COMMIT" \
             --build-id "$RELEASE_BUILD_ID" \
             --migration-head "$RELEASE_MIGRATION_HEAD" \
-            --schema-version "$RELEASE_SCHEMA_VERSION")"
+            --schema-version "$RELEASE_SCHEMA_VERSION" \
+            --supabase-project-ref "$RELEASE_SUPABASE_PROJECT_REF")"
           release_deployment_target="$(python3 -c 'import json, sys; print(json.load(sys.stdin)["deployment_target"])' <<<"$release_state")"
           printf 'RELEASE_DEPLOYMENT_TARGET=%s\n' "$release_deployment_target" >> "$GITHUB_ENV"
           echo "Verified reviewed production deployment target: $release_deployment_target"

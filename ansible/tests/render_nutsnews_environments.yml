@@ -35,6 +35,7 @@
         deployment_id: ""
         migration_head: "20260713000000"
         schema_version: "20260712170000"
+        supabase_project_ref: fixtureproductionref
         staged_route_enabled: true
         route_path: /app-stage
         public_route_enabled: true
@@ -54,9 +55,9 @@
           NUTSNEWS_SIDE_EFFECTS_MODE: live
           NUTSNEWS_DATA_ENVIRONMENT: production
           NUTSNEWS_SUPABASE_CREDENTIALS_ENV: production
-          NUTSNEWS_SUPABASE_PROJECT_REF: fixture-production
-          NUTSNEWS_PRODUCTION_SUPABASE_PROJECT_REF: fixture-production
-          NUTSNEWS_PUBLIC_SUPABASE_URL: https://fixture-production.supabase.co
+          NUTSNEWS_SUPABASE_PROJECT_REF: fixtureproductionref
+          NUTSNEWS_PRODUCTION_SUPABASE_PROJECT_REF: fixtureproductionref
+          NUTSNEWS_PUBLIC_SUPABASE_URL: https://fixtureproductionref.supabase.co
           NUTSNEWS_PUBLIC_SUPABASE_ANON_KEY: fixture-anon-key
       staging:
         name: staging

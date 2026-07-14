@@ -15,6 +15,7 @@
     'deployment_id': nutsnews_environment.deployment_id | default(''),
     'migration_head': nutsnews_environment.migration_head | default(''),
     'schema_version': nutsnews_environment.schema_version | default(''),
+    'supabase_project_ref': nutsnews_environment.supabase_project_ref | default(''),
     'container_name': nutsnews_environment.container_name,
     'network_name': nutsnews_environment.network_name,
     'recorded_at': ansible_date_time.iso8601

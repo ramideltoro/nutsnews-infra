@@ -8,6 +8,7 @@
     vps_service_foundation_nutsnews_environment_runtime:
       name: production
       enabled: true
+      supabase_project_ref: "{{ test_release_project_ref | default('fixtureproductionref') }}"
       envs: "{{ test_runtime_envs }}"
   tasks:
     - name: Exercise the production runtime contract guard

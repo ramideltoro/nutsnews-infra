@@ -89,9 +89,9 @@ valid_production_runtime = {
     "NUTSNEWS_SIDE_EFFECTS_MODE": "live",
     "NUTSNEWS_DATA_ENVIRONMENT": "production",
     "NUTSNEWS_SUPABASE_CREDENTIALS_ENV": "production",
-    "NUTSNEWS_SUPABASE_PROJECT_REF": "fixture-production",
-    "NUTSNEWS_PRODUCTION_SUPABASE_PROJECT_REF": "fixture-production",
-    "NUTSNEWS_PUBLIC_SUPABASE_URL": "https://fixture-production.supabase.co",
+    "NUTSNEWS_SUPABASE_PROJECT_REF": "fixtureproductionref",
+    "NUTSNEWS_PRODUCTION_SUPABASE_PROJECT_REF": "fixtureproductionref",
+    "NUTSNEWS_PUBLIC_SUPABASE_URL": "https://fixtureproductionref.supabase.co",
     "NUTSNEWS_PUBLIC_SUPABASE_ANON_KEY": "fixture-anon-key",
 }
 run(
@@ -103,6 +103,22 @@ run(
         json.dumps({"test_runtime_envs": valid_production_runtime}),
     ],
     {},
+)
+run(
+    [
+        "ansible-playbook",
+        "--check",
+        str(PRODUCTION_CONTRACT_PLAYBOOK),
+        "-e",
+        json.dumps(
+            {
+                "test_runtime_envs": valid_production_runtime,
+                "test_release_project_ref": "different-production",
+            }
+        ),
+    ],
+    {},
+    expect=2,
 )
 
 invalid_production_runtimes = [

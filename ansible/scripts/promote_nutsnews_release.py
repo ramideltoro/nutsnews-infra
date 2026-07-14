@@ -14,6 +14,7 @@ SHA256_RE = re.compile(r"sha256:[0-9a-f]{64}\Z")
 COMMIT_RE = re.compile(r"[0-9a-f]{40}\Z")
 BUILD_ID_RE = re.compile(r"[0-9]+-[0-9]+\Z")
 SCHEMA_VERSION_RE = re.compile(r"[0-9]{14}\Z")
+SUPABASE_PROJECT_REF_RE = re.compile(r"[a-z0-9]{20}\Z")
 
 
 class PromotionError(ValueError):
@@ -49,11 +50,15 @@ def validate_release(
     build_id: str,
     migration_head: str,
     schema_version: str,
+    supabase_project_ref: str,
 ) -> dict[str, str]:
     if image_repository != IMAGE_REPOSITORY:
         raise PromotionError("Image repository is not the approved NutsNews GHCR repository.")
     migration_head = require_match(SCHEMA_VERSION_RE, migration_head, "Migration head")
     schema_version = require_match(SCHEMA_VERSION_RE, schema_version, "Schema version")
+    supabase_project_ref = require_match(
+        SUPABASE_PROJECT_REF_RE, supabase_project_ref, "Supabase project reference"
+    )
     validated_build_id = require_match(BUILD_ID_RE, build_id, "Build ID")
     return {
         "image_repository": image_repository,
@@ -62,6 +67,7 @@ def validate_release(
         "build_id": validated_build_id,
         "migration_head": migration_head,
         "schema_version": schema_version,
+        "supabase_project_ref": supabase_project_ref,
         "config_generation": f"production-{validated_build_id}-{migration_head}",
     }
 
@@ -73,11 +79,22 @@ def validate_manifest(values: dict[str, str]) -> dict[str, str]:
     build_id = required_value(values, "vps_service_foundation_nutsnews_app_build_id")
     migration_head = required_value(values, "vps_service_foundation_nutsnews_app_migration_head")
     schema_version = required_value(values, "vps_service_foundation_nutsnews_app_schema_version")
+    supabase_project_ref = required_value(
+        values, "vps_service_foundation_nutsnews_app_supabase_project_ref"
+    )
     config_generation = required_value(values, "vps_service_foundation_nutsnews_app_config_generation")
     deployment_target = required_value(values, "vps_service_foundation_nutsnews_app_deployment_target")
     last_known_good = values.get("vps_service_foundation_nutsnews_app_last_known_good_digest", "")
 
-    release = validate_release(repository, digest, source_commit, build_id, migration_head, schema_version)
+    release = validate_release(
+        repository,
+        digest,
+        source_commit,
+        build_id,
+        migration_head,
+        schema_version,
+        supabase_project_ref,
+    )
     if deployment_target != "production-vps":
         raise PromotionError("Manifest deployment target must be production-vps.")
     if last_known_good:
@@ -105,10 +122,19 @@ def promote_manifest(
     build_id: str,
     migration_head: str,
     schema_version: str,
+    supabase_project_ref: str,
     *,
     write: bool,
 ) -> dict[str, str]:
-    release = validate_release(image_repository, image_digest, source_commit, build_id, migration_head, schema_version)
+    release = validate_release(
+        image_repository,
+        image_digest,
+        source_commit,
+        build_id,
+        migration_head,
+        schema_version,
+        supabase_project_ref,
+    )
     original = manifest_path.read_text(encoding="utf-8")
     current = validate_manifest(manifest_values(original))
 
@@ -125,6 +151,10 @@ def promote_manifest(
         ("vps_service_foundation_nutsnews_app_config_generation", release["config_generation"]),
         ("vps_service_foundation_nutsnews_app_migration_head", release["migration_head"]),
         ("vps_service_foundation_nutsnews_app_schema_version", release["schema_version"]),
+        (
+            "vps_service_foundation_nutsnews_app_supabase_project_ref",
+            release["supabase_project_ref"],
+        ),
         ("vps_service_foundation_nutsnews_app_deployment_target", "production-vps"),
         ("vps_service_foundation_nutsnews_app_last_known_good_digest", next_last_known_good),
     ):
@@ -149,8 +179,17 @@ def verify_manifest(
     build_id: str,
     migration_head: str,
     schema_version: str,
+    supabase_project_ref: str,
 ) -> dict[str, str]:
-    expected = validate_release(image_repository, image_digest, source_commit, build_id, migration_head, schema_version)
+    expected = validate_release(
+        image_repository,
+        image_digest,
+        source_commit,
+        build_id,
+        migration_head,
+        schema_version,
+        supabase_project_ref,
+    )
     actual = validate_manifest(manifest_values(manifest_path.read_text(encoding="utf-8")))
     for name, expected_value in expected.items():
         if actual[name] != expected_value:
@@ -166,6 +205,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--build-id", required=True)
     parser.add_argument("--migration-head", required=True)
     parser.add_argument("--schema-version", required=True)
+    parser.add_argument("--supabase-project-ref", required=True)
     parser.add_argument("--manifest", type=Path)
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--validate-only", action="store_true")
@@ -187,6 +227,7 @@ def main() -> None:
             args.build_id,
             args.migration_head,
             args.schema_version,
+            args.supabase_project_ref,
         )
     elif args.verify:
         result = verify_manifest(
@@ -197,6 +238,7 @@ def main() -> None:
             args.build_id,
             args.migration_head,
             args.schema_version,
+            args.supabase_project_ref,
         )
     else:
         result = promote_manifest(
@@ -207,6 +249,7 @@ def main() -> None:
             args.build_id,
             args.migration_head,
             args.schema_version,
+            args.supabase_project_ref,
             write=True,
         )
     print(json.dumps(result, sort_keys=True))
