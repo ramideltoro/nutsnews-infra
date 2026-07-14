@@ -12,6 +12,7 @@ DEFAULTS = ROOT / "roles/vps_service_foundation/defaults/main.yml"
 TASKS = ROOT / "roles/vps_service_foundation/tasks/main.yml"
 ENV_TASKS = ROOT / "roles/vps_service_foundation/tasks/nutsnews_environment.yml"
 ENVIRONMENT_VALIDATION_TASKS = ROOT / "roles/vps_service_foundation/tasks/nutsnews_environment_validate.yml"
+PRODUCTION_RUNTIME_CONTRACT_TASKS = ROOT / "roles/vps_service_foundation/tasks/nutsnews_production_runtime_contract.yml"
 STATE_TASKS = ROOT / "roles/vps_service_foundation/tasks/nutsnews_environment_apply_state.yml"
 STAGED_ROUTE = ROOT / "roles/vps_service_foundation/templates/nutsnews-app.routes.j2"
 PUBLIC_ROUTE = ROOT / "roles/vps_service_foundation/templates/nutsnews-app.public.routes.j2"
@@ -53,6 +54,7 @@ defaults = DEFAULTS.read_text(encoding="utf-8")
 tasks = TASKS.read_text(encoding="utf-8")
 environment_tasks = ENV_TASKS.read_text(encoding="utf-8")
 environment_validation_tasks = ENVIRONMENT_VALIDATION_TASKS.read_text(encoding="utf-8")
+production_runtime_contract_tasks = PRODUCTION_RUNTIME_CONTRACT_TASKS.read_text(encoding="utf-8")
 state_tasks = STATE_TASKS.read_text(encoding="utf-8")
 app_compose = APP_COMPOSE.read_text(encoding="utf-8")
 caddy_compose = CADDY_COMPOSE.read_text(encoding="utf-8")
@@ -98,6 +100,11 @@ assert "--remove-orphans" in environment_tasks
 assert "nutsnews_environment.name == 'staging'" in environment_validation_tasks
 assert "image_review_status == 'reviewed'" in environment_validation_tasks
 assert "last_known_good_state_file" in state_tasks
+assert "nutsnews_production_runtime_contract.yml" in environment_tasks
+assert "vps_service_foundation_nutsnews_production_required_runtime_env_keys" in production_runtime_contract_tasks
+assert "NUTSNEWS_PUBLIC_SUPABASE_URL" in production_runtime_contract_tasks
+assert "NUTSNEWS_PUBLIC_SUPABASE_ANON_KEY" in production_runtime_contract_tasks
+assert "nutsnews_environment.health_path == '/readyz'" in environment_validation_tasks
 
 assert caddy_compose.count("networks:\n      - edge") == 2
 assert "com.docker.compose.network=edge" in caddy_compose

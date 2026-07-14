@@ -35,6 +35,14 @@ removal procedures.
 - `run_mode=apply` is production-changing and requires the existing
   `production-vps` Environment approval plus the exact confirmation string.
 
+An enabled production render fails before materialization unless the merged
+map contains the complete runtime-safety and public Supabase contract. This
+guard also applies when `sync_vercel_production=false`, so that option cannot
+silently replace a working production environment with an incomplete map. The
+managed Compose health check uses `/readyz`; `/healthz` remains a liveness and
+immutable-identity endpoint, not proof that runtime policy and data access are
+usable.
+
 The workflow is serialized with the existing production VPS concurrency group.
 It reads the VPS env file only through a read-only SSH command that emits names
 and hashes. Ansible remains the only path that writes the VPS file.

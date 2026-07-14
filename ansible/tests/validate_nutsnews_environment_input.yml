@@ -25,7 +25,7 @@
       last_known_good_state_file: "/tmp/nutsnews-state-{{ test_environment_name }}/last-known-good.json"
       container_name: "nutsnews-app-{{ test_environment_name }}"
       container_port: 3000
-      health_path: /healthz
+      health_path: /readyz
       image_repo: ghcr.io/ramideltoro/nutsnews
       image_digest: latest
       image: ghcr.io/ramideltoro/nutsnews:latest

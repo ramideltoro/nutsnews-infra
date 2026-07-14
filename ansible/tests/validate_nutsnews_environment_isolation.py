@@ -18,6 +18,7 @@ REPO = ROOT.parent
 RENDER_PLAYBOOK = ROOT / "tests/render_nutsnews_environments.yml"
 STAGING_ONLY_PLAYBOOK = ROOT / "tests/staging_only_nutsnews_environment.yml"
 INVALID_INPUT_PLAYBOOK = ROOT / "tests/validate_nutsnews_environment_input.yml"
+PRODUCTION_CONTRACT_PLAYBOOK = ROOT / "tests/validate_production_runtime_contract.yml"
 DEFAULT_MODEL_PLAYBOOK = ROOT / "tests/validate_nutsnews_environment_defaults.yml"
 ENVIRONMENT_TASKS = ROOT / "roles/vps_service_foundation/tasks/nutsnews_environment.yml"
 ENVIRONMENT_VALIDATION_TASKS = ROOT / "roles/vps_service_foundation/tasks/nutsnews_environment_validate.yml"
@@ -83,6 +84,45 @@ assert shutil.which("docker"), "Docker Compose is required for runtime-isolation
 
 run(["ansible-playbook", "--check", str(DEFAULT_MODEL_PLAYBOOK)], {})
 
+valid_production_runtime = {
+    "NUTSNEWS_RUNTIME_ENV": "production",
+    "NUTSNEWS_SIDE_EFFECTS_MODE": "live",
+    "NUTSNEWS_DATA_ENVIRONMENT": "production",
+    "NUTSNEWS_SUPABASE_CREDENTIALS_ENV": "production",
+    "NUTSNEWS_SUPABASE_PROJECT_REF": "fixture-production",
+    "NUTSNEWS_PRODUCTION_SUPABASE_PROJECT_REF": "fixture-production",
+    "NUTSNEWS_PUBLIC_SUPABASE_URL": "https://fixture-production.supabase.co",
+    "NUTSNEWS_PUBLIC_SUPABASE_ANON_KEY": "fixture-anon-key",
+}
+run(
+    [
+        "ansible-playbook",
+        "--check",
+        str(PRODUCTION_CONTRACT_PLAYBOOK),
+        "-e",
+        json.dumps({"test_runtime_envs": valid_production_runtime}),
+    ],
+    {},
+)
+
+invalid_production_runtimes = [
+    {key: value for key, value in valid_production_runtime.items() if key != "NUTSNEWS_RUNTIME_ENV"},
+    {**valid_production_runtime, "NUTSNEWS_RUNTIME_ENV": "staging"},
+    {**valid_production_runtime, "NUTSNEWS_PRODUCTION_SUPABASE_PROJECT_REF": "different-production"},
+]
+for invalid_runtime in invalid_production_runtimes:
+    run(
+        [
+            "ansible-playbook",
+            "--check",
+            str(PRODUCTION_CONTRACT_PLAYBOOK),
+            "-e",
+            json.dumps({"test_runtime_envs": invalid_runtime}),
+        ],
+        {},
+        expect=2,
+    )
+
 with tempfile.TemporaryDirectory(prefix="nutsnews-runtime-isolation-") as temporary_directory:
     root = Path(temporary_directory)
     render_environment = {"NUTSNEWS_RENDER_ROOT": str(root), "NUTSNEWS_STAGING_SUFFIX": "base"}
@@ -112,6 +152,7 @@ with tempfile.TemporaryDirectory(prefix="nutsnews-runtime-isolation-") as tempor
     assert production_service["pids_limit"] == 256
     assert production_service["logging"]["driver"] == "json-file"
     assert production_service["logging"]["options"] == {"max-file": "3", "max-size": "10m"}
+    assert "/readyz" in " ".join(production_service["healthcheck"]["test"])
     assert staging_service["cpus"] == 1.0
     assert staging_service["cpu_shares"] == 256
     assert staging_service["mem_limit"] == "536870912"
@@ -119,6 +160,7 @@ with tempfile.TemporaryDirectory(prefix="nutsnews-runtime-isolation-") as tempor
     assert staging_service["pids_limit"] == 128
     assert staging_service["logging"]["driver"] == "json-file"
     assert staging_service["logging"]["options"] == {"max-file": "3", "max-size": "10m"}
+    assert "/readyz" in " ".join(staging_service["healthcheck"]["test"])
     assert production["env"] != staging["env"]
     for key in (
         "app_dir",
@@ -170,6 +212,7 @@ assert "--project-name" in environment_tasks
 assert "--remove-orphans" in environment_tasks
 assert not re.search(r"\b(docker\s+(?:compose\s+)?(?:down|stop|rm))\b", environment_tasks)
 assert "Mutable tags" in environment_validation_tasks
+assert "nutsnews_production_runtime_contract.yml" in environment_tasks
 assert "vps_service_foundation_nutsnews_deployment_environments" in main_tasks
 assert "NUTSNEWS_APP_PROJECT_NAME" in app_compose
 assert "NUTSNEWS_APP_NETWORK_NAME" in app_compose

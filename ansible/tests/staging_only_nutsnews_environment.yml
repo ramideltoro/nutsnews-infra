@@ -25,7 +25,7 @@
       last_known_good_state_file: "{{ fixture_root }}/ops/apps/staging/last-known-good.json"
       container_name: nutsnews-app-staging
       container_port: 3000
-      health_path: /healthz
+      health_path: /readyz
       image_repo: ghcr.io/ramideltoro/nutsnews
       image_digest: ""
       image: ""

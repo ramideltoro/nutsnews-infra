@@ -1,0 +1,67 @@
+---
+- name: Require the production runtime configuration names
+  ansible.builtin.assert:
+    that:
+      - >-
+        (
+          vps_service_foundation_nutsnews_production_required_runtime_env_keys
+          | difference(vps_service_foundation_nutsnews_environment_runtime.envs.keys() | list)
+        )
+        | length == 0
+    fail_msg: >-
+      The enabled NutsNews production runtime is missing required runtime or
+      Supabase configuration. Use the reviewed Vercel-to-VPS sync before apply.
+  when:
+    - vps_service_foundation_nutsnews_environment_runtime.name == 'production'
+    - vps_service_foundation_nutsnews_environment_runtime.enabled | bool
+  no_log: true
+
+- name: Require the fixed production runtime policy values
+  ansible.builtin.assert:
+    that:
+      - >-
+        (
+          vps_service_foundation_nutsnews_environment_runtime.envs[item.key]
+          | string
+          | trim
+        ) == item.value
+    fail_msg: >-
+      The enabled NutsNews production runtime policy does not match the
+      reviewed production identity.
+  loop: "{{ vps_service_foundation_nutsnews_production_required_runtime_env_values | dict2items }}"
+  loop_control:
+    label: "{{ item.key }}"
+  when:
+    - vps_service_foundation_nutsnews_environment_runtime.name == 'production'
+    - vps_service_foundation_nutsnews_environment_runtime.enabled | bool
+  no_log: true
+
+- name: Require a coherent production Supabase identity
+  ansible.builtin.assert:
+    that:
+      - >-
+        (vps_service_foundation_nutsnews_environment_runtime.envs['NUTSNEWS_SUPABASE_PROJECT_REF']
+        | string | trim) is match('^[a-z0-9][a-z0-9-]{2,62}$')
+      - >-
+        (vps_service_foundation_nutsnews_environment_runtime.envs['NUTSNEWS_PRODUCTION_SUPABASE_PROJECT_REF']
+        | string | trim) ==
+        (vps_service_foundation_nutsnews_environment_runtime.envs['NUTSNEWS_SUPABASE_PROJECT_REF']
+        | string | trim)
+      - >-
+        (vps_service_foundation_nutsnews_environment_runtime.envs['NUTSNEWS_PUBLIC_SUPABASE_URL']
+        | string | trim) is match(
+          '^https://' ~
+          (vps_service_foundation_nutsnews_environment_runtime.envs['NUTSNEWS_SUPABASE_PROJECT_REF']
+          | string | trim | regex_escape) ~
+          '\\.supabase\\.co/?$'
+        )
+      - >-
+        (vps_service_foundation_nutsnews_environment_runtime.envs['NUTSNEWS_PUBLIC_SUPABASE_ANON_KEY']
+        | string | trim | length) > 0
+    fail_msg: >-
+      The enabled NutsNews production Supabase runtime identity is incomplete
+      or internally inconsistent.
+  when:
+    - vps_service_foundation_nutsnews_environment_runtime.name == 'production'
+    - vps_service_foundation_nutsnews_environment_runtime.enabled | bool
+  no_log: true

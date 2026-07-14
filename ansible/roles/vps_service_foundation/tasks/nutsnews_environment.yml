@@ -18,6 +18,9 @@
       }}
   no_log: true
 
+- name: Validate production runtime configuration contract
+  ansible.builtin.include_tasks: nutsnews_production_runtime_contract.yml
+
 - name: Validate runtime secret declarations for {{ nutsnews_environment.name }}
   ansible.builtin.assert:
     that:
