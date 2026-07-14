@@ -6,6 +6,11 @@ has no `staging-vps` Environment attachment, deploy secret, or SSH credential:
 it validates the exact payload, source build on `ramideltoro/nutsnews` `main`,
 and the immutable OCI SLSA provenance first.
 
+For source reachability, GitHub's fixed compare request is
+`<candidate-commit>...main`; only `ahead` (the current `main` contains that
+candidate) or `identical` is trusted. Any other relationship fails before the
+`staging-vps` Environment can expose deployment credentials.
+
 The manual dispatch path is rehearsal-only. Enter the exact candidate JSON and
 `rehearse-staging-candidate`; it validates the same boundary but cannot attach
 staging credentials, run Ansible, or mutate a host.

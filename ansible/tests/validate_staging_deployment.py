@@ -59,7 +59,7 @@ def trusted_source_fetch(url: str) -> object:
             "run_attempt": 2,
         }
     if "/compare/" in url:
-        return {"status": "identical"}
+        return {"status": "ahead"}
     raise AssertionError(f"Unexpected trusted-source URL: {url}")
 
 
@@ -82,7 +82,7 @@ def untrusted_source_fetch(url: str) -> object:
             "run_attempt": 2,
         }
     if "/compare/" in url:
-        return {"status": "ahead"}
+        return {"status": "diverged"}
     raise AssertionError(f"Unexpected untrusted-source URL: {url}")
 
 
