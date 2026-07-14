@@ -169,7 +169,10 @@ def verify_source(candidate: Candidate, fetch_json: Callable[[str], Any] = _requ
         f"{candidate.source_commit}...main"
     )
     comparison = fetch_json(comparison_url)
-    if not isinstance(comparison, dict) or comparison.get("status") not in {"behind", "identical"}:
+    # GitHub reports `ahead` when the compare head (`main`) contains the base
+    # candidate commit. This is the only non-identical relationship that proves
+    # the candidate remains reachable from trusted main.
+    if not isinstance(comparison, dict) or comparison.get("status") not in {"ahead", "identical"}:
         raise CandidateError("Requested source commit is not reachable from ramideltoro/nutsnews main.")
 
 
