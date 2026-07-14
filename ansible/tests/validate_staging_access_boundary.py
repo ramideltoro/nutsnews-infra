@@ -126,6 +126,7 @@ assert "stdout=subprocess.PIPE" in forced_command
 assert "stderr=subprocess.STDOUT" in forced_command
 assert "TASK_LINE.findall(result.stdout)" in forced_command
 assert '"ANSIBLE_NOCOLOR": "1"' in forced_command
+assert '"ANSIBLE_PRIVATE_ROLE_VARS": "false"' in forced_command
 assert "Ansible output can contain rendered diffs" in forced_command
 assert "Staging gateway returned an invalid task label." in workflow
 assert "reviewed task" in workflow
