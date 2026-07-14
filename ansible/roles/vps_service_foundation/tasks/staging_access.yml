@@ -221,15 +221,3 @@
       - nutsnews-caddy
   when: "'nutsnews-caddy' not in vps_service_foundation_staging_access_network_members.stdout"
   changed_when: true
-
-- name: Reload Caddy after staging access becomes reachable
-  ansible.builtin.command:
-    argv:
-      - docker
-      - exec
-      - nutsnews-caddy
-      - caddy
-      - reload
-      - --config
-      - /etc/caddy/Caddyfile
-  changed_when: true
