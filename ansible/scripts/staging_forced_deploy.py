@@ -17,7 +17,7 @@ MARKER = BUNDLE / "infra-commit"
 MAX_REQUEST_BYTES = 1_048_576
 SHA = re.compile(r"^[0-9a-f]{40}$")
 DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
-TASK_LINE = re.compile(r"^TASK \[([A-Za-z0-9 _./:()'=-]{1,200})\]", re.MULTILINE)
+TASK_LINE = re.compile(r"TASK \[([A-Za-z0-9 _./:()'=-]{1,200})\]")
 
 
 def fail(message: str, *, task: str = "") -> None:
@@ -102,6 +102,7 @@ def run_deploy(request: dict[str, object], operation: str) -> None:
         result = subprocess.run(
             command,
             cwd=BUNDLE / "ansible",
+            env={**os.environ, "ANSIBLE_NOCOLOR": "1"},
             text=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
