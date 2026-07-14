@@ -48,6 +48,7 @@ disabled = render_caddy(False)
 enabled = render_caddy(True)
 assert disabled == base, "Disabled staging access must render the production Caddyfile byte-for-byte."
 assert enabled.count("staging.nutsnews.com {") == 1
+assert "admin off" in enabled
 assert "forward_auth nutsnews-staging-access:8091" in enabled
 assert "reverse_proxy nutsnews-app-staging:3000" in enabled
 assert 'X-Robots-Tag "noindex, nofollow, noarchive, nosnippet"' in enabled
@@ -87,6 +88,10 @@ for compose_task_name in (
     assert compose_task["environment"]["NUTSNEWS_STAGING_ACCESS_ENV_FILE"] == (
         "{{ vps_service_foundation_nutsnews_staging_access_env_file }}"
     ), f"{compose_task_name} must define the Compose env-file interpolation variable."
+
+assert not any(task.get("name") == "Reload Caddy after staging access becomes reachable" for task in parsed_access_tasks), (
+    "Staging access must not invoke Caddy's disabled admin API after connecting the existing container network."
+)
 
 assert "environment: staging-vps" in workflow
 assert "production-vps" not in workflow
