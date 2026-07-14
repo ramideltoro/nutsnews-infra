@@ -113,6 +113,10 @@ assert "staging-tests" not in cloudflare_workflow
 assert 'decision   = "bypass"' in cloudflare_main
 assert 'domain               = "staging.nutsnews.com/.well-known/acme-challenge/*"' in cloudflare_main
 assert "cloudflare_zero_trust_access_policy.acme_challenge.id" in cloudflare_main
+assert 'same_site_cookie_attribute = "lax"' in cloudflare_main
+assert 'same_site_cookie_attribute = "strict"' not in cloudflare_main
+assert "http_only_cookie_attribute = true" in cloudflare_main
+assert "enable_binding_cookie      = true" in cloudflare_main
 assert "flexible" not in cloudflare_main.lower()
 assert 'mode: "0600"' in environment_tasks and "no_log: true" in environment_tasks
 defaults = (ROOT / "roles/vps_service_foundation/defaults/main.yml").read_text()

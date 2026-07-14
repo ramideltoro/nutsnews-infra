@@ -15,6 +15,13 @@ Use three separate trust boundaries:
 Never put deploy SSH or app runtime secrets in `staging-tests`, provider-admin
 credentials in either staging environment, or test users in `staging-vps`.
 
+The browser authorization cookie uses `SameSite=Lax`, the narrowest Cloudflare
+Access setting compatible with the top-level cross-site return from the
+staging application's Google OAuth flow. `SameSite=Strict` is not permitted:
+Cloudflare documents that it can cause `ERR_TOO_MANY_REDIRECTS`. HttpOnly and
+the binding cookie remain enabled, and the application and VPS verifier still
+enforce the existing Access identity and audience boundaries.
+
 Before any apply, use the canonical onboarding, check/apply sequence, rollback
 and live read-only checklist in `ramideltoro/nutsnews-docs`:
 `NUTSNEWS_VPS_STAGING_ACCESS_BOUNDARY.md`. Protected provider apply and

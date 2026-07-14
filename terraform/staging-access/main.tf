@@ -59,7 +59,7 @@ resource "cloudflare_zero_trust_access_application" "staging" {
   session_duration           = "8h"
   service_auth_401_redirect  = true
   http_only_cookie_attribute = true
-  same_site_cookie_attribute = "strict"
+  same_site_cookie_attribute = "lax"
   enable_binding_cookie      = true
   app_launcher_visible       = false
   policies = [
