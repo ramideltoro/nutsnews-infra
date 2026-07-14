@@ -228,6 +228,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          set +e
           ssh \
             -i "$HOME/.ssh/nutsnews_staging_vps" \
             -o "UserKnownHostsFile=$HOME/.ssh/known_hosts" \
@@ -236,8 +237,27 @@ jobs:
             nutsnews_staging_deploy@65.75.202.112 \
             < "$RUNNER_TEMP/nutsnews-staging-check.json" \
             > "$RUNNER_TEMP/nutsnews-staging-check-result.json"
-          python3 -c 'import json,sys; assert json.load(open(sys.argv[1])) == {"ok": True, "operation": "check"}' \
-            "$RUNNER_TEMP/nutsnews-staging-check-result.json"
+          gateway_status="$?"
+          set -e
+          python3 - "$RUNNER_TEMP/nutsnews-staging-check-result.json" "$gateway_status" <<'PY'
+          import json
+          from pathlib import Path
+          import re
+          import sys
+
+          result = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+          status = int(sys.argv[2])
+          if status == 0 and result == {"ok": True, "operation": "check"}:
+              raise SystemExit(0)
+          code = result.get("code")
+          task = result.get("task", "")
+          if not isinstance(code, str) or not re.fullmatch(r"[a-z_]{1,80}", code):
+              raise SystemExit("Staging gateway returned an invalid failure response.")
+          if not isinstance(task, str) or (task and not re.fullmatch(r"[A-Za-z0-9 _./:()'=-]{1,200}", task)):
+              raise SystemExit("Staging gateway returned an invalid task label.")
+          suffix = f" at reviewed task: {task}" if task else ""
+          raise SystemExit(f"Staging gateway failed with {code}{suffix}")
+          PY
 
       - name: Create auditable GitHub staging deployment record
         id: deployment

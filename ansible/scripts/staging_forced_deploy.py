@@ -17,10 +17,14 @@ MARKER = BUNDLE / "infra-commit"
 MAX_REQUEST_BYTES = 1_048_576
 SHA = re.compile(r"^[0-9a-f]{40}$")
 DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
+TASK_LINE = re.compile(r"^TASK \[([A-Za-z0-9 _./:()'=-]{1,200})\]", re.MULTILINE)
 
 
-def fail(message: str) -> None:
-    print(json.dumps({"ok": False, "code": message}, separators=(",", ":")))
+def fail(message: str, *, task: str = "") -> None:
+    response = {"ok": False, "code": message}
+    if task:
+        response["task"] = task
+    print(json.dumps(response, separators=(",", ":")))
     raise SystemExit(1)
 
 
@@ -98,12 +102,17 @@ def run_deploy(request: dict[str, object], operation: str) -> None:
         result = subprocess.run(
             command,
             cwd=BUNDLE / "ansible",
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
             check=False,
         )
         if result.returncode:
-            fail(f"staging_{operation}_failed")
+            # Ansible output can contain rendered diffs and must never cross
+            # the forced-command boundary. Return only the last reviewed task
+            # label so an operator can diagnose a failure without secrets.
+            tasks = TASK_LINE.findall(result.stdout)
+            fail(f"staging_{operation}_failed", task=tasks[-1] if tasks else "")
     print(json.dumps({"ok": True, "operation": operation}, separators=(",", ":")))
 
 
