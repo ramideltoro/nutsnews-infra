@@ -28,6 +28,7 @@ REQUIRED_STAGING_ENV_KEYS = {
     "AUTH_GOOGLE_ID",
     "AUTH_GOOGLE_SECRET",
     "AUTH_SECRET",
+    "AUTH_URL",
     "NEXTAUTH_URL",
     "NUTSNEWS_EMAIL_MODE",
     "NUTSNEWS_OAUTH_CREDENTIALS_ENV",
@@ -86,7 +87,7 @@ def parse_staging_envs(
     for key in ("NUTSNEWS_SUPABASE_URL", "NUTSNEWS_PUBLIC_SUPABASE_URL"):
         if output[key] != f"https://{staging_project}.supabase.co":
             raise CandidateError(f"{key} must resolve to the declared staging Supabase project.")
-    for key in ("NEXTAUTH_URL", "NUTSNEWS_SITE_URL"):
+    for key in ("AUTH_URL", "NEXTAUTH_URL", "NUTSNEWS_SITE_URL"):
         if output[key].rstrip("/") != "https://staging.nutsnews.com":
             raise CandidateError(f"{key} must be https://staging.nutsnews.com.")
     if output["NUTSNEWS_EMAIL_MODE"] not in {"disabled", "sandbox"}:
