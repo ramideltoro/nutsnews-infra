@@ -18,6 +18,7 @@ WORKFLOW = REPO / ".github/workflows/nutsnews-staging-deploy.yml"
 PLAYBOOK = ROOT / "playbooks/deploy-staging.yml"
 INVENTORY = ROOT / "inventories/staging/hosts.yml"
 DEFAULTS = ROOT / "roles/vps_service_foundation/defaults/main.yml"
+ENVIRONMENT_TASKS = ROOT / "roles/vps_service_foundation/tasks/nutsnews_environment.yml"
 
 
 spec = importlib.util.spec_from_file_location("validate_staging_candidate", VALIDATOR)
@@ -191,6 +192,7 @@ workflow = WORKFLOW.read_text(encoding="utf-8")
 playbook = PLAYBOOK.read_text(encoding="utf-8")
 inventory = INVENTORY.read_text(encoding="utf-8")
 defaults = DEFAULTS.read_text(encoding="utf-8")
+environment_tasks = ENVIRONMENT_TASKS.read_text(encoding="utf-8")
 
 for required in (
     "nutsnews-staging-release",
@@ -245,5 +247,13 @@ assert "vps_baseline_vps" not in inventory
 assert "group: nutsnews-staging-deploy" in workflow
 assert "cancel-in-progress: false" in workflow
 assert "nutsnews-staging-deploy.lock" in defaults
+
+# A first staging dry run must not require directories that check mode only
+# predicts. Parent-dependent files are rendered by apply, or by later checks
+# after those root-owned directories already exist.
+assert "Inspect runtime directories after the non-mutating plan" in environment_tasks
+assert environment_tasks.count("not ansible_check_mode or") == 2
+assert "runtime_directories.results[0].stat.isdir" in environment_tasks
+assert "runtime_directories.results[1].stat.isdir" in environment_tasks
 
 print("Immutable staging candidate and deployment guardrails passed.")
