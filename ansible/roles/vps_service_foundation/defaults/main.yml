@@ -738,6 +738,7 @@ vps_service_foundation_nutsnews_app_deployment_target: production-vps
 vps_service_foundation_nutsnews_app_last_known_good_digest: ""
 vps_service_foundation_nutsnews_app_config_generation: ""
 vps_service_foundation_nutsnews_app_deployment_id: ""
+vps_service_foundation_nutsnews_app_migration_head: ""
 vps_service_foundation_nutsnews_app_schema_version: ""
 vps_service_foundation_nutsnews_app_staged_route_enabled: false
 vps_service_foundation_nutsnews_app_route_path: /app-stage
@@ -841,6 +842,7 @@ vps_service_foundation_nutsnews_environments:
     last_known_good_digest: "{{ vps_service_foundation_nutsnews_app_last_known_good_digest }}"
     config_generation: "{{ vps_service_foundation_nutsnews_app_config_generation }}"
     deployment_id: "{{ vps_service_foundation_nutsnews_app_deployment_id }}"
+    migration_head: "{{ vps_service_foundation_nutsnews_app_migration_head }}"
     schema_version: "{{ vps_service_foundation_nutsnews_app_schema_version }}"
     staged_route_enabled: "{{ vps_service_foundation_nutsnews_app_staged_route_enabled | bool }}"
     route_path: "{{ vps_service_foundation_nutsnews_app_route_path }}"
@@ -893,6 +895,7 @@ vps_service_foundation_nutsnews_environments:
     last_known_good_digest: ""
     config_generation: "{{ vps_service_foundation_nutsnews_staging_config_generation }}"
     deployment_id: "{{ vps_service_foundation_nutsnews_staging_deployment_id }}"
+    migration_head: ""
     schema_version: "{{ vps_service_foundation_nutsnews_staging_schema_version }}"
     staged_route_enabled: false
     route_path: /app-stage

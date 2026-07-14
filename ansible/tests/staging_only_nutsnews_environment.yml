@@ -36,6 +36,7 @@
       last_known_good_digest: ""
       config_generation: ""
       deployment_id: ""
+      migration_head: ""
       schema_version: ""
       staged_route_enabled: false
       route_path: /app-stage

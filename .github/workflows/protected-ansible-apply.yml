@@ -60,6 +60,16 @@ on:
         required: false
         default: ""
         type: string
+      release_migration_head:
+        description: Optional verified migration head for an automated release.
+        required: false
+        default: ""
+        type: string
+      release_schema_version:
+        description: Optional verified rollback-compatible schema marker for an automated release.
+        required: false
+        default: ""
+        type: string
 
 permissions:
   contents: read  # Required to check out the GitOps-managed Ansible playbooks.
@@ -91,11 +101,13 @@ jobs:
           RELEASE_SOURCE_COMMIT: ${{ inputs.release_source_commit }}
           RELEASE_IMAGE_DIGEST: ${{ inputs.release_image_digest }}
           RELEASE_BUILD_ID: ${{ inputs.release_build_id }}
+          RELEASE_MIGRATION_HEAD: ${{ inputs.release_migration_head }}
+          RELEASE_SCHEMA_VERSION: ${{ inputs.release_schema_version }}
         run: |
           set -euo pipefail
 
           supplied=0
-          for value in "$RELEASE_SOURCE_COMMIT" "$RELEASE_IMAGE_DIGEST" "$RELEASE_BUILD_ID"; do
+          for value in "$RELEASE_SOURCE_COMMIT" "$RELEASE_IMAGE_DIGEST" "$RELEASE_BUILD_ID" "$RELEASE_MIGRATION_HEAD" "$RELEASE_SCHEMA_VERSION"; do
             if [[ -n "$value" ]]; then
               supplied=$((supplied + 1))
             fi
@@ -103,8 +115,8 @@ jobs:
           if [[ "$supplied" -eq 0 ]]; then
             exit 0
           fi
-          if [[ "$supplied" -ne 3 ]]; then
-            echo "Automated release verification requires source commit, image digest, and build ID together." >&2
+          if [[ "$supplied" -ne 5 ]]; then
+            echo "Automated release verification requires source commit, image digest, build ID, migration head, and schema version together." >&2
             exit 1
           fi
 
@@ -114,7 +126,9 @@ jobs:
             --image-repository ghcr.io/ramideltoro/nutsnews \
             --image-digest "$RELEASE_IMAGE_DIGEST" \
             --source-commit "$RELEASE_SOURCE_COMMIT" \
-            --build-id "$RELEASE_BUILD_ID")"
+            --build-id "$RELEASE_BUILD_ID" \
+            --migration-head "$RELEASE_MIGRATION_HEAD" \
+            --schema-version "$RELEASE_SCHEMA_VERSION")"
           release_deployment_target="$(python3 -c 'import json, sys; print(json.load(sys.stdin)["deployment_target"])' <<<"$release_state")"
           printf 'RELEASE_DEPLOYMENT_TARGET=%s\n' "$release_deployment_target" >> "$GITHUB_ENV"
           echo "Verified reviewed production deployment target: $release_deployment_target"

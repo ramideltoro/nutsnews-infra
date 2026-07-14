@@ -28,12 +28,13 @@
         image: "ghcr.io/ramideltoro/nutsnews@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
         image_review_status: reviewed
         source_commit: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-        build_id: fixture-production
+        build_id: "101-1"
         deployment_target: production-vps
         last_known_good_digest: ""
-        config_generation: ""
+        config_generation: "production-101-1-20260713000000"
         deployment_id: ""
-        schema_version: ""
+        migration_head: "20260713000000"
+        schema_version: "20260712170000"
         staged_route_enabled: true
         route_path: /app-stage
         public_route_enabled: true
@@ -81,6 +82,7 @@
         last_known_good_digest: ""
         config_generation: ""
         deployment_id: ""
+        migration_head: ""
         schema_version: ""
         staged_route_enabled: false
         route_path: /app-stage

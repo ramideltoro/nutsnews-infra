@@ -42,6 +42,9 @@ assert re.fullmatch(r"sha256:[0-9a-f]{64}", value("vps_service_foundation_nutsne
 assert re.fullmatch(r"[0-9a-f]{40}", value("vps_service_foundation_nutsnews_app_source_commit"))
 assert value("vps_service_foundation_nutsnews_app_build_id")
 assert value("vps_service_foundation_nutsnews_app_deployment_target") == "production-vps"
+assert re.fullmatch(r"production-[1-9][0-9]*-[1-9][0-9]*-[0-9]{14}", value("vps_service_foundation_nutsnews_app_config_generation"))
+assert re.fullmatch(r"[0-9]{14}", value("vps_service_foundation_nutsnews_app_migration_head"))
+assert re.fullmatch(r"[0-9]{14}", value("vps_service_foundation_nutsnews_app_schema_version"))
 
 for name in (
     "vps_service_foundation_nutsnews_app_image_digest",
@@ -120,6 +123,15 @@ assert "header_up X-Forwarded-Proto" in public_route
 assert "flush_interval -1" in public_route
 assert "nutsnews_environment.envs | dictsort" in app_env_template
 assert "NUTSNEWS_APP_ENVIRONMENT" in app_env_template
+for identity_key in (
+    "NUTSNEWS_DEPLOYED_IMAGE_DIGEST",
+    "NUTSNEWS_EXPECTED_SOURCE_COMMIT",
+    "NUTSNEWS_EXPECTED_BUILD_ID",
+    "NUTSNEWS_CONFIG_GENERATION",
+    "NUTSNEWS_EXPECTED_SCHEMA_VERSION",
+):
+    assert identity_key in app_env_template
+assert "nutsnews_environment.name == 'staging'" not in app_env_template
 
 public_site = caddyfile.split("vps.nutsnews.com {", 1)[1].split("ops.nutsnews.com {", 1)[0]
 assert "handle /health" in public_site
