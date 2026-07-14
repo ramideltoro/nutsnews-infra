@@ -23,6 +23,7 @@ CADDY_TEMPLATE = ROOT / "roles/vps_service_foundation/templates/Caddyfile.j2"
 STAGING_WORKFLOW = REPO / ".github/workflows/nutsnews-staging-deploy.yml"
 TEST_WORKFLOW = REPO / ".github/workflows/staging-access-probe.yml"
 CLOUDFLARE_WORKFLOW = REPO / ".github/workflows/cloudflare-access-apply.yml"
+CLOUDFLARE_MAIN = REPO / "terraform/staging-access/main.tf"
 ENVIRONMENT_TASKS = ROOT / "roles/vps_service_foundation/tasks/nutsnews_environment.yml"
 ACCESS_TASKS = ROOT / "roles/vps_service_foundation/tasks/staging_access.yml"
 FORCED_COMMAND = ROOT / "scripts/staging_forced_deploy.py"
@@ -57,6 +58,7 @@ assert enabled.replace(enabled[enabled.index("staging.nutsnews.com {") : enabled
 workflow = STAGING_WORKFLOW.read_text(encoding="utf-8")
 test_workflow = TEST_WORKFLOW.read_text(encoding="utf-8")
 cloudflare_workflow = CLOUDFLARE_WORKFLOW.read_text(encoding="utf-8")
+cloudflare_main = CLOUDFLARE_MAIN.read_text(encoding="utf-8")
 environment_tasks = ENVIRONMENT_TASKS.read_text(encoding="utf-8")
 access_tasks = ACCESS_TASKS.read_text(encoding="utf-8")
 forced_command = FORCED_COMMAND.read_text(encoding="utf-8")
@@ -107,6 +109,10 @@ assert "environment: cloudflare-admin" in cloudflare_workflow
 assert "production-vps" not in cloudflare_workflow
 assert "staging-vps" not in cloudflare_workflow
 assert "staging-tests" not in cloudflare_workflow
+assert 'decision   = "bypass"' in cloudflare_main
+assert 'domain               = "staging.nutsnews.com/.well-known/acme-challenge/*"' in cloudflare_main
+assert "cloudflare_zero_trust_access_policy.acme_challenge.id" in cloudflare_main
+assert "flexible" not in cloudflare_main.lower()
 assert 'mode: "0600"' in environment_tasks and "no_log: true" in environment_tasks
 defaults = (ROOT / "roles/vps_service_foundation/defaults/main.yml").read_text()
 assert "vps_service_foundation_nutsnews_app_runtime_owner: root" in defaults
