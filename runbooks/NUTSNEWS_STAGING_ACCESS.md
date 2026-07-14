@@ -4,10 +4,11 @@ The staging Caddy route sends a cloned request to the local Access JWT verifier.
 Its verifier URI is `/verify?`: the explicit empty query prevents OAuth callback
 codes and other application query parameters from reaching the verifier while
 Caddy preserves the original request for the staging application after access is
-granted. Staging access logs also omit the request URI entirely so OAuth codes,
-CSRF state, and other query material cannot be retained in Docker logs. These
-protections are scoped to `staging.nutsnews.com`; production and operations
-virtual hosts retain their existing routing and logging behavior.
+granted. Staging access logs omit request URIs, Cloudflare Access JWT and
+service-token headers, cookies, and redirect locations so OAuth codes, CSRF
+state, Access tokens, and response navigation material cannot be retained in
+Docker logs. These protections are scoped to `staging.nutsnews.com`; production
+and operations virtual hosts retain their existing routing and logging behavior.
 
 The reviewed staging boundary is opt-in and is not deployed by merging its PR.
 It adds `staging.nutsnews.com` behind Cloudflare Access, validates the signed

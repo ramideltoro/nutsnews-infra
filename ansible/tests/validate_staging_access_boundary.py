@@ -54,6 +54,17 @@ assert "forward_auth nutsnews-staging-access:8091" in enabled
 assert "uri /verify?" in enabled, "The verifier subrequest must discard OAuth callback query material."
 assert "uri /verify\n" not in enabled, "The verifier must not receive the original request query."
 assert "request>uri delete" in enabled, "Staging access logs must omit query-bearing request URIs."
+for log_field in (
+    "request>headers>Cookie delete",
+    "request>headers>Authorization delete",
+    "request>headers>Proxy-Authorization delete",
+    "request>headers>Cf-Access-Jwt-Assertion delete",
+    "request>headers>CF-Access-Client-Id delete",
+    "request>headers>CF-Access-Client-Secret delete",
+    "resp_headers>Set-Cookie delete",
+    "resp_headers>Location delete",
+):
+    assert log_field in enabled, f"Staging access logs must delete {log_field}."
 assert "reverse_proxy nutsnews-app-staging:3000" in enabled
 assert 'X-Robots-Tag "noindex, nofollow, noarchive, nosnippet"' in enabled
 assert enabled.replace(enabled[enabled.index("staging.nutsnews.com {") : enabled.index("ops.nutsnews.com {")], "") == base
@@ -160,6 +171,8 @@ for boundary_check in (
     assert boundary_check in forced_command and boundary_check in workflow
 assert '"uri /verify?" in caddy_text' in forced_command
 assert '"request>uri delete" in caddy_text' in forced_command
+assert '"request>headers>Cf-Access-Jwt-Assertion delete" in caddy_text' in forced_command
+assert '"resp_headers>Location delete" in caddy_text' in forced_command
 assert "TEST_USER" in write_vars and "staging-tests" in write_vars
 assert "NUTSNEWS_PRODUCTION_SUPABASE_PROJECT_REF" in write_vars
 

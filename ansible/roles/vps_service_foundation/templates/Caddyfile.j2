@@ -45,6 +45,14 @@ staging.nutsnews.com {
     output stdout
     format filter {
       request>uri delete
+      request>headers>Cookie delete
+      request>headers>Authorization delete
+      request>headers>Proxy-Authorization delete
+      request>headers>Cf-Access-Jwt-Assertion delete
+      request>headers>CF-Access-Client-Id delete
+      request>headers>CF-Access-Client-Secret delete
+      resp_headers>Set-Cookie delete
+      resp_headers>Location delete
       wrap json
     }
   }
