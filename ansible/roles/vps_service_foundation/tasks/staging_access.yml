@@ -48,7 +48,7 @@
     group: root
     mode: "0440"
     validate: /usr/sbin/visudo -cf %s
-    content: >-
+    content: >
       {{ vps_service_foundation_nutsnews_staging_deploy_user }} ALL=(root)
       NOPASSWD: {{ vps_service_foundation_nutsnews_staging_forced_command }}
 
