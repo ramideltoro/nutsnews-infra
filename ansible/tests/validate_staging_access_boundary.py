@@ -61,6 +61,7 @@ access_tasks = ACCESS_TASKS.read_text(encoding="utf-8")
 forced_command = FORCED_COMMAND.read_text(encoding="utf-8")
 write_vars = WRITE_VARS.read_text(encoding="utf-8")
 main_tasks = yaml.safe_load(MAIN_TASKS.read_text(encoding="utf-8"))
+parsed_access_tasks = yaml.safe_load(access_tasks)
 
 staging_input_task = next(
     task for task in main_tasks if task.get("name") == "Validate opt-in staging access boundary inputs"
@@ -68,6 +69,14 @@ staging_input_task = next(
 staging_assertions = staging_input_task["ansible.builtin.assert"]["that"]
 assert all(isinstance(assertion, str) for assertion in staging_assertions), (
     "Every staging input assertion must remain a YAML string so Ansible can evaluate it."
+)
+
+staging_sudoers_task = next(
+    task for task in parsed_access_tasks if task.get("name") == "Restrict staging identity sudo to the forced command"
+)
+staging_sudoers_content = staging_sudoers_task["ansible.builtin.copy"]["content"]
+assert staging_sudoers_content.endswith("\n"), (
+    "The sudoers fragment must end with a newline so visudo accepts the generated file."
 )
 
 assert "environment: staging-vps" in workflow
