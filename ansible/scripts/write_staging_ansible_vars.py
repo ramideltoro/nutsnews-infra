@@ -25,22 +25,17 @@ RESERVED_ENV_KEYS = {
     "NUTSNEWS_EXPECTED_SCHEMA_VERSION",
 }
 REQUIRED_STAGING_ENV_KEYS = {
-    "AUTH_GOOGLE_ID",
-    "AUTH_GOOGLE_SECRET",
     "AUTH_SECRET",
     "NEXTAUTH_URL",
     "NUTSNEWS_EMAIL_MODE",
     "NUTSNEWS_PRODUCTION_SUPABASE_PROJECT_REF",
-    "NUTSNEWS_PUBLIC_SENTRY_DSN",
     "NUTSNEWS_PUBLIC_SUPABASE_ANON_KEY",
     "NUTSNEWS_PUBLIC_SUPABASE_URL",
-    "NUTSNEWS_PUBLIC_TURNSTILE_SITE_KEY",
     "NUTSNEWS_SITE_URL",
     "NUTSNEWS_SUPABASE_PROJECT_REF",
     "NUTSNEWS_SUPABASE_URL",
     "NUTSNEWS_TELEMETRY_ENVIRONMENT",
     "SUPABASE_SERVICE_ROLE_KEY",
-    "TURNSTILE_SECRET_KEY",
 }
 STAGING_SECRET_ENV_KEYS = {
     "AUTH_GOOGLE_SECRET",
@@ -113,6 +108,7 @@ def main() -> None:
         raise SystemExit(f"Cannot render staging Ansible variables: {error}") from error
 
     config_generation = f"staging-{candidate.deployment_id}-{arguments.infra_commit[:12]}"
+    configured_secret_env_keys = sorted(STAGING_SECRET_ENV_KEYS & staging_envs.keys())
     values = {
         "vps_service_foundation_nutsnews_staging_deploy_authorized": True,
         "vps_service_foundation_nutsnews_staging_enabled": True,
@@ -123,8 +119,8 @@ def main() -> None:
         "vps_service_foundation_nutsnews_staging_deployment_id": candidate.deployment_id,
         "vps_service_foundation_nutsnews_staging_config_generation": config_generation,
         "vps_service_foundation_nutsnews_staging_app_envs": staging_envs,
-        "vps_service_foundation_nutsnews_staging_secret_env_keys": sorted(STAGING_SECRET_ENV_KEYS),
-        "vps_service_foundation_nutsnews_staging_required_secrets": sorted(STAGING_SECRET_ENV_KEYS),
+        "vps_service_foundation_nutsnews_staging_secret_env_keys": configured_secret_env_keys,
+        "vps_service_foundation_nutsnews_staging_required_secrets": configured_secret_env_keys,
         "vps_service_foundation_apply_metadata_enabled": True,
         "vps_service_foundation_apply_context": {
             "workflow": "nutsnews-staging-deploy",

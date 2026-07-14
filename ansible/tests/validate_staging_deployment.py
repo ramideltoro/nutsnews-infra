@@ -13,6 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 REPO = ROOT.parent
 FIXTURES = ROOT / "tests/fixtures/staging_candidate"
 VALIDATOR = ROOT / "scripts/validate_staging_candidate.py"
+WRITE_VARS = ROOT / "scripts/write_staging_ansible_vars.py"
 WORKFLOW = REPO / ".github/workflows/nutsnews-staging-deploy.yml"
 PLAYBOOK = ROOT / "playbooks/deploy-staging.yml"
 INVENTORY = ROOT / "inventories/staging/hosts.yml"
@@ -24,6 +25,31 @@ assert spec and spec.loader
 module = importlib.util.module_from_spec(spec)
 sys.modules[spec.name] = module
 spec.loader.exec_module(module)
+
+write_vars_spec = importlib.util.spec_from_file_location("write_staging_ansible_vars", WRITE_VARS)
+assert write_vars_spec and write_vars_spec.loader
+write_vars_module = importlib.util.module_from_spec(write_vars_spec)
+write_vars_spec.loader.exec_module(write_vars_module)
+
+minimal_staging_env = {
+    "AUTH_SECRET": "staging-auth-secret-fixture",
+    "NEXTAUTH_URL": "https://staging.nutsnews.com",
+    "NUTSNEWS_EMAIL_MODE": "disabled",
+    "NUTSNEWS_PRODUCTION_SUPABASE_PROJECT_REF": "production-project-ref",
+    "NUTSNEWS_PUBLIC_SUPABASE_ANON_KEY": "staging-anon-key-fixture",
+    "NUTSNEWS_PUBLIC_SUPABASE_URL": "https://staging-project-ref.supabase.co",
+    "NUTSNEWS_SITE_URL": "https://staging.nutsnews.com",
+    "NUTSNEWS_SUPABASE_PROJECT_REF": "staging-project-ref",
+    "NUTSNEWS_SUPABASE_URL": "https://staging-project-ref.supabase.co",
+    "NUTSNEWS_TELEMETRY_ENVIRONMENT": "staging",
+    "SUPABASE_SERVICE_ROLE_KEY": "staging-service-role-fixture",
+}
+assert write_vars_module.parse_staging_envs(json.dumps(minimal_staging_env)) == minimal_staging_env
+assert write_vars_module.STAGING_SECRET_ENV_KEYS & minimal_staging_env.keys() == {
+    "AUTH_SECRET",
+    "NUTSNEWS_PUBLIC_SUPABASE_ANON_KEY",
+    "SUPABASE_SERVICE_ROLE_KEY",
+}
 
 
 def fixture(name: str) -> dict[str, str]:
