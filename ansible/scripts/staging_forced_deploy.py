@@ -407,6 +407,8 @@ def verify(request: dict[str, object]) -> None:
             and caddyfile_mounted
             and "staging.nutsnews.com {" in caddy_text
             and "forward_auth nutsnews-staging-access:8091" in caddy_text
+            and "uri /verify?" in caddy_text
+            and "request>uri delete" in caddy_text
             and "reverse_proxy nutsnews-app-staging:3000" in caddy_text
         ),
         "production_healthy": healthy(production_state),
