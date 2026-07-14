@@ -1,0 +1,108 @@
+name: Cloudflare Access Apply
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_mode:
+        description: Plan or apply the isolated staging DNS and Access boundary.
+        required: true
+        default: plan
+        type: choice
+        options:
+          - plan
+          - apply
+      confirm_apply:
+        description: For apply only, type staging.nutsnews.com.
+        required: false
+        default: ""
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cloudflare-access-apply
+  cancel-in-progress: false
+
+jobs:
+  access:
+    name: Protected Cloudflare Access plan/apply
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: cloudflare-admin
+
+    steps:
+      - name: Validate fixed scope and confirmation
+        shell: bash
+        env:
+          RUN_MODE: ${{ inputs.run_mode }}
+          CONFIRM_APPLY: ${{ inputs.confirm_apply }}
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_REF" != "refs/heads/main" ]]; then
+            echo "Cloudflare Access changes must run from main." >&2
+            exit 1
+          fi
+          if [[ "$RUN_MODE" == "apply" && "$CONFIRM_APPLY" != "staging.nutsnews.com" ]]; then
+            echo "Apply requires confirm_apply to be exactly staging.nutsnews.com." >&2
+            exit 1
+          fi
+
+      - name: Checkout reviewed configuration
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Install OpenTofu
+        uses: opentofu/setup-opentofu@a1320f892987e89d278cc92dc5adc984fb93aca4  # v2
+        with:
+          tofu_wrapper: false
+
+      - name: Validate required protected inputs by name
+        shell: bash
+        env:
+          BACKEND_CONFIG: ${{ secrets.NUTSNEWS_STAGING_ACCESS_TOFU_BACKEND_CONFIG }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.NUTSNEWS_STAGING_ACCESS_CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.NUTSNEWS_STAGING_ACCESS_CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_ZONE_ID: ${{ secrets.NUTSNEWS_STAGING_ACCESS_CLOUDFLARE_ZONE_ID }}
+          ORIGIN_IPV4: ${{ secrets.NUTSNEWS_STAGING_ACCESS_ORIGIN_IPV4 }}
+          BROWSER_EMAILS: ${{ secrets.NUTSNEWS_STAGING_ACCESS_BROWSER_EMAILS_JSON }}
+          SERVICE_TOKEN_ID: ${{ secrets.NUTSNEWS_STAGING_ACCESS_SERVICE_TOKEN_ID }}
+        run: |
+          set -euo pipefail
+          missing=0
+          for name in BACKEND_CONFIG CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID CLOUDFLARE_ZONE_ID ORIGIN_IPV4 BROWSER_EMAILS SERVICE_TOKEN_ID; do
+            if [[ -z "${!name}" ]]; then
+              echo "Missing required cloudflare-admin Environment secret: $name" >&2
+              missing=1
+            fi
+          done
+          exit "$missing"
+
+      - name: Plan and optionally apply the fixed staging module
+        shell: bash
+        env:
+          RUN_MODE: ${{ inputs.run_mode }}
+          BACKEND_CONFIG: ${{ secrets.NUTSNEWS_STAGING_ACCESS_TOFU_BACKEND_CONFIG }}
+          TF_VAR_cloudflare_api_token: ${{ secrets.NUTSNEWS_STAGING_ACCESS_CLOUDFLARE_API_TOKEN }}
+          TF_VAR_cloudflare_account_id: ${{ secrets.NUTSNEWS_STAGING_ACCESS_CLOUDFLARE_ACCOUNT_ID }}
+          TF_VAR_cloudflare_zone_id: ${{ secrets.NUTSNEWS_STAGING_ACCESS_CLOUDFLARE_ZONE_ID }}
+          TF_VAR_origin_ipv4: ${{ secrets.NUTSNEWS_STAGING_ACCESS_ORIGIN_IPV4 }}
+          TF_VAR_authorized_browser_emails: ${{ secrets.NUTSNEWS_STAGING_ACCESS_BROWSER_EMAILS_JSON }}
+          TF_VAR_qualifier_service_token_id: ${{ secrets.NUTSNEWS_STAGING_ACCESS_SERVICE_TOKEN_ID }}
+        run: |
+          set -euo pipefail
+          umask 077
+          printf '%s\n' "$BACKEND_CONFIG" > "$RUNNER_TEMP/staging-access-backend.hcl"
+          tofu fmt -check -recursive terraform/staging-access
+          tofu -chdir=terraform/staging-access init -input=false -backend-config="$RUNNER_TEMP/staging-access-backend.hcl"
+          tofu -chdir=terraform/staging-access validate -no-color
+          tofu -chdir=terraform/staging-access plan -input=false -no-color -out="$RUNNER_TEMP/staging-access.tfplan"
+          if [[ "$RUN_MODE" == "apply" ]]; then
+            tofu -chdir=terraform/staging-access apply -input=false -no-color "$RUNNER_TEMP/staging-access.tfplan"
+          fi
+
+      - name: Remove protected provider material
+        if: always()
+        shell: bash
+        run: rm -f "$RUNNER_TEMP/staging-access-backend.hcl" "$RUNNER_TEMP/staging-access.tfplan"

@@ -24,6 +24,31 @@ RESERVED_ENV_KEYS = {
     "NUTSNEWS_CONFIG_GENERATION",
     "NUTSNEWS_EXPECTED_SCHEMA_VERSION",
 }
+REQUIRED_STAGING_ENV_KEYS = {
+    "AUTH_GOOGLE_ID",
+    "AUTH_GOOGLE_SECRET",
+    "AUTH_SECRET",
+    "NEXTAUTH_URL",
+    "NUTSNEWS_EMAIL_MODE",
+    "NUTSNEWS_PRODUCTION_SUPABASE_PROJECT_REF",
+    "NUTSNEWS_PUBLIC_SENTRY_DSN",
+    "NUTSNEWS_PUBLIC_SUPABASE_ANON_KEY",
+    "NUTSNEWS_PUBLIC_SUPABASE_URL",
+    "NUTSNEWS_PUBLIC_TURNSTILE_SITE_KEY",
+    "NUTSNEWS_SITE_URL",
+    "NUTSNEWS_SUPABASE_PROJECT_REF",
+    "NUTSNEWS_SUPABASE_URL",
+    "NUTSNEWS_TELEMETRY_ENVIRONMENT",
+    "SUPABASE_SERVICE_ROLE_KEY",
+    "TURNSTILE_SECRET_KEY",
+}
+STAGING_SECRET_ENV_KEYS = {
+    "AUTH_GOOGLE_SECRET",
+    "AUTH_SECRET",
+    "NUTSNEWS_PUBLIC_SUPABASE_ANON_KEY",
+    "SUPABASE_SERVICE_ROLE_KEY",
+    "TURNSTILE_SECRET_KEY",
+}
 
 
 def parse_staging_envs(raw: str) -> dict[str, str]:
@@ -43,7 +68,31 @@ def parse_staging_envs(raw: str) -> dict[str, str]:
             raise CandidateError(f"Staging application environment may not override release identity key {key}.")
         if not isinstance(value, str):
             raise CandidateError("Staging application environment values must be strings.")
-        output[key] = value
+        if not value.strip():
+            raise CandidateError(f"Staging application environment value {key} must not be empty.")
+        if "TEST_USER" in key or key.startswith("NUTSNEWS_TEST_"):
+            raise CandidateError("Test-user material belongs only in the staging-tests Environment.")
+        if "PRODUCTION" in key and key != "NUTSNEWS_PRODUCTION_SUPABASE_PROJECT_REF":
+            raise CandidateError("Production-scoped variables may not enter staging configuration.")
+        output[key] = value.strip()
+    missing = sorted(REQUIRED_STAGING_ENV_KEYS - output.keys())
+    if missing:
+        raise CandidateError("Staging application configuration is incomplete: " + ", ".join(missing))
+    if output["NUTSNEWS_SUPABASE_PROJECT_REF"] == output["NUTSNEWS_PRODUCTION_SUPABASE_PROJECT_REF"]:
+        raise CandidateError("Staging and production Supabase project identities must differ.")
+    staging_project = output["NUTSNEWS_SUPABASE_PROJECT_REF"]
+    for key in ("NUTSNEWS_SUPABASE_URL", "NUTSNEWS_PUBLIC_SUPABASE_URL"):
+        if output[key] != f"https://{staging_project}.supabase.co":
+            raise CandidateError(f"{key} must resolve to the declared staging Supabase project.")
+    for key in ("NEXTAUTH_URL", "NUTSNEWS_SITE_URL"):
+        if output[key].rstrip("/") != "https://staging.nutsnews.com":
+            raise CandidateError(f"{key} must be https://staging.nutsnews.com.")
+    if output["NUTSNEWS_EMAIL_MODE"] not in {"disabled", "sandbox"}:
+        raise CandidateError("Staging email must be disabled or sandboxed.")
+    if output["NUTSNEWS_EMAIL_MODE"] == "disabled" and "RESEND_API_KEY" in output:
+        raise CandidateError("Disabled staging email must not receive a Resend credential.")
+    if output["NUTSNEWS_TELEMETRY_ENVIRONMENT"] != "staging":
+        raise CandidateError("Staging telemetry must use the staging environment identity.")
     return output
 
 
@@ -74,6 +123,8 @@ def main() -> None:
         "vps_service_foundation_nutsnews_staging_deployment_id": candidate.deployment_id,
         "vps_service_foundation_nutsnews_staging_config_generation": config_generation,
         "vps_service_foundation_nutsnews_staging_app_envs": staging_envs,
+        "vps_service_foundation_nutsnews_staging_secret_env_keys": sorted(STAGING_SECRET_ENV_KEYS),
+        "vps_service_foundation_nutsnews_staging_required_secrets": sorted(STAGING_SECRET_ENV_KEYS),
         "vps_service_foundation_apply_metadata_enabled": True,
         "vps_service_foundation_apply_context": {
             "workflow": "nutsnews-staging-deploy",

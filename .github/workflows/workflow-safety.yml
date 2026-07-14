@@ -128,6 +128,7 @@ jobs:
           python3 ansible/tests/validate_app_deployment.py
           python3 ansible/tests/validate_release_promotion.py
           python3 ansible/tests/validate_staging_deployment.py
+          python3 ansible/tests/validate_staging_access_boundary.py
 
       - name: Validate Vercel-to-VPS environment sync guardrails
         shell: bash
