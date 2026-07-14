@@ -102,6 +102,7 @@ assert "environment: staging-tests" in test_workflow
 assert "production-vps" not in test_workflow and "staging-vps" not in test_workflow
 assert "NUTSNEWS_STAGING_VPS_SSH_PRIVATE_KEY" not in test_workflow
 assert "NUTSNEWS_STAGING_APP_ENVS_JSON" not in test_workflow
+assert "returned HTTP ${authenticated_status}, expected 200" in test_workflow
 assert "environment: cloudflare-admin" in cloudflare_workflow
 assert "production-vps" not in cloudflare_workflow
 assert "staging-vps" not in cloudflare_workflow
