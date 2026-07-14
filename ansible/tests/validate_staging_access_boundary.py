@@ -13,6 +13,8 @@ import time
 import urllib.error
 import urllib.request
 
+import yaml
+
 ROOT = Path(__file__).resolve().parents[1]
 REPO = ROOT.parent
 GATEWAY_PATH = REPO / "staging-access/jwt_gateway.py"
@@ -25,6 +27,7 @@ ENVIRONMENT_TASKS = ROOT / "roles/vps_service_foundation/tasks/nutsnews_environm
 ACCESS_TASKS = ROOT / "roles/vps_service_foundation/tasks/staging_access.yml"
 FORCED_COMMAND = ROOT / "scripts/staging_forced_deploy.py"
 WRITE_VARS = ROOT / "scripts/write_staging_ansible_vars.py"
+MAIN_TASKS = ROOT / "roles/vps_service_foundation/tasks/main.yml"
 
 
 def render_caddy(enabled: bool) -> str:
@@ -57,6 +60,15 @@ environment_tasks = ENVIRONMENT_TASKS.read_text(encoding="utf-8")
 access_tasks = ACCESS_TASKS.read_text(encoding="utf-8")
 forced_command = FORCED_COMMAND.read_text(encoding="utf-8")
 write_vars = WRITE_VARS.read_text(encoding="utf-8")
+main_tasks = yaml.safe_load(MAIN_TASKS.read_text(encoding="utf-8"))
+
+staging_input_task = next(
+    task for task in main_tasks if task.get("name") == "Validate opt-in staging access boundary inputs"
+)
+staging_assertions = staging_input_task["ansible.builtin.assert"]["that"]
+assert all(isinstance(assertion, str) for assertion in staging_assertions), (
+    "Every staging input assertion must remain a YAML string so Ansible can evaluate it."
+)
 
 assert "environment: staging-vps" in workflow
 assert "production-vps" not in workflow
