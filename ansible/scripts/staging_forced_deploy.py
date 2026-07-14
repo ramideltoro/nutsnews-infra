@@ -105,6 +105,7 @@ def run_deploy(request: dict[str, object], operation: str) -> None:
             env={
                 **os.environ,
                 "ANSIBLE_NOCOLOR": "1",
+                "ANSIBLE_STDOUT_CALLBACK": "default",
                 # Older controllers expose import_role defaults by default;
                 # this keeps the equivalent behavior explicit on 2.17+.
                 "ANSIBLE_PRIVATE_ROLE_VARS": "false",
