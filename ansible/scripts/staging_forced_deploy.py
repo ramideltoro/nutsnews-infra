@@ -129,6 +129,7 @@ def run_deploy(request: dict[str, object], operation: str) -> None:
         controller_environment = {
             **os.environ,
             "ANSIBLE_NOCOLOR": "1",
+            "ANSIBLE_ROLES_PATH": str(BUNDLE / "ansible/roles"),
             "ANSIBLE_STDOUT_CALLBACK": "default",
             # Older controllers expose import_role defaults by default;
             # this keeps the equivalent behavior explicit on 2.17+.
