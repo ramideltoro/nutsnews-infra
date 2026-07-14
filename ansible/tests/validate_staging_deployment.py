@@ -43,6 +43,7 @@ minimal_staging_env = {
     "AUTH_GOOGLE_ID": "staging-google-client-id-fixture",
     "AUTH_GOOGLE_SECRET": "staging-google-client-secret-fixture",
     "AUTH_SECRET": "staging-auth-secret-fixture",
+    "AUTH_URL": "https://staging.nutsnews.com",
     "NEXTAUTH_URL": "https://staging.nutsnews.com",
     "NUTSNEWS_EMAIL_MODE": "disabled",
     "NUTSNEWS_OAUTH_CREDENTIALS_ENV": "staging",
@@ -66,7 +67,13 @@ assert write_vars_module.STAGING_SECRET_ENV_KEYS & minimal_staging_env.keys() ==
 base_staging_env = {
     key: value
     for key, value in minimal_staging_env.items()
-    if key not in {"AUTH_GOOGLE_ID", "AUTH_GOOGLE_SECRET", "NUTSNEWS_OAUTH_CREDENTIALS_ENV"}
+    if key
+    not in {
+        "AUTH_GOOGLE_ID",
+        "AUTH_GOOGLE_SECRET",
+        "AUTH_URL",
+        "NUTSNEWS_OAUTH_CREDENTIALS_ENV",
+    }
 }
 oauth_overrides = gateway_module.protected_staging_oauth_overrides(
     {
@@ -82,12 +89,21 @@ stale_oauth_env = {
     **base_staging_env,
     "AUTH_GOOGLE_ID": "must-be-replaced",
     "AUTH_GOOGLE_SECRET": "must-be-replaced",
+    "AUTH_URL": "https://www.nutsnews.com",
     "NUTSNEWS_OAUTH_CREDENTIALS_ENV": "production",
 }
 assert (
     write_vars_module.parse_staging_envs(json.dumps(stale_oauth_env), oauth_overrides)
     == minimal_staging_env
 )
+try:
+    write_vars_module.parse_staging_envs(
+        json.dumps({**minimal_staging_env, "AUTH_URL": "https://www.nutsnews.com"})
+    )
+except module.CandidateError:
+    pass
+else:
+    raise AssertionError("Staging Auth.js trusted-host URL must fail closed outside staging.")
 for incomplete_oauth in (
     {},
     {"NUTSNEWS_STAGING_AUTH_GOOGLE_ID": "staging-google-client-id-fixture"},

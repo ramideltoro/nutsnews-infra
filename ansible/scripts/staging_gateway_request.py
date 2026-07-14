@@ -19,6 +19,7 @@ def protected_staging_oauth_overrides(env: dict[str, str]) -> dict[str, str]:
     if not client_id or not client_secret:
         raise CandidateError("Dedicated staging OAuth credentials are incomplete.")
     return {
+        "AUTH_URL": "https://staging.nutsnews.com",
         "AUTH_GOOGLE_ID": client_id,
         "AUTH_GOOGLE_SECRET": client_secret,
         "NUTSNEWS_OAUTH_CREDENTIALS_ENV": "staging",
