@@ -409,6 +409,8 @@ def verify(request: dict[str, object]) -> None:
             and "forward_auth nutsnews-staging-access:8091" in caddy_text
             and "uri /verify?" in caddy_text
             and "request>uri delete" in caddy_text
+            and "request>headers>Cf-Access-Jwt-Assertion delete" in caddy_text
+            and "resp_headers>Location delete" in caddy_text
             and "reverse_proxy nutsnews-app-staging:3000" in caddy_text
         ),
         "production_healthy": healthy(production_state),
