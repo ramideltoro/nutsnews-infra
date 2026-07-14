@@ -1,0 +1,16 @@
+---
+- name: Validate the production runtime configuration contract fixture
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  become: false
+  vars:
+    vps_service_foundation_nutsnews_environment_runtime:
+      name: production
+      enabled: true
+      envs: "{{ test_runtime_envs }}"
+  tasks:
+    - name: Exercise the production runtime contract guard
+      ansible.builtin.include_role:
+        name: vps_service_foundation
+        tasks_from: nutsnews_production_runtime_contract.yml

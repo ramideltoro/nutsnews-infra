@@ -22,7 +22,7 @@
         last_known_good_state_file: "{{ render_root }}/ops/apps/production/last-known-good.json"
         container_name: nutsnews-app
         container_port: 3000
-        health_path: /healthz
+        health_path: /readyz
         image_repo: ghcr.io/ramideltoro/nutsnews
         image_digest: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
         image: "ghcr.io/ramideltoro/nutsnews@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
@@ -48,7 +48,15 @@
         pids_limit: 256
         log_max_size: 10m
         log_max_file: 3
-        envs: {}
+        envs:
+          NUTSNEWS_RUNTIME_ENV: production
+          NUTSNEWS_SIDE_EFFECTS_MODE: live
+          NUTSNEWS_DATA_ENVIRONMENT: production
+          NUTSNEWS_SUPABASE_CREDENTIALS_ENV: production
+          NUTSNEWS_SUPABASE_PROJECT_REF: fixture-production
+          NUTSNEWS_PRODUCTION_SUPABASE_PROJECT_REF: fixture-production
+          NUTSNEWS_PUBLIC_SUPABASE_URL: https://fixture-production.supabase.co
+          NUTSNEWS_PUBLIC_SUPABASE_ANON_KEY: fixture-anon-key
       staging:
         name: staging
         enabled: false
@@ -62,7 +70,7 @@
         last_known_good_state_file: "{{ render_root }}/ops/apps/staging-{{ staging_suffix }}/last-known-good.json"
         container_name: "nutsnews-app-staging-{{ staging_suffix }}"
         container_port: 3000
-        health_path: /healthz
+        health_path: /readyz
         image_repo: ghcr.io/ramideltoro/nutsnews
         image_digest: "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
         image: "ghcr.io/ramideltoro/nutsnews@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"

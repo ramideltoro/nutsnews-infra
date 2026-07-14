@@ -722,7 +722,7 @@ vps_service_foundation_nutsnews_app_source_compose_file: "{{ vps_service_foundat
 vps_service_foundation_nutsnews_app_env_file: "{{ vps_service_foundation_private_config_dir }}/nutsnews-app.env"
 vps_service_foundation_nutsnews_app_container_name: nutsnews-app
 vps_service_foundation_nutsnews_app_container_port: 3000
-vps_service_foundation_nutsnews_app_health_path: /healthz
+vps_service_foundation_nutsnews_app_health_path: /readyz
 vps_service_foundation_nutsnews_app_image_repo: ghcr.io/ramideltoro/nutsnews
 vps_service_foundation_nutsnews_app_image_digest: ""
 vps_service_foundation_nutsnews_app_image_review_status: unreviewed
@@ -749,6 +749,20 @@ vps_service_foundation_nutsnews_app_envs: {}
 vps_service_foundation_nutsnews_app_vercel_envs: {}
 vps_service_foundation_nutsnews_app_secret_env_keys: []
 vps_service_foundation_nutsnews_app_required_secrets: []
+vps_service_foundation_nutsnews_production_required_runtime_env_values:
+  NUTSNEWS_RUNTIME_ENV: production
+  NUTSNEWS_SIDE_EFFECTS_MODE: live
+  NUTSNEWS_DATA_ENVIRONMENT: production
+  NUTSNEWS_SUPABASE_CREDENTIALS_ENV: production
+vps_service_foundation_nutsnews_production_required_runtime_env_keys:
+  - NUTSNEWS_RUNTIME_ENV
+  - NUTSNEWS_SIDE_EFFECTS_MODE
+  - NUTSNEWS_DATA_ENVIRONMENT
+  - NUTSNEWS_SUPABASE_CREDENTIALS_ENV
+  - NUTSNEWS_SUPABASE_PROJECT_REF
+  - NUTSNEWS_PRODUCTION_SUPABASE_PROJECT_REF
+  - NUTSNEWS_PUBLIC_SUPABASE_URL
+  - NUTSNEWS_PUBLIC_SUPABASE_ANON_KEY
 
 # The legacy production inputs above remain the reviewed release-manifest
 # interface used by the existing promotion workflow. Runtime deployment uses
@@ -862,7 +876,7 @@ vps_service_foundation_nutsnews_environments:
     last_known_good_state_file: "{{ vps_service_foundation_ops_dir }}/apps/staging/last-known-good.json"
     container_name: nutsnews-app-staging
     container_port: 3000
-    health_path: /healthz
+    health_path: /readyz
     image_repo: ghcr.io/ramideltoro/nutsnews
     image_digest: "{{ vps_service_foundation_nutsnews_staging_image_digest }}"
     image: >-
