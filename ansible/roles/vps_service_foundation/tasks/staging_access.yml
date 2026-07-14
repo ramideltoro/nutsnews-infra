@@ -168,6 +168,8 @@
       - "{{ vps_service_foundation_nutsnews_staging_access_compose_file }}"
       - config
       - --quiet
+  environment:
+    NUTSNEWS_STAGING_ACCESS_ENV_FILE: "{{ vps_service_foundation_nutsnews_staging_access_env_file }}"
   changed_when: false
 
 - name: Start isolated staging access verifier
@@ -186,6 +188,8 @@
       - up
       - -d
       - --remove-orphans
+  environment:
+    NUTSNEWS_STAGING_ACCESS_ENV_FILE: "{{ vps_service_foundation_nutsnews_staging_access_env_file }}"
   register: vps_service_foundation_staging_access_compose_up
   changed_when: >-
     'Created' in vps_service_foundation_staging_access_compose_up.stdout

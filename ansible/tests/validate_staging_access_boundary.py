@@ -79,6 +79,15 @@ assert staging_sudoers_content.endswith("\n"), (
     "The sudoers fragment must end with a newline so visudo accepts the generated file."
 )
 
+for compose_task_name in (
+    "Validate staging access Compose configuration",
+    "Start isolated staging access verifier",
+):
+    compose_task = next(task for task in parsed_access_tasks if task.get("name") == compose_task_name)
+    assert compose_task["environment"]["NUTSNEWS_STAGING_ACCESS_ENV_FILE"] == (
+        "{{ vps_service_foundation_nutsnews_staging_access_env_file }}"
+    ), f"{compose_task_name} must define the Compose env-file interpolation variable."
+
 assert "environment: staging-vps" in workflow
 assert "production-vps" not in workflow
 assert "nutsnews_staging_deploy@" in workflow
