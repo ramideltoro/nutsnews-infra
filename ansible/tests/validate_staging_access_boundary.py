@@ -77,7 +77,20 @@ environment_tasks = ENVIRONMENT_TASKS.read_text(encoding="utf-8")
 access_tasks = ACCESS_TASKS.read_text(encoding="utf-8")
 forced_command = FORCED_COMMAND.read_text(encoding="utf-8")
 write_vars = WRITE_VARS.read_text(encoding="utf-8")
-main_tasks = yaml.safe_load(MAIN_TASKS.read_text(encoding="utf-8"))
+raw_main_tasks = yaml.safe_load(MAIN_TASKS.read_text(encoding="utf-8"))
+
+
+def flatten_tasks(tasks: list[dict[str, object]]) -> list[dict[str, object]]:
+    flattened: list[dict[str, object]] = []
+    for task in tasks:
+        flattened.append(task)
+        nested = task.get("block")
+        if isinstance(nested, list):
+            flattened.extend(flatten_tasks(nested))
+    return flattened
+
+
+main_tasks = flatten_tasks(raw_main_tasks)
 parsed_access_tasks = yaml.safe_load(access_tasks)
 
 staging_input_task = next(
@@ -175,6 +188,52 @@ assert '"request>headers>Cf-Access-Jwt-Assertion delete" in caddy_text' in force
 assert '"resp_headers>Location delete" in caddy_text' in forced_command
 assert "TEST_USER" in write_vars and "staging-tests" in write_vars
 assert "NUTSNEWS_PRODUCTION_SUPABASE_PROJECT_REF" in write_vars
+
+staging_tls_before = next(
+    task for task in main_tasks if task.get("name") == "Probe direct staging Caddy TLS before reconciliation"
+)
+staging_tls_after = next(
+    task for task in main_tasks if task.get("name") == "Wait for direct staging Caddy TLS after reconciliation"
+)
+staging_tls_assertion = next(
+    task for task in main_tasks if task.get("name") == "Assert direct staging Caddy TLS was reconciled"
+)
+caddy_recreate = next(
+    task for task in main_tasks if task.get("name") == "Recreate Caddy service foundation after config changes"
+)
+expected_tls_command = [
+    "timeout",
+    "15",
+    "openssl",
+    "s_client",
+    "-brief",
+    "-connect",
+    "127.0.0.1:443",
+    "-servername",
+    "staging.nutsnews.com",
+    "-verify_return_error",
+    "-verify_hostname",
+    "staging.nutsnews.com",
+]
+assert staging_tls_before["ansible.builtin.command"]["argv"] == expected_tls_command
+assert staging_tls_before["ansible.builtin.command"]["stdin"] == ""
+assert staging_tls_before["failed_when"] is False
+expected_tls_when = [
+    "vps_service_foundation_nutsnews_staging_access_enabled | bool",
+    "not ansible_check_mode",
+]
+assert staging_tls_before["when"] == expected_tls_when
+assert staging_tls_after["ansible.builtin.command"]["argv"] == expected_tls_command
+assert staging_tls_after["retries"] == 12 and staging_tls_after["delay"] == 5
+assert staging_tls_after["until"] == "vps_service_foundation_staging_caddy_tls_after.rc == 0"
+assert staging_tls_after["when"] == expected_tls_when
+assert staging_tls_assertion["ansible.builtin.assert"]["that"] == [
+    "vps_service_foundation_staging_caddy_tls_after.rc == 0"
+]
+assert staging_tls_assertion["when"] == expected_tls_when
+assert "vps_service_foundation_staging_caddy_tls_before.rc" in caddy_recreate["when"], (
+    "A failed direct staging TLS probe must force only the existing Caddy reconciliation path."
+)
 
 # Exercise both authenticated and unauthenticated verifier paths with a local RSA fixture.
 os.environ["NUTSNEWS_STAGING_ACCESS_TEAM_DOMAIN"] = "fixture.cloudflareaccess.com"

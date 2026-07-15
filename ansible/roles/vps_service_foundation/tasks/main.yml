@@ -1144,6 +1144,29 @@
           - --quiet
       changed_when: false
 
+    - name: Probe direct staging Caddy TLS before reconciliation
+      ansible.builtin.command:
+        argv:
+          - timeout
+          - "15"
+          - openssl
+          - s_client
+          - -brief
+          - -connect
+          - 127.0.0.1:443
+          - -servername
+          - staging.nutsnews.com
+          - -verify_return_error
+          - -verify_hostname
+          - staging.nutsnews.com
+        stdin: ""
+      register: vps_service_foundation_staging_caddy_tls_before
+      changed_when: false
+      failed_when: false
+      when:
+        - vps_service_foundation_nutsnews_staging_access_enabled | bool
+        - not ansible_check_mode
+
     - name: Recreate Caddy service foundation after config changes
       ansible.builtin.command:
         argv:
@@ -1170,6 +1193,7 @@
         or vps_service_foundation_ops_auth_gateway_install.changed
         or vps_service_foundation_ops_auth_env_install.changed
         or vps_service_foundation_caddy_oauth_reload_marker_install.changed
+        or (vps_service_foundation_staging_caddy_tls_before.rc | default(0)) != 0
 
     - name: Start Caddy service foundation
       ansible.builtin.command:
@@ -1193,6 +1217,45 @@
         or 'Started' in vps_service_foundation_compose_up.stderr
         or 'Pulling' in vps_service_foundation_compose_up.stdout
         or 'Pulling' in vps_service_foundation_compose_up.stderr
+
+    - name: Wait for direct staging Caddy TLS after reconciliation
+      ansible.builtin.command:
+        argv:
+          - timeout
+          - "15"
+          - openssl
+          - s_client
+          - -brief
+          - -connect
+          - 127.0.0.1:443
+          - -servername
+          - staging.nutsnews.com
+          - -verify_return_error
+          - -verify_hostname
+          - staging.nutsnews.com
+        stdin: ""
+      register: vps_service_foundation_staging_caddy_tls_after
+      changed_when: false
+      failed_when: false
+      retries: 12
+      delay: 5
+      until: vps_service_foundation_staging_caddy_tls_after.rc == 0
+      when:
+        - vps_service_foundation_nutsnews_staging_access_enabled | bool
+        - not ansible_check_mode
+
+    - name: Assert direct staging Caddy TLS was reconciled
+      ansible.builtin.assert:
+        that:
+          - vps_service_foundation_staging_caddy_tls_after.rc == 0
+        fail_msg: >-
+          Caddy did not present a valid staging.nutsnews.com certificate after
+          the bounded reconciliation. Staging remains unavailable at the
+          Cloudflare origin and the apply must stop.
+        success_msg: Direct staging Caddy TLS certificate is valid.
+      when:
+        - vps_service_foundation_nutsnews_staging_access_enabled | bool
+        - not ansible_check_mode
 
     - name: Materialize the opt-in staging access boundary
       ansible.builtin.include_tasks: staging_access.yml
