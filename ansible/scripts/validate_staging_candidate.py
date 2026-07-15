@@ -20,7 +20,7 @@ from pathlib import Path
 import re
 import sys
 from typing import Any, Callable
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlparse
 from urllib.request import Request, urlopen
 
 
@@ -125,6 +125,10 @@ def _request_json(url: str, headers: dict[str, str] | None = None) -> Any:
         "Accept": "application/vnd.github+json",
         "User-Agent": "nutsnews-staging-candidate-validator",
     }
+    token = os.environ.get("GITHUB_TOKEN", "")
+    if token and urlparse(url).netloc == "api.github.com":
+        request_headers["Authorization"] = f"Bearer {token}"
+        request_headers["X-GitHub-Api-Version"] = "2022-11-28"
     if headers:
         request_headers.update(headers)
     request = Request(url, headers=request_headers)
