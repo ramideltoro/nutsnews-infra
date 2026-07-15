@@ -46,6 +46,7 @@ jobs:
         id: candidate
         shell: bash
         env:
+          GITHUB_TOKEN: ${{ github.token }}
           NUTSNEWS_STAGING_CANDIDATE_JSON: ${{ inputs.candidate_json }}
           NUTSNEWS_STAGING_REHEARSAL_CONFIRMATION: ${{ inputs.rehearsal_confirmation }}
         run: |

@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 from pathlib import Path
 import sys
 
@@ -155,6 +156,46 @@ def trusted_source_fetch(url: str) -> object:
 
 
 module.verify_source(valid, trusted_source_fetch)
+
+captured_requests = []
+
+
+class JsonResponse:
+    def __init__(self, payload: dict[str, object]) -> None:
+        self.payload = payload
+
+    def __enter__(self) -> "JsonResponse":
+        return self
+
+    def __exit__(self, _exc_type: object, _exc: object, _traceback: object) -> None:
+        return None
+
+    def read(self) -> bytes:
+        return json.dumps(self.payload).encode("utf-8")
+
+
+def capture_urlopen(request: object, timeout: int = 0) -> JsonResponse:
+    captured_requests.append(request)
+    return JsonResponse({"ok": True})
+
+
+original_urlopen = module.urlopen
+original_github_token = os.environ.get("GITHUB_TOKEN")
+try:
+    module.urlopen = capture_urlopen
+    os.environ["GITHUB_TOKEN"] = "fixture-github-token"
+    assert module._request_json("https://api.github.com/repos/ramideltoro/nutsnews") == {"ok": True}
+    assert captured_requests[-1].get_header("Authorization") == "Bearer fixture-github-token"
+    assert captured_requests[-1].get_header("X-github-api-version") == "2022-11-28"
+    assert module._request_json("https://ghcr.io/token?service=ghcr.io") == {"ok": True}
+    assert captured_requests[-1].get_header("Authorization") is None
+finally:
+    module.urlopen = original_urlopen
+    if original_github_token is None:
+        os.environ.pop("GITHUB_TOKEN", None)
+    else:
+        os.environ["GITHUB_TOKEN"] = original_github_token
+
 untrusted = module.validate_candidate(fixture("untrusted-source.json"))
 
 
