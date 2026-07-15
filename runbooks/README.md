@@ -14,6 +14,7 @@ Add runbooks for deployment, rollback, incident response, security changes, back
 - [NutsNews Runtime Environments](NUTSNEWS_RUNTIME_ENVIRONMENTS.md)
 - [NutsNews Staging Deployment](NUTSNEWS_STAGING_DEPLOY.md)
 - [NutsNews Staging Access Boundary](NUTSNEWS_STAGING_ACCESS.md)
+- [NutsNews Staging Qualification](NUTSNEWS_STAGING_QUALIFICATION.md)
 - [Operations Portal](OPS_PORTAL.md)
 - [VPS Backup Setup](VPS_BACKUP_SETUP.md)
 - [VPS Restore](VPS_RESTORE.md)
