@@ -274,6 +274,7 @@ for required in (
     "Prove the deployment key rejects arbitrary commands",
     "staging_deployment_audit.py",
     "always() && !cancelled()",
+    "controller not in {\"\", \"unknown\"}",
 ):
     assert required in workflow, f"Staging workflow is missing required guardrail: {required}"
 
