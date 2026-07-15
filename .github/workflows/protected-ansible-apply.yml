@@ -571,6 +571,11 @@ jobs:
 
           extra_vars = {
               "vps_baseline_admin_authorized_keys": keys,
+              # A staging-boundary refresh must not validate, render, or restart
+              # the production app when its reviewed Vercel sync is disabled.
+              "vps_service_foundation_nutsnews_deployment_environments": (
+                  ["production"] if truthy("SYNC_VERCEL_PRODUCTION") else []
+              ),
               "vps_service_foundation_apply_metadata_enabled": os.environ["RUN_MODE"] == "apply",
               "vps_service_foundation_deployed_infra_commit": os.environ["GITHUB_SHA"],
               "vps_service_foundation_email_enabled": truthy("NUTSNEWS_EMAIL_ENABLED"),

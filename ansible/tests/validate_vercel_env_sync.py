@@ -40,6 +40,11 @@ require('"decrypt": "true"' not in SCRIPT_PATH.read_text(encoding="utf-8"), "Ver
 require("looks_like_encrypted_envelope" in SCRIPT_PATH.read_text(encoding="utf-8"), "Vercel sync must reject encrypted envelope values.")
 require("validate_selected_values" in SCRIPT_PATH.read_text(encoding="utf-8"), "Vercel sync must validate semantic runtime values.")
 require("app_envs.update(vercel_envs)" in WORKFLOW, "Vercel values must be merged before passing extra vars to Ansible.")
+require(
+    '"vps_service_foundation_nutsnews_deployment_environments": (' in WORKFLOW
+    and '["production"] if truthy("SYNC_VERCEL_PRODUCTION") else []' in WORKFLOW,
+    "Production runtime materialization must be disabled when the reviewed Vercel sync is disabled.",
+)
 
 selected = [name for name, rule in mapping["variables"].items() if rule.get("sync")]
 require(selected, "Mapping must contain an explicit synchronization allowlist.")
