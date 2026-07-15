@@ -45,7 +45,6 @@ jobs:
       contents: read
       deployments: read
       id-token: write
-      packages: write
 
     steps:
       - name: Checkout reviewed qualification automation
@@ -181,7 +180,7 @@ jobs:
           subject-digest: ${{ steps.deployment.outputs.image_digest }}
           predicate-type: https://nutsnews.com/attestations/staging-qualification/v1
           predicate-path: ${{ steps.record.outputs.predicate_path }}
-          push-to-registry: true
+          push-to-registry: false
 
       - name: Verify created qualification attestation
         shell: bash
