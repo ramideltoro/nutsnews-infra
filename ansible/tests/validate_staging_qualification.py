@@ -10,6 +10,7 @@ import json
 import os
 from pathlib import Path
 import sys
+import tempfile
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -263,6 +264,21 @@ try:
 finally:
     os.environ.clear()
     os.environ.update(old_env)
+
+assert module._curl_config_quote('client"secret\\value') == 'client\\"secret\\\\value'
+with tempfile.TemporaryDirectory() as tempdir:
+    headers_path = Path(tempdir) / "headers.txt"
+    headers_path.write_text(
+        "HTTP/2 302\r\nlocation: https://example.invalid\r\n\r\n"
+        "HTTP/2 200\r\nX-NutsNews-Source-Commit: abc\r\n"
+        "X-NutsNews-Config-Generation: staging\r\n\r\n",
+        encoding="utf-8",
+    )
+    parsed_headers = module._parse_curl_headers(headers_path)
+    assert parsed_headers == {
+        "x-nutsnews-source-commit": "abc",
+        "x-nutsnews-config-generation": "staging",
+    }
 
 workflow = WORKFLOW.read_text(encoding="utf-8")
 deploy_audit = DEPLOY_AUDIT.read_text(encoding="utf-8")

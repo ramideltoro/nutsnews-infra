@@ -10,7 +10,9 @@ import json
 import os
 from pathlib import Path
 import re
+import subprocess
 import sys
+import tempfile
 from typing import Any, Callable
 from urllib.parse import urlencode, urlparse
 from urllib.request import Request, urlopen
@@ -274,12 +276,65 @@ def access_headers_from_env() -> dict[str, str]:
     }
 
 
+def _curl_config_quote(value: str) -> str:
+    return value.replace("\\", "\\\\").replace('"', '\\"')
+
+
+def _parse_curl_headers(path: Path) -> dict[str, str]:
+    sections = [section for section in re.split(r"\r?\n\r?\n", path.read_text(encoding="utf-8")) if section.strip()]
+    if not sections:
+        return {}
+    headers: dict[str, str] = {}
+    for line in sections[-1].splitlines()[1:]:
+        if ":" not in line:
+            continue
+        key, value = line.split(":", 1)
+        headers[key.strip().lower()] = value.strip()
+    return headers
+
+
 def fetch_staging_json(path: str, headers: dict[str, str]) -> tuple[int, dict[str, str], dict[str, Any]]:
-    request = Request(f"{TARGET_BASE_URL}{path.lstrip('/')}", headers=headers)
-    with urlopen(request, timeout=20) as response:  # noqa: S310 - fixed staging URL only
-        body = json.load(response)
-        response_headers = {key.lower(): value for key, value in response.headers.items()}
-        return response.status, response_headers, body
+    url = f"{TARGET_BASE_URL}{path.lstrip('/')}"
+    with tempfile.TemporaryDirectory(prefix="nutsnews-staging-identity-") as tempdir:
+        temp = Path(tempdir)
+        config_path = temp / "curl.conf"
+        headers_path = temp / "headers.txt"
+        body_path = temp / "body.json"
+        config_lines = [
+            "silent",
+            "show-error",
+            "max-time = 20",
+            f'dump-header = "{_curl_config_quote(str(headers_path))}"',
+            f'output = "{_curl_config_quote(str(body_path))}"',
+            'write-out = "%{http_code}"',
+        ]
+        for key, value in headers.items():
+            config_lines.append(f'header = "{_curl_config_quote(key)}: {_curl_config_quote(value)}"')
+        config_path.write_text("\n".join(config_lines) + "\n", encoding="utf-8")
+        config_path.chmod(0o600)
+        completed = subprocess.run(  # noqa: S603 - fixed executable and URL, secrets isolated in private config.
+            ["curl", "--config", str(config_path), url],
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        status_text = completed.stdout.strip()[-3:]
+        if not status_text.isdigit():
+            raise QualificationError("Staging identity request did not return an HTTP status.")
+        status = int(status_text)
+        if completed.returncode != 0:
+            raise QualificationError(f"Staging identity request failed before HTTP completion with curl exit {completed.returncode}.")
+        response_headers = _parse_curl_headers(headers_path) if headers_path.exists() else {}
+        body: dict[str, Any] = {}
+        if body_path.exists() and body_path.stat().st_size > 0:
+            try:
+                parsed = json.loads(body_path.read_text(encoding="utf-8"))
+            except json.JSONDecodeError:
+                parsed = {}
+            if isinstance(parsed, dict):
+                body = parsed
+        return status, response_headers, body
 
 
 def read_runtime_identity(
