@@ -290,6 +290,7 @@ for required in (
     "environment: staging-tests",
     "actions/attest@a1948c3f048ba23858d222213b7c278aabede763",
     "predicate-type: https://nutsnews.com/attestations/staging-qualification/v1",
+    "push-to-registry: false",
     "gh attestation verify",
     "npm run test:staging-qualification",
     "Check staging identity before tests",
@@ -303,6 +304,7 @@ for forbidden in (
     "production-vps",
     "NUTSNEWS_STAGING_VPS_SSH_PRIVATE_KEY",
     "NUTSNEWS_INFRA_RELEASE_TOKEN",
+    "packages: write",
     "nutsnews_staging_deploy@",
     "ssh ",
 ):
