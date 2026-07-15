@@ -1,0 +1,235 @@
+name: Qualify Verified NutsNews Staging Candidate
+
+on: # zizmor: ignore[dangerous-triggers] required post-deploy boundary; event data only selects a successful GitHub Deployment that is independently revalidated before checkout of app code.
+  workflow_run:
+    workflows:
+      - Deploy Verified NutsNews Staging Candidate
+    types:
+      - completed
+  workflow_dispatch:
+    inputs:
+      staging_deploy_run_id:
+        description: Successful staging deploy workflow run ID to qualify.
+        required: true
+        type: string
+      staging_deployment_id:
+        description: Optional stg-* deployment ID expected in that run.
+        required: false
+        type: string
+      qualification_confirmation:
+        description: Type qualify-staging-candidate.
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nutsnews-staging-qualification-${{ github.event.workflow_run.id || inputs.staging_deploy_run_id }}
+  cancel-in-progress: false
+
+jobs:
+  qualify:
+    name: Run off-VPS staging qualification and attest pass
+    if: >-
+      ${{
+        (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success') ||
+        (github.event_name == 'workflow_dispatch' && inputs.qualification_confirmation == 'qualify-staging-candidate')
+      }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    environment: staging-tests
+    permissions:
+      actions: read
+      attestations: write
+      contents: read
+      deployments: read
+      id-token: write
+      packages: write
+
+    steps:
+      - name: Checkout reviewed qualification automation
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Resolve successful staging deployment evidence
+        id: deployment
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          STAGING_DEPLOY_RUN_ID: ${{ inputs.staging_deploy_run_id }}
+          STAGING_DEPLOYMENT_ID: ${{ inputs.staging_deployment_id }}
+        run: |
+          set -euo pipefail
+          umask 077
+          python3 ansible/scripts/staging_qualification.py resolve-deployment \
+            --event-path "$GITHUB_EVENT_PATH" \
+            --event-name "$GITHUB_EVENT_NAME" \
+            --staging-deploy-run-id "${STAGING_DEPLOY_RUN_ID}" \
+            --staging-deployment-id "${STAGING_DEPLOYMENT_ID}" \
+            --output "$RUNNER_TEMP/staging-deployment-evidence.json" \
+            --github-output "$GITHUB_OUTPUT"
+
+      - name: Check staging identity before tests
+        shell: bash
+        env:
+          CF_ACCESS_CLIENT_ID: ${{ secrets.NUTSNEWS_STAGING_ACCESS_CLIENT_ID }}
+          CF_ACCESS_CLIENT_SECRET: ${{ secrets.NUTSNEWS_STAGING_ACCESS_CLIENT_SECRET }}
+        run: |
+          set -euo pipefail
+          umask 077
+          python3 ansible/scripts/staging_qualification.py check-identity \
+            --deployment-evidence "$RUNNER_TEMP/staging-deployment-evidence.json" \
+            --output "$RUNNER_TEMP/staging-identity-before.json"
+
+      - name: Checkout exact app test-suite revision
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+        with:
+          repository: ramideltoro/nutsnews
+          ref: ${{ steps.deployment.outputs.source_commit }}
+          path: nutsnews-source
+          token: ${{ secrets.NUTSNEWS_STAGING_TESTS_SOURCE_TOKEN || github.token }}
+          persist-credentials: false
+
+      - name: Set up Node.js for qualification suite
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v7.0.0
+        with:
+          node-version: 26
+          cache: npm
+          cache-dependency-path: nutsnews-source/web/package-lock.json
+
+      - name: Install app test-suite dependencies
+        shell: bash
+        working-directory: nutsnews-source/web
+        run: |
+          set -euo pipefail
+          npm ci
+          npx playwright install --with-deps chromium
+
+      - name: Run required deployed-staging qualification suite
+        shell: bash
+        working-directory: nutsnews-source/web
+        env:
+          CF_ACCESS_CLIENT_ID: ${{ secrets.NUTSNEWS_STAGING_ACCESS_CLIENT_ID }}
+          CF_ACCESS_CLIENT_SECRET: ${{ secrets.NUTSNEWS_STAGING_ACCESS_CLIENT_SECRET }}
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_TOKEN: ${{ github.token }}
+          NUTSNEWS_SUPABASE_URL: ${{ secrets.NUTSNEWS_STAGING_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.NUTSNEWS_STAGING_SUPABASE_SERVICE_ROLE_KEY }}
+          NUTSNEWS_TEST_USER_EMAIL: ${{ secrets.NUTSNEWS_STAGING_TEST_USER_EMAIL }}
+          NUTSNEWS_TEST_USER_PASSWORD: ${{ secrets.NUTSNEWS_STAGING_TEST_USER_PASSWORD }}
+          NUTSNEWS_QUALIFICATION_BASE_URL: https://staging.nutsnews.com/
+          NUTSNEWS_EXPECTED_SOURCE_COMMIT: ${{ steps.deployment.outputs.source_commit }}
+          NUTSNEWS_EXPECTED_BUILD_ID: ${{ steps.deployment.outputs.build_id }}
+          NUTSNEWS_EXPECTED_IMAGE_DIGEST: ${{ steps.deployment.outputs.image_digest }}
+          NUTSNEWS_EXPECTED_RUNTIME_ENV: staging
+          NUTSNEWS_EXPECTED_DEPLOYMENT_TARGET: vps-staging
+          NUTSNEWS_EXPECTED_CONFIG_GENERATION: ${{ steps.deployment.outputs.config_generation }}
+          NUTSNEWS_STAGING_DEPLOYMENT_ID: ${{ steps.deployment.outputs.staging_deployment_id }}
+          NUTSNEWS_QUALIFICATION_SUITE_REVISION: ${{ steps.deployment.outputs.source_commit }}
+          NUTSNEWS_QUALIFICATION_ARTIFACT_DIR: ${{ runner.temp }}/qualification-evidence/app
+        run: |
+          set -euo pipefail
+          umask 077
+          started_at="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+          printf 'QUALIFICATION_STARTED_AT=%s\n' "$started_at" >> "$GITHUB_ENV"
+          npm run test:staging-qualification
+
+      - name: Check staging identity after tests
+        if: ${{ always() && steps.deployment.outputs.staging_deployment_id != '' }}
+        shell: bash
+        env:
+          CF_ACCESS_CLIENT_ID: ${{ secrets.NUTSNEWS_STAGING_ACCESS_CLIENT_ID }}
+          CF_ACCESS_CLIENT_SECRET: ${{ secrets.NUTSNEWS_STAGING_ACCESS_CLIENT_SECRET }}
+        run: |
+          set -euo pipefail
+          umask 077
+          python3 ansible/scripts/staging_qualification.py check-identity \
+            --deployment-evidence "$RUNNER_TEMP/staging-deployment-evidence.json" \
+            --output "$RUNNER_TEMP/staging-identity-after.json"
+
+      - name: Create exact-candidate qualification predicate
+        id: record
+        shell: bash
+        env:
+          QUALIFICATION_STARTED_AT: ${{ env.QUALIFICATION_STARTED_AT }}
+        run: |
+          set -euo pipefail
+          umask 077
+          completed_at="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+          mkdir -p "$RUNNER_TEMP/qualification"
+          python3 ansible/scripts/staging_qualification.py write-record \
+            --deployment-evidence "$RUNNER_TEMP/staging-deployment-evidence.json" \
+            --pre-identity "$RUNNER_TEMP/staging-identity-before.json" \
+            --post-identity "$RUNNER_TEMP/staging-identity-after.json" \
+            --app-report "$RUNNER_TEMP/qualification-evidence/app/staging-qualification.json" \
+            --started-at "$QUALIFICATION_STARTED_AT" \
+            --completed-at "$completed_at" \
+            --qualifier-commit "$GITHUB_SHA" \
+            --qualifier-ref "$GITHUB_REF" \
+            --qualifier-workflow-ref "${GITHUB_WORKFLOW_REF:-${GITHUB_REPOSITORY}/.github/workflows/nutsnews-staging-qualification.yml@${GITHUB_REF}}" \
+            --qualifier-run-id "$GITHUB_RUN_ID" \
+            --qualifier-run-attempt "$GITHUB_RUN_ATTEMPT" \
+            --output "$RUNNER_TEMP/qualification/staging-qualification.json"
+          printf 'predicate_path=%s\n' "$RUNNER_TEMP/qualification/staging-qualification.json" >> "$GITHUB_OUTPUT"
+
+      - name: Attest exact staging qualification predicate
+        uses: actions/attest@a1948c3f048ba23858d222213b7c278aabede763  # v4.1.1
+        with:
+          subject-name: ${{ steps.deployment.outputs.image_repository }}
+          subject-digest: ${{ steps.deployment.outputs.image_digest }}
+          predicate-type: https://nutsnews.com/attestations/staging-qualification/v1
+          predicate-path: ${{ steps.record.outputs.predicate_path }}
+          push-to-registry: true
+
+      - name: Verify created qualification attestation
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          IMAGE_REPOSITORY: ${{ steps.deployment.outputs.image_repository }}
+          IMAGE_DIGEST: ${{ steps.deployment.outputs.image_digest }}
+          STAGING_DEPLOYMENT_ID: ${{ steps.deployment.outputs.staging_deployment_id }}
+          PREDICATE_PATH: ${{ steps.record.outputs.predicate_path }}
+        run: |
+          set -euo pipefail
+          gh attestation verify "oci://${IMAGE_REPOSITORY}@${IMAGE_DIGEST}" \
+            --repo "$GITHUB_REPOSITORY" \
+            --predicate-type https://nutsnews.com/attestations/staging-qualification/v1 \
+            --format json > "$RUNNER_TEMP/qualification/verified-attestation.json"
+          python3 ansible/scripts/staging_qualification.py validate-record \
+            --record "$PREDICATE_PATH" \
+            --expected-image-digest "$IMAGE_DIGEST" \
+            --expected-staging-deployment-id "$STAGING_DEPLOYMENT_ID" \
+            --verified-attestation "$RUNNER_TEMP/qualification/verified-attestation.json"
+
+      - name: Retain sanitized qualification evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: staging-qualification-${{ steps.deployment.outputs.staging_deployment_id || 'unresolved' }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/qualification/
+            ${{ runner.temp }}/qualification-evidence/
+          if-no-files-found: ignore
+          retention-days: 30
+          overwrite: false
+
+      - name: Summarize sanitized qualification result
+        if: ${{ always() && steps.deployment.outputs.staging_deployment_id != '' }}
+        shell: bash
+        env:
+          STAGING_DEPLOYMENT_ID: ${{ steps.deployment.outputs.staging_deployment_id }}
+          IMAGE_DIGEST: ${{ steps.deployment.outputs.image_digest }}
+          CONFIG_GENERATION: ${{ steps.deployment.outputs.config_generation }}
+        run: |
+          set -euo pipefail
+          {
+            echo "## Staging qualification"
+            echo
+            echo "- Staging deployment: \`${STAGING_DEPLOYMENT_ID}\`"
+            echo "- Image digest: \`${IMAGE_DIGEST}\`"
+            echo "- Config generation: \`${CONFIG_GENERATION}\`"
+            echo "- Runner: GitHub-hosted \`ubuntu-latest\`; no production environment was attached."
+            echo "- Evidence artifact name includes this run ID and attempt, so reruns keep immutable history."
+          } >> "$GITHUB_STEP_SUMMARY"

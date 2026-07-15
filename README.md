@@ -86,6 +86,8 @@ Use [runbooks/VPS_SERVICE_FOUNDATION.md](runbooks/VPS_SERVICE_FOUNDATION.md) bef
 
 Use [runbooks/NUTSNEWS_STAGING_ACCESS.md](runbooks/NUTSNEWS_STAGING_ACCESS.md) before onboarding or applying the isolated staging hostname, Access boundary, or restricted deployment identity.
 
+Use [runbooks/NUTSNEWS_STAGING_QUALIFICATION.md](runbooks/NUTSNEWS_STAGING_QUALIFICATION.md) before interpreting or rerunning the independent off-VPS staging qualifier.
+
 Use [runbooks/OPS_PORTAL.md](runbooks/OPS_PORTAL.md) before applying or verifying the read-only operations portal.
 
 Use the manual `Send VPS Health Report` workflow when you need an on-demand email report without opening an interactive SSH session.

@@ -12,6 +12,9 @@ import re
 from validate_staging_candidate import CandidateError, DIGEST_PATTERN, validate_candidate
 
 
+STAGING_TARGET_HOSTNAME = "staging.nutsnews.com"
+
+
 def load_result(path: Path | None) -> dict[str, str]:
     if path is None or not path.exists():
         return {}
@@ -64,6 +67,8 @@ def main() -> None:
             "description": f"Staging candidate {candidate.deployment_id}",
             "payload": {
                 "deployment_id": candidate.deployment_id,
+                "target_hostname": STAGING_TARGET_HOSTNAME,
+                "image_repository": candidate.image_repository,
                 "requested_digest": candidate.image_digest,
                 "actual_digest": None,
                 "source_repository": candidate.source_repository,
@@ -89,6 +94,7 @@ def main() -> None:
             "state": state,
             "description": description,
             "log_url": f"https://github.com/ramideltoro/nutsnews-infra/actions/runs/{arguments.github_run_id}",
+            "environment_url": f"https://{STAGING_TARGET_HOSTNAME}",
             "environment": "staging",
             "auto_inactive": False,
         }

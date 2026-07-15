@@ -318,6 +318,15 @@ assert "group: nutsnews-staging-deploy" in workflow
 assert "cancel-in-progress: false" in workflow
 assert "nutsnews-staging-deploy.lock" in defaults
 
+audit = (ROOT / "scripts/staging_deployment_audit.py").read_text(encoding="utf-8")
+for required in (
+    "STAGING_TARGET_HOSTNAME",
+    "\"target_hostname\": STAGING_TARGET_HOSTNAME",
+    "\"image_repository\": candidate.image_repository",
+    "\"environment_url\": f\"https://{STAGING_TARGET_HOSTNAME}\"",
+):
+    assert required in audit, f"Staging deployment audit record is missing qualifier evidence: {required}"
+
 # A first staging dry run must not require directories that check mode only
 # predicts. Parent-dependent files are rendered by apply, or by later checks
 # after those root-owned directories already exist.
