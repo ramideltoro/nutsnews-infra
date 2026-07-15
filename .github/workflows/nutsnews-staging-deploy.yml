@@ -265,7 +265,7 @@ jobs:
               raise SystemExit("Staging gateway returned an invalid task label.")
           if not isinstance(diagnostic, str) or (diagnostic and not re.fullmatch(r"[a-z_]{1,80}", diagnostic)):
               raise SystemExit("Staging gateway returned an invalid diagnostic class.")
-          if not isinstance(controller, str) or (controller != "unknown" and not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", controller)):
+          if not isinstance(controller, str) or (controller not in {"", "unknown"} and not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", controller)):
               raise SystemExit("Staging gateway returned an invalid controller version.")
           task_suffix = f" at reviewed task: {task}" if task else ""
           diagnostic_suffix = f"; diagnostic={diagnostic}" if diagnostic else ""
