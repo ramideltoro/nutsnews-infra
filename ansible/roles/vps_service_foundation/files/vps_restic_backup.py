@@ -470,6 +470,45 @@ def save_status(data: dict[str, Any]) -> None:
     write_json(STATUS_FILE, data, mode=0o644)
 
 
+def error_text(result: dict[str, Any], limit: int = 10) -> str:
+    return "\n".join(safe_lines(result.get("stderr", "") or result.get("stdout", ""), limit=limit))
+
+
+def set_active_error(status: dict[str, Any], message: str, source: str) -> dict[str, Any]:
+    now = utc_now()
+    status["last_error"] = redact(str(message))
+    status["last_error_at"] = now
+    status["last_error_source"] = source
+    return status
+
+
+def resolve_active_error(status: dict[str, Any], resolved_by: str) -> dict[str, Any]:
+    message = str(status.get("last_error") or "").strip()
+    if not message:
+        status["last_error"] = ""
+        status.pop("last_error_at", None)
+        status.pop("last_error_source", None)
+        return status
+
+    resolved = status.get("resolved_errors")
+    if not isinstance(resolved, list):
+        resolved = []
+    resolved.append(
+        {
+            "error": message,
+            "occurred_at": status.get("last_error_at") or "unknown",
+            "source": status.get("last_error_source") or "unknown",
+            "resolved_at": utc_now(),
+            "resolved_by": resolved_by,
+        }
+    )
+    status["resolved_errors"] = resolved[-20:]
+    status["last_error"] = ""
+    status.pop("last_error_at", None)
+    status.pop("last_error_source", None)
+    return status
+
+
 def repo_missing(result: dict[str, Any]) -> bool:
     output = (result.get("stdout", "") + result.get("stderr", "")).lower()
     markers = (
@@ -490,7 +529,7 @@ def ensure_repository(env: dict[str, str], status: dict[str, Any]) -> tuple[bool
     if not repo_missing(snapshots):
         append_log("restic snapshots failed", snapshots)
         status["repository_initialized"] = False
-        status["last_error"] = "\n".join(safe_lines(snapshots["stderr"] or snapshots["stdout"], limit=8))
+        status = set_active_error(status, error_text(snapshots, limit=8), "restic snapshots")
         return False, status
 
     init = run(["restic", "init"], env=env, timeout=300)
@@ -498,7 +537,7 @@ def ensure_repository(env: dict[str, str], status: dict[str, Any]) -> tuple[bool
     status["last_repository_init_at"] = utc_now()
     status["repository_initialized"] = init["ok"]
     if not init["ok"]:
-        status["last_error"] = "\n".join(safe_lines(init["stderr"] or init["stdout"], limit=8))
+        status = set_active_error(status, error_text(init, limit=8), "restic init")
     return init["ok"], status
 
 
@@ -582,7 +621,7 @@ def latest_snapshot_status(env: dict[str, str], status: dict[str, Any]) -> dict[
 def disabled_status(mode: str) -> int:
     status = load_status()
     status["status"] = "disabled"
-    status["last_error"] = ""
+    status = resolve_active_error(status, f"{mode} disabled")
     if mode == "backup":
         status["last_backup"] = {"status": "disabled", "finished_at": utc_now()}
     else:
@@ -594,7 +633,11 @@ def disabled_status(mode: str) -> int:
 def unconfigured_status(mode: str) -> int:
     status = load_status()
     status["status"] = "misconfigured"
-    status["last_error"] = "Missing required backup configuration: " + ", ".join(status["missing_configuration"])
+    status = set_active_error(
+        status,
+        "Missing required backup configuration: " + ", ".join(status["missing_configuration"]),
+        f"{mode} configuration",
+    )
     if mode == "backup":
         status["last_backup"] = {"status": "failed", "finished_at": utc_now(), "error": status["last_error"]}
     else:
@@ -612,11 +655,13 @@ def handle_backup() -> int:
     selected_paths, path_status = current_backup_path_status()
     status.update(path_status)
     if not selected_paths:
+        message = "No configured backup paths currently exist on the VPS."
+        status = set_active_error(status, message, "backup path selection")
         status["last_backup"] = {
             "status": "failed",
             "started_at": utc_now(),
             "finished_at": utc_now(),
-            "error": "No configured backup paths currently exist on the VPS.",
+            "error": message,
         }
         save_status(status)
         return 1
@@ -665,12 +710,13 @@ def handle_backup() -> int:
         "dirs_new": summary.get("dirs_new", 0),
         "data_added_bytes": summary.get("data_added", 0),
         "total_bytes_processed": summary.get("total_bytes_processed", 0),
-        "error": "" if backup["ok"] else "\n".join(safe_lines(backup["stderr"] or backup["stdout"], limit=10)),
+        "error": "" if backup["ok"] else error_text(backup, limit=10),
     }
     status = latest_snapshot_status(env, status)
 
     if not backup["ok"]:
         status["status"] = "failed"
+        status = set_active_error(status, status["last_backup"]["error"], "restic backup")
         save_status(status)
         return 1
 
@@ -696,9 +742,13 @@ def handle_backup() -> int:
         "started_at": finished_at,
         "finished_at": utc_now(),
         "duration_seconds": prune["duration_seconds"],
-        "error": "" if prune["ok"] else "\n".join(safe_lines(prune["stderr"] or prune["stdout"], limit=10)),
+        "error": "" if prune["ok"] else error_text(prune, limit=10),
     }
     status["status"] = "success" if prune["ok"] else "degraded"
+    if prune["ok"]:
+        status = resolve_active_error(status, "successful backup and prune")
+    else:
+        status = set_active_error(status, status["last_prune"]["error"], "restic forget --prune")
     save_status(status)
     return 0 if prune["ok"] else 1
 
@@ -736,10 +786,12 @@ def handle_verify_latest() -> int:
 
     status = latest_snapshot_status(env, status)
     if not status.get("latest_snapshot"):
+        message = "No restic snapshots are available to verify."
         status["status"] = "failed"
         status["last_check"].update(
-            {"status": "failed", "finished_at": utc_now(), "error": "No restic snapshots are available to verify."}
+            {"status": "failed", "finished_at": utc_now(), "error": message}
         )
+        status = set_active_error(status, message, "latest snapshot lookup")
         save_status(status)
         return 1
 
@@ -752,9 +804,10 @@ def handle_verify_latest() -> int:
                 "status": "failed",
                 "finished_at": utc_now(),
                 "duration_seconds": listing["duration_seconds"],
-                "error": "\n".join(safe_lines(listing["stderr"] or listing["stdout"], limit=10)),
+                "error": error_text(listing, limit=10),
             }
         )
+        status = set_active_error(status, status["last_check"]["error"], "restic ls latest")
         save_status(status)
         return 1
 
@@ -770,9 +823,13 @@ def handle_verify_latest() -> int:
         "latest_snapshot_time": status["latest_snapshot"].get("time", ""),
         "listed_entries": count_ls_entries(listing["stdout"]),
         "read_data_subset": subset,
-        "error": "" if check["ok"] else "\n".join(safe_lines(check["stderr"] or check["stdout"], limit=10)),
+        "error": "" if check["ok"] else error_text(check, limit=10),
     }
     status["status"] = "success" if check["ok"] else "failed"
+    if check["ok"]:
+        status = resolve_active_error(status, "successful latest snapshot verification")
+    else:
+        status = set_active_error(status, status["last_check"]["error"], "restic check")
     save_status(status)
     return 0 if check["ok"] else 1
 
@@ -789,7 +846,7 @@ def main() -> int:
         except BlockingIOError:
             status = load_status()
             status["status"] = "busy"
-            status["last_error"] = "Another restic backup operation is already running."
+            status = set_active_error(status, "Another restic backup operation is already running.", "backup lock")
             save_status(status)
             return 1
 

@@ -198,6 +198,8 @@ The portal shows encrypted VPS backup status from the local restic runner: enabl
 
 Backup failures, stale snapshots, prune failures, verification failures, overdue verification, and inactive backup or verify timers are emitted as warning or critical alerts. A newer daily snapshot remains visibly `latest_unverified` with `policy_status=pending` until the scheduled weekly verification and does not alert while it is inside the 192-hour policy window.
 
+The runner treats top-level `last_error` as the active unresolved backup error. A later successful backup plus prune, or a later successful latest-snapshot verification, clears that active field and moves the previous value into bounded `resolved_errors` history with occurrence and resolution timestamps. Per-run failure details remain on `last_backup.error`, `last_prune.error`, or `last_check.error`.
+
 The Free Tier section labels measurable backup capacity as `Backup Local Cache` in GiB against the VPS root filesystem. Snapshot age is backup freshness, not storage consumption. Remote OneDrive quota remains unmeasured unless a real read-only source is added; do not infer it from snapshot age or display invented zero usage.
 
 Manual backup workflows stay narrow:
