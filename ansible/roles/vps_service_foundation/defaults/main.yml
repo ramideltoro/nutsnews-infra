@@ -1047,6 +1047,7 @@ vps_service_foundation_collector_backups_cache_seconds: 300
 vps_service_foundation_collector_free_tier_local_cache_seconds: 900
 vps_service_foundation_collector_oom_evidence_cache_seconds: 900
 vps_service_foundation_collector_observability_cache_seconds: 300
+vps_service_foundation_security_update_stale_after_hours: 30
 vps_service_foundation_reporter_bin: /usr/local/bin/nutsnews-ops-portal-reporter
 vps_service_foundation_reporter_env_file: "{{ vps_service_foundation_private_config_dir }}/ops-reporter.env"
 vps_service_foundation_reporting_status_file: "{{ vps_service_foundation_portal_data_dir }}/reporting-status.json"

@@ -46,6 +46,13 @@ Free Tier Usage is read-only. The quota catalog lives in `vps_service_foundation
 
 Collector refresh stays on a one-minute systemd timer for critical health, but slower sections use `/opt/nutsnews/portal-assets/data/collector-slow-cache.json`. Docker inspect/image metadata, Compose project listings, process rankings, log excerpts, security/update scans, backup filesystem metadata, local free-tier storage rows, OOM journal evidence, and Alloy visibility all expose `_collector_cache` metadata with `live`, `fresh_cache`, `stale_cache`, or `unavailable` state. Treat `stale_cache` as preserved last-known-safe portal data and inspect `journalctl -u nutsnews-ops-portal-collector.service` before changing cadences.
 
+OS update visibility is read-only. The security section separates total package
+updates from security updates, reports `apt-daily-upgrade.timer` and the last
+`apt-daily-upgrade.service` result, and warns when pending security updates are
+stale beyond the GitOps-configured threshold. Do not run `apt upgrade` or
+reboot manually as routine maintenance; use the protected maintenance workflow
+once it exists, or open/follow the maintenance issue for a reviewed GitOps path.
+
 Alloy telemetry visibility is read-only. The collector checks `alloy.service`, the local readiness URL, whether Docker log shipping is enabled separately from cAdvisor/container metrics, `.prom` files under the configured textfile directory, and recent journal matches for `containerd.sock: connect: permission denied`. A nonzero recent match count raises a portal alert because it means the broken cAdvisor/container path has returned or the post-apply validation window needs investigation. The portal does not read Alloy secrets or expose any control that can restart or reconfigure Alloy.
 
 SSH hardening allows `nutsnews_ops` to create only local TCP forwards to `127.0.0.1:8080` or `localhost:8080` for portal access. Remote forwarding, gateway exposure, stream-local forwarding, tunnel devices, and broad forwarding stay disabled.
@@ -229,6 +236,8 @@ systemctl status nutsnews-ops-health-report.timer
 systemctl status nutsnews-restic-backup.timer
 systemctl status nutsnews-restic-verify.timer
 systemctl status nutsnews-docker-cleanup.timer
+systemctl status apt-daily-upgrade.timer
+systemctl status apt-daily-upgrade.service
 sudo docker compose -f /opt/nutsnews/apps/caddy/compose.yml ps
 ```
 
@@ -262,6 +271,19 @@ Docker cleanup status is collected from
 `docker_cleanup` section of the portal feed. The public status summarizes
 cadence, filters, latest result, prune return codes, Docker storage summary, and
 protected-image counts without publishing protected refs or secrets.
+
+If the security section shows stale pending security updates:
+
+```bash
+python3 -m json.tool /opt/nutsnews/portal-assets/data/status.json | grep -A24 '"pending_updates"'
+systemctl status apt-daily-upgrade.timer
+systemctl status apt-daily-upgrade.service
+```
+
+Confirm unattended-upgrades ran successfully and that the pending update list is
+not simply waiting for the next scheduled run. Remediation must be a protected
+GitOps maintenance path; do not manually run host package upgrades over SSH for
+routine follow-through.
 
 If email reports do not arrive:
 
