@@ -323,6 +323,7 @@ jobs:
           grep -Fq 'ExecStart={{ vps_service_foundation_backup_bin }} --mode verify-latest' ansible/roles/vps_service_foundation/templates/nutsnews-restic-verify.service.j2
           grep -Fq 'Unit={{ vps_service_foundation_backup_verify_service }}' ansible/roles/vps_service_foundation/templates/nutsnews-restic-verify.timer.j2
           python3 ansible/tests/validate_observability_alloy.py
+          python3 ansible/tests/validate_ops_collector_cache.py
           python3 ansible/tests/validate_backup_workflows.py
           python3 ansible/tests/validate_ops_portal_status_workflow.py
           python3 ansible/tests/validate_cloudflare_ddns.py

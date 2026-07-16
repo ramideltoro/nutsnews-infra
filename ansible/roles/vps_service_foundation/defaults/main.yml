@@ -1018,6 +1018,17 @@ vps_service_foundation_infra_health_required_containers:
 vps_service_foundation_collector_log_dir: "{{ vps_service_foundation_logs_dir }}/ops-portal"
 vps_service_foundation_collector_service: nutsnews-ops-portal-collector.service
 vps_service_foundation_collector_timer: nutsnews-ops-portal-collector.timer
+vps_service_foundation_collector_timer_cadence_seconds: 60
+vps_service_foundation_collector_slow_cache_file: "{{ vps_service_foundation_portal_data_dir }}/collector-slow-cache.json"
+vps_service_foundation_collector_docker_inspect_cache_seconds: 300
+vps_service_foundation_collector_docker_compose_cache_seconds: 300
+vps_service_foundation_collector_processes_cache_seconds: 300
+vps_service_foundation_collector_logs_cache_seconds: 300
+vps_service_foundation_collector_security_cache_seconds: 900
+vps_service_foundation_collector_backups_cache_seconds: 300
+vps_service_foundation_collector_free_tier_local_cache_seconds: 900
+vps_service_foundation_collector_oom_evidence_cache_seconds: 900
+vps_service_foundation_collector_observability_cache_seconds: 300
 vps_service_foundation_reporter_bin: /usr/local/bin/nutsnews-ops-portal-reporter
 vps_service_foundation_reporter_env_file: "{{ vps_service_foundation_private_config_dir }}/ops-reporter.env"
 vps_service_foundation_reporting_status_file: "{{ vps_service_foundation_portal_data_dir }}/reporting-status.json"

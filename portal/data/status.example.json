@@ -9,7 +9,45 @@
       }
     ]
   },
+  "collector": {
+    "runtime_seconds": 3.218,
+    "slow_cache_file": "/opt/nutsnews/portal-assets/data/collector-slow-cache.json",
+    "slow_section_ttls": {
+      "backups": 300,
+      "docker_compose": 300,
+      "docker_inspect": 300,
+      "free_tier_local": 900,
+      "logs": 300,
+      "observability": 300,
+      "oom_evidence": 900,
+      "processes": 300,
+      "security": 900
+    },
+    "slow_sections": [
+      {
+        "age_seconds": 42,
+        "collected_at": "2026-07-05T03:24:18+00:00",
+        "duration_ms": 211,
+        "error": "",
+        "section": "docker_inspect",
+        "stale": false,
+        "state": "fresh_cache",
+        "ttl_seconds": 300
+      }
+    ],
+    "timer_cadence_seconds": 60
+  },
   "backups": {
+    "_collector_cache": {
+      "age_seconds": 42,
+      "collected_at": "2026-07-05T03:24:18+00:00",
+      "duration_ms": 82,
+      "error": "",
+      "section": "backups",
+      "stale": false,
+      "state": "fresh_cache",
+      "ttl_seconds": 300
+    },
     "backup_path_count": 4,
     "backup_paths_redacted": true,
     "backup_paths_source": "Root-only Ansible-managed path list.",
