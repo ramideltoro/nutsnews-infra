@@ -69,6 +69,8 @@ protected_apply = PROTECTED_APPLY.read_text(encoding="utf-8")
 collector = COLLECTOR.read_text(encoding="utf-8")
 
 assert ":latest" not in "\n".join((defaults, app_compose, protected_apply)).lower()
+assert "no-new-privileges=true" in app_compose
+assert "no-new-privileges:true" not in app_compose
 assert "NUTSNEWS_APP_IMAGE_TAG" not in protected_apply
 assert "RELEASE_IMAGE_DEPLOYMENT_TARGET" in protected_apply
 assert "payload?.deploymentTarget === imageDeploymentTarget" in protected_apply

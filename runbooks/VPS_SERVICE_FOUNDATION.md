@@ -223,4 +223,4 @@ If the service layer fails:
 
 The Ansible role prints Compose status and the last Caddy logs automatically if `/healthz` does not answer during apply.
 
-If logs show `exec /usr/bin/caddy: operation not permitted`, check that the Compose file grants only `NET_BIND_SERVICE` and does not set `no-new-privileges:true`. The official Caddy image uses a file capability on the binary, and over-hardening can stop the process before it starts.
+If logs show `exec /usr/bin/caddy: operation not permitted`, check that the Compose file grants only `NET_BIND_SERVICE` and does not set `no-new-privileges`. The official Caddy image uses a file capability on the binary, and over-hardening can stop the process before it starts. App and staging-access containers may still use `no-new-privileges=true`, which is Docker's supported Compose form.
