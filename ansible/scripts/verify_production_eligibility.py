@@ -18,6 +18,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 
 import promote_nutsnews_release
+import rollback_nutsnews_release
 
 
 STAGING_QUALIFICATION = ROOT / "scripts/staging_qualification.py"
@@ -297,6 +298,73 @@ def command_verify(arguments: argparse.Namespace) -> None:
     print(f"Production release is eligible via staging qualification {record['qualifier']['run_id']}.")
 
 
+def command_verify_rollback(arguments: argparse.Namespace) -> None:
+    expected = {
+        "source_commit": arguments.source_commit,
+        "image_digest": arguments.image_digest,
+        "build_id": arguments.build_id,
+        "source_workflow_run_id": arguments.source_workflow_run_id,
+    }
+    if arguments.confirmation != "rollback-recorded-last-known-good":
+        raise EligibilityError("Rollback eligibility requires the fixed rollback confirmation phrase.")
+    if arguments.reason.strip() != arguments.reason or len(arguments.reason.strip()) < 10:
+        raise EligibilityError("Rollback eligibility requires a sanitized operator reason.")
+    if expected["source_workflow_run_id"] != expected["build_id"].split("-", 1)[0]:
+        raise EligibilityError("Rollback source workflow run must match the restored build ID.")
+    restored = promote_nutsnews_release.verify_manifest(
+        arguments.manifest,
+        promote_nutsnews_release.IMAGE_REPOSITORY,
+        arguments.image_digest,
+        arguments.source_commit,
+        arguments.build_id,
+        arguments.migration_head,
+        arguments.schema_version,
+        arguments.supabase_project_ref,
+    )
+    if not arguments.previous_manifest or not arguments.previous_manifest.exists():
+        raise EligibilityError("Rollback verification requires the previous reviewed production manifest.")
+    previous = promote_nutsnews_release.validate_manifest(
+        promote_nutsnews_release.manifest_values(arguments.previous_manifest.read_text(encoding="utf-8"))
+    )
+    if previous["image_digest"] != arguments.failed_image_digest:
+        raise EligibilityError("Rollback failed digest does not match the previous production manifest.")
+    if previous["last_known_good_digest"] != restored["image_digest"]:
+        raise EligibilityError("Rollback target is not the previous manifest's recorded last-known-good digest.")
+    history_commit, selected = rollback_nutsnews_release.find_recorded_release(
+        arguments.manifest,
+        restored["image_digest"],
+        cwd=arguments.repo,
+    )
+    for key in ("image_digest", "source_commit", "build_id", "migration_head", "schema_version", "supabase_project_ref"):
+        if selected[key] != restored[key]:
+            raise EligibilityError(f"Rollback restored {key} does not match recorded history.")
+    evidence = {
+        "schema_version": "nutsnews.production_rollback.v1",
+        "result": "verified",
+        "reason": arguments.reason,
+        "failed": previous,
+        "restored": restored,
+        "restored_manifest_commit": history_commit,
+    }
+    if arguments.github_output:
+        arguments.github_output.write_text(
+            "\n".join(
+                (
+                    "app_release=true",
+                    "rollback=true",
+                    f"failed_image_digest={arguments.failed_image_digest}",
+                    f"restored_image_digest={restored['image_digest']}",
+                    "",
+                )
+            ),
+            encoding="utf-8",
+        )
+    if arguments.output:
+        arguments.output.parent.mkdir(parents=True, exist_ok=True)
+        arguments.output.write_text(json.dumps(evidence, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    print(f"Production rollback is eligible for recorded digest {restored['image_digest']}.")
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -321,6 +389,24 @@ def build_parser() -> argparse.ArgumentParser:
     verify.add_argument("--output", type=Path)
     verify.add_argument("--github-output", type=Path)
     verify.set_defaults(func=command_verify)
+
+    rollback = subparsers.add_parser("verify-rollback")
+    rollback.add_argument("--repo", type=Path, default=Path.cwd())
+    rollback.add_argument("--manifest", type=Path, required=True)
+    rollback.add_argument("--previous-manifest", type=Path, required=True)
+    rollback.add_argument("--source-commit", required=True)
+    rollback.add_argument("--image-digest", required=True)
+    rollback.add_argument("--build-id", required=True)
+    rollback.add_argument("--source-workflow-run-id", required=True)
+    rollback.add_argument("--migration-head", required=True)
+    rollback.add_argument("--schema-version", required=True)
+    rollback.add_argument("--supabase-project-ref", required=True)
+    rollback.add_argument("--failed-image-digest", required=True)
+    rollback.add_argument("--reason", required=True)
+    rollback.add_argument("--confirmation", required=True)
+    rollback.add_argument("--output", type=Path)
+    rollback.add_argument("--github-output", type=Path)
+    rollback.set_defaults(func=command_verify_rollback)
     return parser
 
 

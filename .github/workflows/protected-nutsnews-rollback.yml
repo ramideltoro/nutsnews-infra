@@ -1,0 +1,223 @@
+name: Protected NutsNews Rollback
+
+on:
+  workflow_dispatch:
+    inputs:
+      failed_image_digest:
+        description: Current failed production sha256 digest to replace.
+        required: true
+        type: string
+      rollback_reason:
+        description: Sanitized operator reason for the fixed rollback.
+        required: true
+        type: string
+      rollback_confirmation:
+        description: Type rollback-recorded-last-known-good.
+        required: true
+        type: string
+
+permissions:
+  actions: read
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: nutsnews-production-rollback
+  cancel-in-progress: false
+
+jobs:
+  rollback:
+    name: Select recorded rollback and run protected apply
+    if: inputs.rollback_confirmation == 'rollback-recorded-last-known-good'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    environment: production-vps
+
+    steps:
+      - name: Checkout reviewed rollback automation
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Select and write fixed rollback manifest
+        id: rollback
+        shell: bash
+        env:
+          FAILED_IMAGE_DIGEST: ${{ inputs.failed_image_digest }}
+          ROLLBACK_REASON: ${{ inputs.rollback_reason }}
+        run: |
+          set -euo pipefail
+          python3 ansible/scripts/rollback_nutsnews_release.py \
+            --repo "$GITHUB_WORKSPACE" \
+            --manifest ansible/inventories/production/host_vars/vps.nutsnews.com.yml \
+            --failed-image-digest "$FAILED_IMAGE_DIGEST" \
+            --reason "$ROLLBACK_REASON" \
+            --write \
+            --evidence "$RUNNER_TEMP/nutsnews-rollback.json" \
+            --github-output "$GITHUB_OUTPUT"
+          git diff --check
+
+      - name: Create rollback pull request
+        id: pr
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.NUTSNEWS_INFRA_RELEASE_TOKEN }}
+          FAILED_IMAGE_DIGEST: ${{ steps.rollback.outputs.failed_image_digest }}
+          RESTORED_IMAGE_DIGEST: ${{ steps.rollback.outputs.restored_image_digest }}
+          ROLLBACK_REASON: ${{ inputs.rollback_reason }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$GH_TOKEN" ]]; then
+            echo "NUTSNEWS_INFRA_RELEASE_TOKEN is required for fixed rollback GitOps automation." >&2
+            exit 1
+          fi
+
+          rollback_branch="rollback/nutsnews-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          git config user.name "nutsnews-rollback[bot]"
+          git config user.email "nutsnews-rollback[bot]@users.noreply.github.com"
+          git switch -c "$rollback_branch"
+          git add ansible/inventories/production/host_vars/vps.nutsnews.com.yml
+          git commit -m "rollback: restore NutsNews recorded digest"
+          git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git push --set-upstream origin "$rollback_branch"
+
+          {
+            echo "## Fixed NutsNews production rollback"
+            echo
+            echo "This PR restores the recorded last-known-good immutable digest selected by the protected rollback workflow."
+            echo
+            echo "- Failed digest: \`${FAILED_IMAGE_DIGEST}\`"
+            echo "- Restored digest: \`${RESTORED_IMAGE_DIGEST}\`"
+            echo "- Rollback reason: ${ROLLBACK_REASON}"
+            echo "- Rollback workflow run: https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+            echo
+            echo "The rollback workflow will wait for checks, merge this PR, and dispatch Protected Ansible Apply with the fixed rollback inputs."
+          } > "$RUNNER_TEMP/nutsnews-rollback-pr.md"
+
+          pr_url="$(gh pr create \
+            --repo "$GITHUB_REPOSITORY" \
+            --base main \
+            --head "$rollback_branch" \
+            --title "rollback: restore NutsNews recorded digest" \
+            --body-file "$RUNNER_TEMP/nutsnews-rollback-pr.md")"
+          echo "pr_url=$pr_url" >> "$GITHUB_OUTPUT"
+
+      - name: Wait for rollback checks and merge
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.NUTSNEWS_INFRA_RELEASE_TOKEN }}
+          PR_URL: ${{ steps.pr.outputs.pr_url }}
+        run: |
+          set -euo pipefail
+          deadline=$((SECONDS + 3600))
+          while true; do
+            set +e
+            checks_json="$(gh pr checks "$PR_URL" --json name,bucket 2>/dev/null)"
+            checks_exit=$?
+            set -e
+            if [[ "$checks_exit" -eq 0 ]]; then
+              failed="$(python3 -c 'import json,sys; data=json.loads(sys.stdin.read()); print(any(item["bucket"] in {"fail","cancel","skipping"} for item in data))' <<<"$checks_json")"
+              pending="$(python3 -c 'import json,sys; data=json.loads(sys.stdin.read()); print(any(item["bucket"] not in {"pass","skipping"} for item in data))' <<<"$checks_json")"
+              if [[ "$failed" == "True" ]]; then
+                echo "Rollback PR checks failed." >&2
+                exit 1
+              fi
+              if [[ "$pending" == "False" ]]; then
+                break
+              fi
+            fi
+            if (( SECONDS > deadline )); then
+              echo "Timed out waiting for rollback PR checks." >&2
+              exit 1
+            fi
+            sleep 20
+          done
+          gh pr merge "$PR_URL" --merge --delete-branch
+
+      - name: Dispatch protected rollback apply
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.NUTSNEWS_INFRA_RELEASE_TOKEN }}
+          RESTORED_SOURCE_COMMIT: ${{ steps.rollback.outputs.restored_source_commit }}
+          RESTORED_IMAGE_DIGEST: ${{ steps.rollback.outputs.restored_image_digest }}
+          RESTORED_BUILD_ID: ${{ steps.rollback.outputs.restored_build_id }}
+          RESTORED_SOURCE_WORKFLOW_RUN_ID: ${{ steps.rollback.outputs.restored_source_workflow_run_id }}
+          RESTORED_MIGRATION_HEAD: ${{ steps.rollback.outputs.restored_migration_head }}
+          RESTORED_SCHEMA_VERSION: ${{ steps.rollback.outputs.restored_schema_version }}
+          RESTORED_SUPABASE_PROJECT_REF: ${{ steps.rollback.outputs.restored_supabase_project_ref }}
+          FAILED_IMAGE_DIGEST: ${{ steps.rollback.outputs.failed_image_digest }}
+          ROLLBACK_REASON: ${{ inputs.rollback_reason }}
+        run: |
+          set -euo pipefail
+          dispatch_started_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          gh workflow run protected-ansible-apply.yml \
+            --repo "$GITHUB_REPOSITORY" \
+            --ref main \
+            --field run_mode=apply \
+            --field confirm_apply=vps.nutsnews.com \
+            --field sync_vercel_production=false \
+            --field enable_cloudflare_ddns=false \
+            --field enable_grafana_alloy=false \
+            --field enable_staging_access=false \
+            --field release_source_commit="$RESTORED_SOURCE_COMMIT" \
+            --field release_image_digest="$RESTORED_IMAGE_DIGEST" \
+            --field release_build_id="$RESTORED_BUILD_ID" \
+            --field release_source_workflow_run_id="$RESTORED_SOURCE_WORKFLOW_RUN_ID" \
+            --field release_migration_head="$RESTORED_MIGRATION_HEAD" \
+            --field release_schema_version="$RESTORED_SCHEMA_VERSION" \
+            --field release_supabase_project_ref="$RESTORED_SUPABASE_PROJECT_REF" \
+            --field rollback_failed_image_digest="$FAILED_IMAGE_DIGEST" \
+            --field rollback_reason="$ROLLBACK_REASON" \
+            --field rollback_confirmation=rollback-recorded-last-known-good
+
+          deadline=$((SECONDS + 300))
+          while true; do
+            runs="$(gh run list \
+              --repo "$GITHUB_REPOSITORY" \
+              --workflow protected-ansible-apply.yml \
+              --created ">$dispatch_started_at" \
+              --json databaseId,createdAt \
+              --limit 10)"
+            run_id="$(python3 -c 'import json,sys; data=json.loads(sys.stdin.read()); print(data[0]["databaseId"] if data else "")' <<<"$runs")"
+            if [[ -n "$run_id" ]]; then
+              echo "protected_apply_run_id=$run_id" >> "$GITHUB_ENV"
+              gh run watch "$run_id" --repo "$GITHUB_REPOSITORY" --exit-status
+              break
+            fi
+            if (( SECONDS > deadline )); then
+              echo "Timed out locating protected rollback apply run." >&2
+              exit 1
+            fi
+            sleep 10
+          done
+
+      - name: Retain rollback evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: nutsnews-production-rollback-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/nutsnews-rollback.json
+          if-no-files-found: ignore
+          retention-days: 90
+          overwrite: false
+
+      - name: Summarize rollback
+        if: ${{ always() && steps.rollback.outputs.restored_image_digest != '' }}
+        shell: bash
+        env:
+          FAILED_IMAGE_DIGEST: ${{ steps.rollback.outputs.failed_image_digest }}
+          RESTORED_IMAGE_DIGEST: ${{ steps.rollback.outputs.restored_image_digest }}
+          RESTORED_SOURCE_COMMIT: ${{ steps.rollback.outputs.restored_source_commit }}
+          PROTECTED_APPLY_RUN_ID: ${{ env.protected_apply_run_id }}
+        run: |
+          {
+            echo "## NutsNews rollback"
+            echo
+            echo "- Failed digest: \`${FAILED_IMAGE_DIGEST}\`"
+            echo "- Restored digest: \`${RESTORED_IMAGE_DIGEST}\`"
+            echo "- Restored source commit: \`${RESTORED_SOURCE_COMMIT}\`"
+            if [[ -n "$PROTECTED_APPLY_RUN_ID" ]]; then
+              echo "- Protected apply run: https://github.com/${GITHUB_REPOSITORY}/actions/runs/${PROTECTED_APPLY_RUN_ID}"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
