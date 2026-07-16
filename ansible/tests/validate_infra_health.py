@@ -46,6 +46,10 @@ for token in (
     "vps_service_foundation_infra_health_host: 172.17.0.1",
     'vps_service_foundation_infra_health_url: "http://172.17.0.1:{{ vps_service_foundation_infra_health_port }}/health"',
     "vps_service_foundation_infra_health_ufw_allow_from: 172.20.0.0/16",
+    "vps_service_foundation_deprecated_infra_health_ufw_allow_from:",
+    "vps_service_foundation_deprecated_docker_networks:",
+    "  - 172.18.0.0/16",
+    "  - nutsnews-edge",
 ):
     require(token in DEFAULTS, f"Defaults missing {token}.")
 
@@ -66,7 +70,11 @@ for token in (
     "Restart NutsNews infrastructure health service after unit changes",
     "Read infrastructure health listener after reconciliation",
     "Assert infrastructure health listener is narrow",
+    "Remove deprecated Caddy Docker health UFW sources",
     "Allow Caddy Docker network to reach infrastructure health service",
+    "Inspect deprecated Docker networks before removal",
+    "Assert deprecated Docker networks are empty before removal",
+    "Remove empty deprecated Docker networks",
     "Wait for local infrastructure health endpoint",
 ):
     require(token in TASKS, f"Ansible tasks missing {token}.")
@@ -75,6 +83,32 @@ require("community.general.ufw" in TASKS, "Ansible must manage the health servic
 require("vps_service_foundation_infra_health_port | string" in TASKS, "UFW rule must use the configured health port.")
 require("vps_service_foundation_infra_health_host == '172.17.0.1'" in TASKS, "Ansible must reject a broad health bind.")
 require("vps_service_foundation_infra_health_ufw_allow_from == '172.20.0.0/16'" in TASKS, "Ansible must keep the Caddy UFW source narrow.")
+require(
+    "not in vps_service_foundation_deprecated_infra_health_ufw_allow_from"
+    in TASKS,
+    "Ansible must reject overlapping current and deprecated health UFW sources.",
+)
+require(
+    "delete: true" in TASKS,
+    "Ansible must remove the deprecated health UFW source.",
+)
+require(
+    "vps_service_foundation_deprecated_docker_networks == ['nutsnews-edge']"
+    in TASKS,
+    "Ansible must explicitly track the deprecated Docker network.",
+)
+require(
+    "docker\n          - network\n          - inspect" in TASKS,
+    "Ansible must inspect deprecated Docker networks before removal.",
+)
+require(
+    "item.rc != 0 or (item.stdout | int) == 0" in TASKS,
+    "Ansible must only remove empty deprecated Docker networks.",
+)
+require(
+    "docker\n          - network\n          - rm" in TASKS,
+    "Ansible must remove empty deprecated Docker networks.",
+)
 require("register: vps_service_foundation_infra_health_service_install" in TASKS, "Health unit installation must record changes.")
 require("vps_service_foundation_infra_health_service_install.changed" in TASKS, "Health service must restart after unit changes.")
 require("register: vps_service_foundation_infra_health_listener" in TASKS, "Health listener must be inspected after unit changes.")

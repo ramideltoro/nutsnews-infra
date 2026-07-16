@@ -994,6 +994,10 @@ vps_service_foundation_infra_health_port: 18080
 vps_service_foundation_infra_health_url: "http://172.17.0.1:{{ vps_service_foundation_infra_health_port }}/health"
 vps_service_foundation_infra_health_ufw_allow_from: 172.20.0.0/16
 vps_service_foundation_infra_health_ufw_comment: NutsNews Caddy to infra health
+vps_service_foundation_deprecated_infra_health_ufw_allow_from:
+  - 172.18.0.0/16
+vps_service_foundation_deprecated_docker_networks:
+  - nutsnews-edge
 vps_service_foundation_infra_health_threshold_percent: 60
 vps_service_foundation_infra_health_resource_checks:
   - cpu
