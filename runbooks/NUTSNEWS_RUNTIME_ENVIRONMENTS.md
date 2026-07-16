@@ -2,7 +2,7 @@
 
 NutsNews has exactly two runtime identities: `production` and `staging`.
 Production preserves the existing `nutsnews-app` Compose project, route, image
-digest, and `nutsnews-edge` Caddy network. Staging has separate Compose,
+digest, and `nutsnews-edge-v6` Caddy network. Staging has separate Compose,
 application, environment, manifest, marker, last-known-good, cache-volume, and
 network identities.
 

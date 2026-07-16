@@ -381,9 +381,9 @@ def verify(request: dict[str, object]) -> None:
         "network_separation": (
             staging_networks == {"nutsnews-edge-staging"}
             and access_networks == {"nutsnews-edge-staging"}
-            and "nutsnews-edge" in production_networks
+            and "nutsnews-edge-v6" in production_networks
             and "nutsnews-edge-staging" not in production_networks
-            and {"nutsnews-edge", "nutsnews-edge-staging"}.issubset(caddy_networks)
+            and {"nutsnews-edge-v6", "nutsnews-edge-staging"}.issubset(caddy_networks)
         ),
         "resource_limits": (
             staging_host.get("NanoCpus") == 1_000_000_000

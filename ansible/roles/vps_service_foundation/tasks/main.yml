@@ -363,7 +363,7 @@
             == (vps_service_foundation_nutsnews_deployment_environments | length)
           - vps_service_foundation_nutsnews_environments.production.name == 'production'
           - vps_service_foundation_nutsnews_environments.production.project_name == 'nutsnews-app'
-          - vps_service_foundation_nutsnews_environments.production.network_name == 'nutsnews-edge'
+          - vps_service_foundation_nutsnews_environments.production.network_name == 'nutsnews-edge-v6'
           - vps_service_foundation_nutsnews_environments.staging.name == 'staging'
           - not (vps_service_foundation_nutsnews_environments.staging.enabled | bool)
           - not (vps_service_foundation_nutsnews_environments.staging.staged_route_enabled | bool)
@@ -600,7 +600,7 @@
         that:
           - vps_service_foundation_infra_health_host == '172.17.0.1'
           - vps_service_foundation_infra_health_port | int == 18080
-          - vps_service_foundation_infra_health_ufw_allow_from == '172.18.0.0/16'
+          - vps_service_foundation_infra_health_ufw_allow_from == '172.20.0.0/16'
         fail_msg: >-
           The infrastructure health endpoint must bind only to the Docker
           host-gateway address and accept traffic only from the Caddy Docker

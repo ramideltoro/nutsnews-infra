@@ -192,7 +192,7 @@ HTML, asset, API, Auth.js callback, Turnstile, contact-form, cookie, CSRF/CORS,
 Sentry, or cache parity. Full app parity validation must happen immediately
 after the reviewed public route is enabled through Protected Ansible Apply.
 
-UFW allows only the Caddy Docker network (`172.18.0.0/16`) to reach the host health service on TCP port `18080`. Direct public access to TCP port 18080 is intentionally blocked. This internal rule is managed by Ansible so the public Better Stack endpoint works without manual firewall changes.
+UFW allows only the Caddy Docker network (`172.20.0.0/16`) to reach the host health service on TCP port `18080`. Direct public access to TCP port 18080 is intentionally blocked. This internal rule is managed by Ansible so the public Better Stack endpoint works without manual firewall changes.
 
 The operations portal is exposed publicly at `https://ops.nutsnews.com` through Caddy-managed TLS and the Ops Portal Google OAuth gateway. The host loopback listener at `127.0.0.1:8080` remains available for private health checks and SSH tunnel fallback. When Cloudflare DDNS is enabled, the protected apply workflow updates both `vps.nutsnews.com` and `ops.nutsnews.com` A records immediately and keeps the DDNS timer enabled for future VPS public IPv4 changes.
 

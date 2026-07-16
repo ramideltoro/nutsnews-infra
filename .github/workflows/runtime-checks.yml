@@ -79,7 +79,7 @@ jobs:
           export NUTSNEWS_APP_CONTAINER_NAME=nutsnews-app
           export NUTSNEWS_APP_CONTAINER_PORT=3000
           export NUTSNEWS_APP_ENV_FILE=/dev/null
-          export NUTSNEWS_APP_NETWORK_NAME=nutsnews-edge
+          export NUTSNEWS_APP_NETWORK_NAME=nutsnews-edge-v6
           export NUTSNEWS_APP_NETWORK_ALIAS=nutsnews-app
           export NUTSNEWS_APP_CACHE_VOLUME_NAME=nutsnews-app-cache
           export NUTSNEWS_APP_CPU_LIMIT=4
