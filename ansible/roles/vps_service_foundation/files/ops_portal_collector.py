@@ -2165,6 +2165,26 @@ def free_tier_alerts(free_tier: dict[str, Any]) -> list[dict[str, str]]:
     return alerts
 
 
+def ignored_unhealthy_container_names(app: dict[str, Any] | None = None) -> set[str]:
+    if not isinstance(app, dict):
+        return set()
+    release_gate = app.get("release_gate", {})
+    if not isinstance(release_gate, dict):
+        return set()
+    staging = release_gate.get("staging", {})
+    if not isinstance(staging, dict):
+        return set()
+    auto_idle = staging.get("auto_idle", {})
+    if not isinstance(auto_idle, dict):
+        return set()
+    if str(auto_idle.get("status") or "").lower() not in {"idled", "not_configured"}:
+        return set()
+    managed = auto_idle.get("managed_containers", [])
+    if not isinstance(managed, list):
+        return set()
+    return {str(item) for item in managed if isinstance(item, str) and item}
+
+
 def alert_state(
     resources: dict[str, Any],
     docker: dict[str, Any],
@@ -2173,6 +2193,7 @@ def alert_state(
     free_tier: dict[str, Any],
     observability: dict[str, Any] | None = None,
     security: dict[str, Any] | None = None,
+    app: dict[str, Any] | None = None,
 ) -> list[dict[str, str]]:
     alerts = []
     observability = observability or {}
@@ -2198,10 +2219,12 @@ def alert_state(
     if isinstance(oom_count, int) and oom_count > 0:
         alerts.append(alert_item("resource.kernel_oom", "critical", "Recent kernel OOM evidence was found."))
 
+    ignored_unhealthy = ignored_unhealthy_container_names(app)
     unhealthy = [
         container["name"]
         for container in docker.get("containers", [])
         if container.get("health") not in ("healthy", "none", "unknown", "")
+        and container.get("name") not in ignored_unhealthy
     ]
     if unhealthy:
         alerts.append(
@@ -2693,7 +2716,7 @@ def collect() -> dict[str, Any]:
         "email_reporting": reporting,
         "alerts": {
             "email_configuration": reporting.get("status", "disabled"),
-            "items": alert_state(resources, docker, services, backups, free_tier, observability, security),
+            "items": alert_state(resources, docker, services, backups, free_tier, observability, security, app),
         },
         "gitops": gitops_state(),
         "app": app,

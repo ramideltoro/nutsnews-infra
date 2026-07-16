@@ -208,6 +208,49 @@ require(
     any(item.get("id") == "security.stale_pending_updates" for item in stale_update_alerts),
     "Collector alert state must warn on stale pending security updates.",
 )
+inactive_staging_app = {
+    "release_gate": {
+        "staging": {
+            "auto_idle": {
+                "status": "not_configured",
+                "managed_containers": ["nutsnews-app-staging"],
+            }
+        }
+    }
+}
+inactive_staging_alerts = COLLECTOR_MODULE.alert_state(
+    {"disk": {}, "memory": {}, "swap": {}},
+    {
+        "containers": [
+            {"name": "nutsnews-app-staging", "health": "unhealthy"},
+            {"name": "other-worker", "health": "healthy"},
+        ]
+    },
+    [],
+    {},
+    {"providers": []},
+    {},
+    {},
+    inactive_staging_app,
+)
+require(
+    not any(item.get("id") == "runtime.unhealthy_containers" for item in inactive_staging_alerts),
+    "Inactive staging containers managed by auto-idle must not make the portal critical.",
+)
+unmanaged_unhealthy_alerts = COLLECTOR_MODULE.alert_state(
+    {"disk": {}, "memory": {}, "swap": {}},
+    {"containers": [{"name": "unmanaged-worker", "health": "unhealthy"}]},
+    [],
+    {},
+    {"providers": []},
+    {},
+    {},
+    inactive_staging_app,
+)
+require(
+    any(item.get("id") == "runtime.unhealthy_containers" for item in unmanaged_unhealthy_alerts),
+    "Unmanaged unhealthy containers must remain critical.",
+)
 firewall_summary = logs.get("firewall_deny_summary", {})
 journal_warning_lines = logs.get("journal_warnings", [])
 require("vps_baseline_ufw_logging: \"off\"" in BASELINE_DEFAULTS, "UFW packet logging must default to off.")
@@ -456,6 +499,7 @@ require(release_gate["staging"]["health_state"] == "unknown", "Fixture staging h
 require(release_gate["staging"]["supersession_state"] == "unknown", "Fixture staging supersession must default to unknown.")
 require(release_gate["staging"]["auto_idle"]["production_touched"] is False, "Staging auto-idle fixture must not touch production.")
 require(release_gate["staging"]["auto_idle"]["status"] == "not_configured", "Fixture staging auto-idle must start not configured.")
+require("staging_marker_recorded_at" in release_gate["staging"]["auto_idle"], "Fixture staging auto-idle must expose marker time.")
 require(release_gate["qualification"]["state"] == "not configured", "Fixture qualification state should be not configured.")
 require(release_gate["rollback"]["state"] == "not configured", "Fixture rollback state should be not configured.")
 for token in (

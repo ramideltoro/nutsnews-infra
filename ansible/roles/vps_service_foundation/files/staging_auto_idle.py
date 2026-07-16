@@ -160,6 +160,7 @@ def release_lock(acquired: bool) -> None:
 
 
 def base_status(now: datetime, app_marker: dict[str, Any], staging_marker: dict[str, Any]) -> dict[str, Any]:
+    staging_marker_recorded_at = str(staging_marker.get("recorded_at", "")).strip()
     return {
         "schema_version": 1,
         "checked_at": iso(now),
@@ -174,6 +175,7 @@ def base_status(now: datetime, app_marker: dict[str, Any], staging_marker: dict[
         "staging_marker_deployment_id": str(
             staging_marker.get("deployment_id") or staging_marker.get("staging_deployment_id") or ""
         ).strip(),
+        "staging_marker_recorded_at": staging_marker_recorded_at,
         "production_touched": False,
         "managed_projects": [STAGING_PROJECT_NAME, STAGING_ACCESS_PROJECT],
         "managed_containers": list(STAGING_CONTAINERS),
@@ -182,7 +184,7 @@ def base_status(now: datetime, app_marker: dict[str, Any], staging_marker: dict[
     }
 
 
-def idle_staging(status: dict[str, Any]) -> dict[str, Any]:
+def idle_staging(status: dict[str, Any], reason: str = "qualification_expired") -> dict[str, Any]:
     running_before = {name: container_running(name) for name in STAGING_CONTAINERS}
     status["running_before"] = running_before
     if not any(running_before.values()):
@@ -212,10 +214,28 @@ def idle_staging(status: dict[str, Any]) -> dict[str, Any]:
             status.update({"status": "error", "action": "failed", "reason": "staging_idle_command_failed"})
             return status
         status["running_after"] = {name: container_running(name) for name in STAGING_CONTAINERS}
-        status.update({"status": "idled", "action": "idled", "reason": "qualification_expired"})
+        status.update({"status": "idled", "action": "idled", "reason": reason})
         return status
     finally:
         release_lock(acquired)
+
+
+def orphaned_staging_status(status: dict[str, Any], now: datetime, reason: str) -> dict[str, Any]:
+    if not status["staging_marker_deployment_id"]:
+        status.update({"status": "not_configured", "reason": reason})
+        return status
+
+    marker_time = parse_timestamp(status.get("staging_marker_recorded_at"))
+    if not marker_time:
+        status.update({"status": "not_configured", "reason": f"{reason}_timestamp_missing"})
+        return status
+
+    idle_after = marker_time + timedelta(seconds=GRACE_SECONDS)
+    status["idle_after"] = iso(idle_after)
+    if now < idle_after:
+        status.update({"status": "orphaned_waiting_grace", "reason": reason})
+        return status
+    return idle_staging(status, reason=reason)
 
 
 def evaluate() -> dict[str, Any]:
@@ -230,8 +250,7 @@ def evaluate() -> dict[str, Any]:
 
     expires_at = parse_timestamp(status["qualification_expires_at"])
     if not status["qualification_expires_at"]:
-        status.update({"status": "not_configured", "reason": "qualification_expiry_missing"})
-        return status
+        return orphaned_staging_status(status, now, "qualification_expiry_missing")
     if not expires_at:
         status.update({"status": "error", "reason": "qualification_expiry_invalid"})
         return status

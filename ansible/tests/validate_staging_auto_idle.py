@@ -50,6 +50,7 @@ for required in (
     "Install NutsNews staging auto-idle timer",
     "Seed staging auto-idle status before the first scheduled run",
     "Manage NutsNews staging auto-idle timer",
+    "Refresh NutsNews staging auto-idle state",
 ):
     require(required in TASKS, f"Service foundation tasks missing {required}.")
 
@@ -70,6 +71,8 @@ for required in (
 require("OnCalendar={{ vps_service_foundation_nutsnews_staging_auto_idle_on_calendar }}" in TIMER, "Timer cadence must be managed by defaults.")
 require("production_touched" in SCRIPT_TEXT and '"production_touched": False' in SCRIPT_TEXT, "Status must explicitly record that production was not touched.")
 require("staging_marker_deployment_id_mismatch" in SCRIPT_TEXT, "Auto-idle must not idle a superseded staging candidate.")
+require("orphaned_staging_status" in SCRIPT_TEXT, "Auto-idle must handle orphaned staging deployments.")
+require("qualification_expiry_missing" in SCRIPT_TEXT, "Auto-idle must detect missing qualification expiry.")
 require("compose_down(STAGING_ACCESS_PROJECT" in SCRIPT_TEXT, "Auto-idle must stop staging access verifier.")
 require("compose_down(STAGING_PROJECT_NAME" in SCRIPT_TEXT, "Auto-idle must stop staging app.")
 require("docker\", \"volume\", \"rm\", STAGING_CACHE_VOLUME" in SCRIPT_TEXT, "Auto-idle must remove the staging cache volume when enabled.")
@@ -160,6 +163,55 @@ with tempfile.TemporaryDirectory() as tmp:
     require("nutsnews-staging-access" in serialized, "Staging access Compose project must be stopped.")
     require("nutsnews-app-staging-cache" in serialized, "Staging cache volume must be removed.")
     require("nutsnews-app\"" not in serialized, "Production app project must not be targeted.")
+
+with tempfile.TemporaryDirectory() as tmp:
+    root = Path(tmp)
+    (root / "last-app-apply.json").write_text(json.dumps({}), encoding="utf-8")
+    (root / "staging-last-apply.json").write_text(
+        json.dumps(
+            {
+                "deployment_id": "stg-orphan",
+                "recorded_at": "2026-07-16T11:30:00Z",
+            }
+        ),
+        encoding="utf-8",
+    )
+    module = load_module(root)
+    waiting = module.evaluate()
+    require(waiting["status"] == "orphaned_waiting_grace", "Recent orphaned staging must wait through grace.")
+    require(waiting["reason"] == "qualification_expiry_missing", "Recent orphan reason must be explicit.")
+
+with tempfile.TemporaryDirectory() as tmp:
+    root = Path(tmp)
+    (root / "last-app-apply.json").write_text(json.dumps({}), encoding="utf-8")
+    (root / "staging-last-apply.json").write_text(
+        json.dumps(
+            {
+                "deployment_id": "stg-orphan",
+                "recorded_at": "2026-07-16T09:30:00Z",
+            }
+        ),
+        encoding="utf-8",
+    )
+    module = load_module(root)
+    calls: list[list[str]] = []
+
+    def fake_running(name: str) -> bool:
+        return name in {"nutsnews-app-staging", "nutsnews-staging-access-verifier"}
+
+    def fake_command(args: list[str]) -> dict[str, object]:
+        calls.append(args)
+        return {"ok": True, "returncode": 0, "stdout": "", "stderr": ""}
+
+    module.container_running = fake_running
+    module.command = fake_command
+    orphaned = module.evaluate()
+    require(orphaned["status"] == "idled", "Old orphaned staging must be idled.")
+    require(orphaned["reason"] == "qualification_expiry_missing", "Old orphan idle reason must be explicit.")
+    serialized = json.dumps(calls)
+    require("nutsnews-staging" in serialized, "Orphaned staging app Compose project must be stopped.")
+    require("nutsnews-staging-access" in serialized, "Orphaned staging access Compose project must be stopped.")
+    require("nutsnews-app\"" not in serialized, "Orphaned idle must not target production.")
 
 require(datetime.now(timezone.utc).tzinfo is not None, "Timezone-aware validation sanity check.")
 print("Staging auto-idle guardrails passed.")

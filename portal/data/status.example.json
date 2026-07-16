@@ -1100,6 +1100,7 @@
           "schema_version": 1,
           "staging_deployment_id": "",
           "staging_marker_deployment_id": "",
+          "staging_marker_recorded_at": "",
           "status": "not_configured"
         },
         "deployment_id": "",

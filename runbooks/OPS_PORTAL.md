@@ -55,6 +55,14 @@ preflight, package maintenance, reboot, and post-reboot validation.
 
 Alloy telemetry visibility is read-only. The collector checks `alloy.service`, the local readiness URL, whether Docker log shipping is enabled separately from cAdvisor/container metrics, `.prom` files under the configured textfile directory, and recent journal matches for `containerd.sock: connect: permission denied`. A nonzero recent match count raises a portal alert because it means the broken cAdvisor/container path has returned or the post-apply validation window needs investigation. The portal does not read Alloy secrets or expose any control that can restart or reconfigure Alloy.
 
+Staging app containers are not part of the active production health score after
+their qualification metadata is missing or the auto-idle runner has idled them.
+The portal still shows their Docker and staging idle state for diagnosis, but
+inactive staging containers must not keep the dashboard critical. If
+`nutsnews-app-staging` is running without a current qualification expiry, the
+GitOps-managed staging auto-idle service should stop the staging app and access
+projects after the configured grace window.
+
 SSH hardening allows `nutsnews_ops` to create only local TCP forwards to `127.0.0.1:8080` or `localhost:8080` for portal access. Remote forwarding, gateway exposure, stream-local forwarding, tunnel devices, and broad forwarding stay disabled.
 
 The portal forwarding policy is intentionally modeled with explicit SSH `Match` blocks. Do not put `AllowTcpForwarding no` or `PermitOpen none` back into the global baseline drop-in; those global directives can block the operator exception and bring back the `administratively prohibited` tunnel failure.
