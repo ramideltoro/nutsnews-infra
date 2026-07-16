@@ -873,6 +873,7 @@ function renderAppLayer(data) {
   const releaseGate = app.release_gate || {};
   const candidate = releaseGate.candidate || {};
   const stagingGate = releaseGate.staging || {};
+  const autoIdle = stagingGate.auto_idle || {};
   const qualification = releaseGate.qualification || {};
   const production = releaseGate.production || {};
   const rollback = releaseGate.rollback || {};
@@ -923,6 +924,7 @@ function renderAppLayer(data) {
   renderMetrics("release-gate-grid", [
     { label: "Candidate", value: text(candidate.state, "unknown"), hint: `${shortCommit(candidate.source_commit)} ${text(candidate.build_id, "no build")}` },
     { label: "Staging deploy", value: text(stagingGate.deployment_id, "not configured"), hint: `${text(stagingGate.health_state, "unknown")} / ${text(stagingGate.ready_state, "unknown")}` },
+    { label: "Staging idle", value: text(autoIdle.status, "unknown"), hint: `${text(autoIdle.action, "none")} / ${text(autoIdle.reason, "none")}; checked ${text(autoIdle.checked_at, "unknown")}` },
     { label: "Qualification", value: text(qualification.state, "unknown"), hint: `run ${text(qualification.run_id, "unknown")} expires ${text(qualification.expires_at, "unknown")}` },
     { label: "Supersession", value: text(stagingGate.supersession_state, "unknown"), hint: "Compared from retained gate metadata" },
     { label: "Promotion", value: text(production.promotion_run_id, "unknown"), hint: text(production.promoted_at, "unknown") },

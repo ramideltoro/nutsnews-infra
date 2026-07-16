@@ -439,6 +439,7 @@ for label in (
     "Public route",
     "Candidate",
     "Staging deploy",
+    "Staging idle",
     "Qualification",
     "Supersession",
     "Previous digest",
@@ -453,6 +454,8 @@ for state in ("unknown", "not configured", "failed", "expired", "superseded", "c
 require(release_gate["candidate"]["state"] == "not configured", "Fixture candidate state should be not configured.")
 require(release_gate["staging"]["health_state"] == "unknown", "Fixture staging health must default to unknown.")
 require(release_gate["staging"]["supersession_state"] == "unknown", "Fixture staging supersession must default to unknown.")
+require(release_gate["staging"]["auto_idle"]["production_touched"] is False, "Staging auto-idle fixture must not touch production.")
+require(release_gate["staging"]["auto_idle"]["status"] == "not_configured", "Fixture staging auto-idle must start not configured.")
 require(release_gate["qualification"]["state"] == "not configured", "Fixture qualification state should be not configured.")
 require(release_gate["rollback"]["state"] == "not configured", "Fixture rollback state should be not configured.")
 for token in (
@@ -461,6 +464,7 @@ for token in (
     "qualification_run_id",
     "qualification_expires_at",
     "staging_deployment_id",
+    "staging_auto_idle_state",
     "promotion_run_url",
 ):
     require(token in COLLECTOR, f"Collector missing release-gate token: {token}.")

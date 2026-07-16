@@ -54,6 +54,9 @@ BACKUP_STATUS_FILE = Path(
 DOCKER_CLEANUP_STATUS_FILE = Path(
     os.environ.get("NUTSNEWS_DOCKER_CLEANUP_STATUS_FILE", "/opt/nutsnews/portal-assets/data/docker-cleanup-status.json")
 )
+STAGING_AUTO_IDLE_STATUS_FILE = Path(
+    os.environ.get("NUTSNEWS_STAGING_AUTO_IDLE_STATUS_FILE", "/opt/nutsnews/portal-assets/data/staging-idle-status.json")
+)
 APP_ENABLED = os.environ.get("NUTSNEWS_APP_ENABLED", "0").strip().lower() in {"1", "true", "yes", "on"}
 APP_STAGED_ROUTE_ENABLED = os.environ.get("NUTSNEWS_APP_STAGED_ROUTE_ENABLED", "0").strip().lower() in {
     "1",
@@ -1790,6 +1793,45 @@ def docker_cleanup_state() -> dict[str, Any]:
     }
 
 
+def staging_auto_idle_state() -> dict[str, Any]:
+    default = {
+        "schema_version": 1,
+        "available": False,
+        "status": "unknown",
+        "action": "none",
+        "status_file": str(STAGING_AUTO_IDLE_STATUS_FILE),
+        "production_touched": False,
+    }
+    data = read_json(STAGING_AUTO_IDLE_STATUS_FILE, {})
+    if not isinstance(data, dict):
+        return default
+    actions = data.get("actions", [])
+    if not isinstance(actions, list):
+        actions = []
+    return {
+        "schema_version": data.get("schema_version", 1),
+        "available": True,
+        "enabled": bool(data.get("enabled", False)),
+        "status": str(data.get("status") or "unknown"),
+        "action": str(data.get("action") or "none"),
+        "reason": redact_line(str(data.get("reason") or "")),
+        "checked_at": str(data.get("checked_at") or ""),
+        "qualification_expires_at": str(data.get("qualification_expires_at") or ""),
+        "idle_after": str(data.get("idle_after") or ""),
+        "grace_seconds": safe_int(data.get("grace_seconds"), 0),
+        "staging_deployment_id": str(data.get("staging_deployment_id") or ""),
+        "staging_marker_deployment_id": str(data.get("staging_marker_deployment_id") or ""),
+        "production_touched": bool(data.get("production_touched", False)),
+        "managed_projects": [str(item) for item in data.get("managed_projects", []) if isinstance(item, str)],
+        "managed_containers": [str(item) for item in data.get("managed_containers", []) if isinstance(item, str)],
+        "cache_volume": str(data.get("cache_volume") or ""),
+        "remove_cache_volume": bool(data.get("remove_cache_volume", False)),
+        "running_before": data.get("running_before", {}) if isinstance(data.get("running_before"), dict) else {},
+        "running_after": data.get("running_after", {}) if isinstance(data.get("running_after"), dict) else {},
+        "actions": [compact_command_result(item) for item in actions if isinstance(item, dict)],
+    }
+
+
 def gib(value: Any) -> float | None:
     try:
         return round(float(value) / (1024**3), 2)
@@ -2484,6 +2526,7 @@ def release_gate_state(app: dict[str, Any], marker: dict[str, Any]) -> dict[str,
             "health_state": "unknown",
             "ready_state": "unknown",
             "supersession_state": supersession_state,
+            "auto_idle": staging_auto_idle_state(),
         },
         "qualification": {
             "state": qualification_state,
@@ -2575,6 +2618,8 @@ def collect() -> dict[str, Any]:
             "nutsnews-restic-verify.service",
             "nutsnews-docker-cleanup.timer",
             "nutsnews-docker-cleanup.service",
+            "nutsnews-staging-auto-idle.timer",
+            "nutsnews-staging-auto-idle.service",
         ]
     ]
     reporting = reporting_state()

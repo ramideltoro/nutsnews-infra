@@ -487,6 +487,14 @@
         group: root
         mode: "0755"
 
+    - name: Install NutsNews staging auto-idle runner
+      ansible.builtin.copy:
+        src: staging_auto_idle.py
+        dest: "{{ vps_service_foundation_nutsnews_staging_auto_idle_bin }}"
+        owner: root
+        group: root
+        mode: "0755"
+
     - name: Validate conservative Docker cleanup settings
       ansible.builtin.assert:
         that:
@@ -497,6 +505,23 @@
           Docker cleanup requires explicit systemd calendar and age filters
           such as 168h. Refuse broad or empty prune settings.
         success_msg: Docker cleanup cadence and prune filters are conservative and valid.
+
+    - name: Validate NutsNews staging auto-idle settings
+      ansible.builtin.assert:
+        that:
+          - vps_service_foundation_nutsnews_staging_auto_idle_grace_seconds | int >= 0
+          - vps_service_foundation_nutsnews_staging_auto_idle_grace_seconds | int <= 86400
+          - vps_service_foundation_nutsnews_staging_auto_idle_on_calendar | trim | length > 0
+          - vps_service_foundation_nutsnews_staging_auto_idle_status_file == vps_service_foundation_portal_data_dir ~ '/staging-idle-status.json'
+          - vps_service_foundation_nutsnews_staging_auto_idle_log_file == vps_service_foundation_nutsnews_staging_auto_idle_log_dir ~ '/idle.jsonl'
+          - vps_service_foundation_nutsnews_environments.staging.project_name == 'nutsnews-staging'
+          - vps_service_foundation_nutsnews_environments.staging.container_name == 'nutsnews-app-staging'
+          - vps_service_foundation_nutsnews_environments.staging.cache_volume_name == 'nutsnews-app-staging-cache'
+          - vps_service_foundation_nutsnews_staging_access_project == 'nutsnews-staging-access'
+        fail_msg: >-
+          Staging auto-idle must stay bounded to the staging runtime and access
+          verifier, with an explicit grace period and sanitized status file.
+        success_msg: Staging auto-idle settings are staging-scoped and bounded.
 
     - name: Install operations portal reporter environment
       ansible.builtin.template:
@@ -731,6 +756,22 @@
         group: root
         mode: "0644"
 
+    - name: Install NutsNews staging auto-idle service
+      ansible.builtin.template:
+        src: nutsnews-staging-auto-idle.service.j2
+        dest: "/etc/systemd/system/{{ vps_service_foundation_nutsnews_staging_auto_idle_service }}"
+        owner: root
+        group: root
+        mode: "0644"
+
+    - name: Install NutsNews staging auto-idle timer
+      ansible.builtin.template:
+        src: nutsnews-staging-auto-idle.timer.j2
+        dest: "/etc/systemd/system/{{ vps_service_foundation_nutsnews_staging_auto_idle_timer }}"
+        owner: root
+        group: root
+        mode: "0644"
+
     - name: Seed Docker cleanup status before the first scheduled run
       ansible.builtin.copy:
         dest: "{{ vps_service_foundation_docker_cleanup_status_file }}"
@@ -753,6 +794,34 @@
                 'image_until': vps_service_foundation_docker_cleanup_image_until,
                 'build_cache_until': vps_service_foundation_docker_cleanup_build_cache_until
               },
+              'notes': 'Initial GitOps-managed status. The scheduled unit will replace this after its first run.'
+            } | to_nice_json
+          }}
+
+    - name: Seed staging auto-idle status before the first scheduled run
+      ansible.builtin.copy:
+        dest: "{{ vps_service_foundation_nutsnews_staging_auto_idle_status_file }}"
+        owner: root
+        group: root
+        mode: "0644"
+        force: false
+        content: |
+          {{
+            {
+              'schema_version': 1,
+              'status': 'installed_pending_first_run',
+              'action': 'none',
+              'enabled': vps_service_foundation_nutsnews_staging_auto_idle_enabled | bool,
+              'managed_by': 'ansible',
+              'service': vps_service_foundation_nutsnews_staging_auto_idle_service,
+              'timer': vps_service_foundation_nutsnews_staging_auto_idle_timer,
+              'on_calendar': vps_service_foundation_nutsnews_staging_auto_idle_on_calendar,
+              'grace_seconds': vps_service_foundation_nutsnews_staging_auto_idle_grace_seconds | int,
+              'production_touched': false,
+              'managed_projects': [
+                vps_service_foundation_nutsnews_environments.staging.project_name,
+                vps_service_foundation_nutsnews_staging_access_project
+              ],
               'notes': 'Initial GitOps-managed status. The scheduled unit will replace this after its first run.'
             } | to_nice_json
           }}
@@ -1215,6 +1284,13 @@
         name: "{{ vps_service_foundation_docker_cleanup_timer }}"
         enabled: "{{ vps_service_foundation_docker_cleanup_enabled | bool }}"
         state: "{{ (vps_service_foundation_docker_cleanup_enabled | bool) | ternary('started', 'stopped') }}"
+        daemon_reload: true
+
+    - name: Manage NutsNews staging auto-idle timer
+      ansible.builtin.systemd_service:
+        name: "{{ vps_service_foundation_nutsnews_staging_auto_idle_timer }}"
+        enabled: "{{ vps_service_foundation_nutsnews_staging_auto_idle_enabled | bool }}"
+        state: "{{ (vps_service_foundation_nutsnews_staging_auto_idle_enabled | bool) | ternary('started', 'stopped') }}"
         daemon_reload: true
 
     - name: Manage Cloudflare DDNS timer

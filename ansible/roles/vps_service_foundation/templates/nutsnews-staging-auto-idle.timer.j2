@@ -1,0 +1,12 @@
+[Unit]
+Description=Run NutsNews staging auto-idle checks
+Documentation={{ vps_service_foundation_docs_base_url }}
+
+[Timer]
+OnCalendar={{ vps_service_foundation_nutsnews_staging_auto_idle_on_calendar }}
+RandomizedDelaySec={{ vps_service_foundation_nutsnews_staging_auto_idle_randomized_delay_seconds }}
+Persistent=true
+Unit={{ vps_service_foundation_nutsnews_staging_auto_idle_service }}
+
+[Install]
+WantedBy=timers.target
