@@ -1023,6 +1023,8 @@ vps_service_foundation_collector_log_dir: "{{ vps_service_foundation_logs_dir }}
 vps_service_foundation_collector_service: nutsnews-ops-portal-collector.service
 vps_service_foundation_collector_timer: nutsnews-ops-portal-collector.timer
 vps_service_foundation_collector_timer_cadence_seconds: 60
+vps_service_foundation_collector_refresh_wait_retries: 45
+vps_service_foundation_collector_refresh_wait_delay_seconds: 2
 vps_service_foundation_collector_slow_cache_file: "{{ vps_service_foundation_portal_data_dir }}/collector-slow-cache.json"
 vps_service_foundation_collector_docker_inspect_cache_seconds: 300
 vps_service_foundation_collector_docker_compose_cache_seconds: 300

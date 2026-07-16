@@ -1,0 +1,40 @@
+- name: Refresh operations portal status through managed systemd unit
+  block:
+    - name: Pause operations portal collector timer for protected refresh
+      ansible.builtin.systemd_service:
+        name: "{{ vps_service_foundation_collector_timer }}"
+        state: stopped
+        enabled: true
+        daemon_reload: true
+
+    - name: Wait for in-flight operations portal collector to finish
+      ansible.builtin.command:
+        argv:
+          - systemctl
+          - show
+          - --property=ActiveState
+          - --value
+          - "{{ vps_service_foundation_collector_service }}"
+      register: vps_service_foundation_collector_active_state
+      changed_when: false
+      failed_when: vps_service_foundation_collector_active_state.rc != 0
+      retries: "{{ vps_service_foundation_collector_refresh_wait_retries }}"
+      delay: "{{ vps_service_foundation_collector_refresh_wait_delay_seconds }}"
+      until: >-
+        vps_service_foundation_collector_active_state.stdout
+        not in ['active', 'activating']
+
+    - name: Refresh operations portal status snapshot with managed unit
+      ansible.builtin.systemd_service:
+        name: "{{ vps_service_foundation_collector_service }}"
+        state: started
+        daemon_reload: true
+      changed_when: false
+
+  always:
+    - name: Resume operations portal collector timer after protected refresh
+      ansible.builtin.systemd_service:
+        name: "{{ vps_service_foundation_collector_timer }}"
+        state: started
+        enabled: true
+        daemon_reload: true
