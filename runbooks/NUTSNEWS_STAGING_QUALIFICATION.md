@@ -10,6 +10,9 @@ authority, production app secrets, deploy SSH, or release-promotion credentials.
 Before and after the app qualification suite, it reads the GitHub staging
 Deployment record and the live `https://staging.nutsnews.com/healthz` and
 `/readyz` identity through Cloudflare Access service-token material.
+Qualification depends on staging deployment success and live staging identity,
+not current production app health; production health is restored only by the
+separate protected production migration/apply path.
 
 If `ramideltoro/nutsnews` is private, `staging-tests` must provide
 `NUTSNEWS_STAGING_TESTS_SOURCE_TOKEN` with read-only source checkout access.
