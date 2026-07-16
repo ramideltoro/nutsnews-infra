@@ -17,8 +17,30 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  changes:
+    name: Classify changed paths
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      run_runtime: ${{ steps.classify.outputs.run_runtime }}
+      docs_only: ${{ steps.classify.outputs.docs_only }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Classify changed paths
+        id: classify
+        shell: bash
+        run: python3 .github/scripts/ci_classify_changes.py
+
   compose:
     name: Compose config
+    needs: changes
+    if: needs.changes.outputs.run_runtime == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
@@ -105,6 +127,8 @@ jobs:
 
   hadolint:
     name: Hadolint
+    needs: changes
+    if: needs.changes.outputs.run_runtime == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
@@ -138,6 +162,8 @@ jobs:
 
   trivy-filesystem:
     name: Trivy filesystem
+    needs: changes
+    if: needs.changes.outputs.run_runtime == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
@@ -159,6 +185,8 @@ jobs:
 
   trivy-config:
     name: Trivy config
+    needs: changes
+    if: needs.changes.outputs.run_runtime == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
 

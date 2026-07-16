@@ -17,11 +17,32 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  changes:
+    name: Classify changed paths
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      run_supply_chain: ${{ steps.classify.outputs.run_supply_chain }}
+      docs_only: ${{ steps.classify.outputs.docs_only }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Classify changed paths
+        id: classify
+        shell: bash
+        run: python3 .github/scripts/ci_classify_changes.py
+
   dependency-review:
     name: Dependency Review
+    needs: changes
+    if: github.event_name == 'pull_request' && needs.changes.outputs.run_supply_chain == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    if: github.event_name == 'pull_request'
 
     steps:
       - name: Checkout
@@ -61,6 +82,8 @@ jobs:
 
   osv:
     name: OSV recursive scan
+    needs: changes
+    if: needs.changes.outputs.run_supply_chain == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
