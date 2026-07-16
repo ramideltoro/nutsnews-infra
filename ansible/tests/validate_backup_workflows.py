@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import re
 import tempfile
 from datetime import datetime, timedelta, timezone
@@ -285,6 +286,178 @@ def validate_backup_alert_semantics() -> None:
     )
 
 
+def validate_backup_runner_error_lifecycle() -> None:
+    backup_runner = load_backup_runner()
+    env_keys = [
+        "NUTSNEWS_BACKUP_ENABLED",
+        "RESTIC_REPOSITORY",
+        "RESTIC_PASSWORD_FILE",
+        "RCLONE_CONFIG",
+        "NUTSNEWS_BACKUP_RCLONE_REMOTE",
+        "NUTSNEWS_BACKUP_STALE_AFTER_HOURS",
+        "NUTSNEWS_BACKUP_VERIFY_STALE_AFTER_HOURS",
+    ]
+    previous_env = {key: os.environ.get(key) for key in env_keys}
+
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        tmp_path = Path(tmp_dir)
+        protected_path = tmp_path / "protected"
+        protected_path.mkdir()
+        password_file = tmp_path / "restic-password"
+        password_file.write_text("safe-test-password\n", encoding="utf-8")
+        rclone_config = tmp_path / "rclone.conf"
+        rclone_config.write_text("[safe-test-remote]\n", encoding="utf-8")
+        paths_file = tmp_path / "paths.txt"
+        paths_file.write_text(f"{protected_path}\n", encoding="utf-8")
+
+        os.environ.update(
+            {
+                "NUTSNEWS_BACKUP_ENABLED": "true",
+                "RESTIC_REPOSITORY": "rclone:nutsnews-onedrive:nutsnews-backups/vps",
+                "RESTIC_PASSWORD_FILE": str(password_file),
+                "RCLONE_CONFIG": str(rclone_config),
+                "NUTSNEWS_BACKUP_RCLONE_REMOTE": "nutsnews-onedrive",
+                "NUTSNEWS_BACKUP_STALE_AFTER_HOURS": "30",
+                "NUTSNEWS_BACKUP_VERIFY_STALE_AFTER_HOURS": "192",
+            }
+        )
+
+        backup_runner.STATUS_FILE = tmp_path / "backup-status.json"
+        backup_runner.STATE_DIR = tmp_path / "state"
+        backup_runner.STATE_DIR.mkdir()
+        backup_runner.LOG_FILE = tmp_path / "restic-backup.log"
+        backup_runner.PATHS_FILE = paths_file
+        backup_runner.EXCLUDES_FILE = tmp_path / "excludes.txt"
+
+        snapshot_time = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+        snapshots = [
+            {
+                "id": "c53dda9300000000000000000000000000000000000000000000000000000000",
+                "short_id": "c53dda93",
+                "time": snapshot_time,
+                "hostname": "vps.nutsnews.com",
+                "paths": [str(protected_path)],
+            }
+        ]
+        state = {"backup_failures": 1, "verify_failures": 1}
+
+        def fake_restic_run(argv: list[str], *, env: dict[str, str], timeout: int | None = None) -> dict[str, object]:
+            del env, timeout
+            if argv[:2] == ["restic", "snapshots"]:
+                return {
+                    "ok": True,
+                    "stdout": json.dumps(snapshots),
+                    "stderr": "",
+                    "returncode": 0,
+                    "duration_seconds": 0.01,
+                }
+            if argv[:2] == ["restic", "backup"]:
+                if state["backup_failures"]:
+                    state["backup_failures"] -= 1
+                    return {
+                        "ok": False,
+                        "stdout": "",
+                        "stderr": "repository token=sensitive-test-value temporarily unavailable",
+                        "returncode": 1,
+                        "duration_seconds": 0.02,
+                    }
+                return {
+                    "ok": True,
+                    "stdout": (
+                        '{"message_type":"summary","snapshot_id":"c53dda93",'
+                        '"files_new":1,"files_changed":0,"files_unmodified":2,'
+                        '"dirs_new":0,"data_added":512,"total_bytes_processed":1024}\n'
+                    ),
+                    "stderr": "",
+                    "returncode": 0,
+                    "duration_seconds": 0.03,
+                }
+            if argv[:2] == ["restic", "forget"]:
+                return {"ok": True, "stdout": "[]", "stderr": "", "returncode": 0, "duration_seconds": 0.01}
+            if argv[:2] == ["restic", "ls"]:
+                return {
+                    "ok": True,
+                    "stdout": '{"struct_type":"snapshot"}\n{"name":"safe-file"}\n',
+                    "stderr": "",
+                    "returncode": 0,
+                    "duration_seconds": 0.01,
+                }
+            if argv[:2] == ["restic", "check"]:
+                if state["verify_failures"]:
+                    state["verify_failures"] -= 1
+                    return {
+                        "ok": False,
+                        "stdout": "",
+                        "stderr": "check failed with password: sensitive-test-value",
+                        "returncode": 1,
+                        "duration_seconds": 0.02,
+                    }
+                return {"ok": True, "stdout": "no errors were found", "stderr": "", "returncode": 0, "duration_seconds": 0.02}
+            return {"ok": False, "stdout": "", "stderr": f"unexpected command {argv}", "returncode": 99, "duration_seconds": 0}
+
+        backup_runner.run = fake_restic_run
+
+        require(backup_runner.handle_backup() == 1, "Initial failed backup should fail.")
+        failed_backup_status = json.loads(backup_runner.STATUS_FILE.read_text(encoding="utf-8"))
+        require(failed_backup_status.get("last_error"), "Failed backup must set an active last_error.")
+        require(failed_backup_status.get("last_error_at"), "Failed backup must timestamp the active last_error.")
+        require(
+            failed_backup_status.get("last_error_source") == "restic backup",
+            "Failed backup must identify the active error source.",
+        )
+        rendered_failure = json.dumps(failed_backup_status)
+        require("sensitive-test-value" not in rendered_failure, "Backup status must redact sensitive failure text.")
+        require(failed_backup_status.get("last_backup", {}).get("error"), "Per-run backup failure detail must remain.")
+
+        require(backup_runner.handle_backup() == 0, "Successful backup after failure should pass.")
+        successful_backup_status = json.loads(backup_runner.STATUS_FILE.read_text(encoding="utf-8"))
+        require(successful_backup_status.get("last_error") == "", "Successful backup must clear active last_error.")
+        require("last_error_at" not in successful_backup_status, "Successful backup must clear active error timestamp.")
+        require(
+            successful_backup_status.get("last_backup", {}).get("status") == "success",
+            "Successful backup result must remain visible.",
+        )
+        resolved_errors = successful_backup_status.get("resolved_errors")
+        require(isinstance(resolved_errors, list) and resolved_errors, "Successful backup must preserve resolved history.")
+        require(
+            resolved_errors[-1].get("resolved_by") == "successful backup and prune",
+            "Resolved backup error must record how it was cleared.",
+        )
+        require(
+            "sensitive-test-value" not in json.dumps(successful_backup_status),
+            "Resolved backup history must remain redacted.",
+        )
+
+        require(backup_runner.handle_verify_latest() == 1, "Initial failed verification should fail.")
+        failed_verify_status = json.loads(backup_runner.STATUS_FILE.read_text(encoding="utf-8"))
+        require(failed_verify_status.get("last_error_source") == "restic check", "Verify failure source must be active.")
+        require(failed_verify_status.get("last_check", {}).get("error"), "Per-run verify failure detail must remain.")
+
+        require(backup_runner.handle_verify_latest() == 0, "Successful verification after failure should pass.")
+        successful_verify_status = json.loads(backup_runner.STATUS_FILE.read_text(encoding="utf-8"))
+        require(successful_verify_status.get("last_error") == "", "Successful verify must clear active last_error.")
+        require(
+            successful_verify_status.get("last_check", {}).get("status") == "success",
+            "Successful verify result must remain visible.",
+        )
+        verify_resolved = successful_verify_status.get("resolved_errors")
+        require(isinstance(verify_resolved, list) and len(verify_resolved) >= 2, "Verify success must append history.")
+        require(
+            verify_resolved[-1].get("resolved_by") == "successful latest snapshot verification",
+            "Resolved verify error must record how it was cleared.",
+        )
+        require(
+            "sensitive-test-value" not in json.dumps(successful_verify_status),
+            "Resolved verify history must remain redacted.",
+        )
+
+    for key, value in previous_env.items():
+        if value is None:
+            os.environ.pop(key, None)
+        else:
+            os.environ[key] = value
+
+
 def validate_workflow(item: dict[str, object]) -> None:
     path = item["path"]
     assert isinstance(path, Path)
@@ -327,5 +500,6 @@ for workflow in WORKFLOWS:
 
 validate_collector_recomputes_backup_freshness()
 validate_backup_alert_semantics()
+validate_backup_runner_error_lifecycle()
 
 print("Backup workflow guardrails passed.")
