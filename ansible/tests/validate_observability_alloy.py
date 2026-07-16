@@ -142,6 +142,8 @@ for token in (
     "vps_service_foundation_observability_textfile_service",
     "vps_service_foundation_observability_textfile_timer",
     "Reload systemd after disabled Grafana Alloy artifact cleanup",
+    "Clear stale disabled Grafana Alloy textfile unit failures",
+    "reset-failed",
 ):
     require(token in disabled_block, f"Disabled Alloy reconciliation missing {token}.")
 require("masked: false" in TASKS[enabled_service:disabled_reconcile], "Enabled Alloy management must unmask Alloy for rollback.")

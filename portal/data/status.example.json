@@ -1315,6 +1315,10 @@
       "url": "https://github.com/ramideltoro/nutsnews-docs/blob/main/NUTSNEWS_VPS_BACKUPS.md"
     },
     {
+      "name": "VPS maintenance",
+      "url": "https://github.com/ramideltoro/nutsnews-docs/blob/main/NUTSNEWS_VPS_MAINTENANCE.md"
+    },
+    {
       "name": "VPS restore",
       "url": "https://github.com/ramideltoro/nutsnews-docs/blob/main/NUTSNEWS_VPS_RESTORE.md"
     },

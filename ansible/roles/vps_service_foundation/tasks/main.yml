@@ -1022,6 +1022,18 @@
           ansible.builtin.systemd_service:
             daemon_reload: true
 
+        - name: Clear stale disabled Grafana Alloy textfile unit failures
+          ansible.builtin.command:
+            argv:
+              - systemctl
+              - reset-failed
+              - "{{ item }}"
+          loop:
+            - "{{ vps_service_foundation_observability_textfile_service }}"
+            - "{{ vps_service_foundation_observability_textfile_timer }}"
+          changed_when: false
+          failed_when: false
+
     - name: Capture Grafana Alloy post-apply validation start
       ansible.builtin.command:
         argv:

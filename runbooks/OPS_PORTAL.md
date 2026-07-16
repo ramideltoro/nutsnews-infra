@@ -50,8 +50,8 @@ OS update visibility is read-only. The security section separates total package
 updates from security updates, reports `apt-daily-upgrade.timer` and the last
 `apt-daily-upgrade.service` result, and warns when pending security updates are
 stale beyond the GitOps-configured threshold. Do not run `apt upgrade` or
-reboot manually as routine maintenance; use the protected maintenance workflow
-once it exists, or open/follow the maintenance issue for a reviewed GitOps path.
+reboot manually as routine maintenance; use `Protected VPS Maintenance` for
+preflight, package maintenance, reboot, and post-reboot validation.
 
 Alloy telemetry visibility is read-only. The collector checks `alloy.service`, the local readiness URL, whether Docker log shipping is enabled separately from cAdvisor/container metrics, `.prom` files under the configured textfile directory, and recent journal matches for `containerd.sock: connect: permission denied`. A nonzero recent match count raises a portal alert because it means the broken cAdvisor/container path has returned or the post-apply validation window needs investigation. The portal does not read Alloy secrets or expose any control that can restart or reconfigure Alloy.
 

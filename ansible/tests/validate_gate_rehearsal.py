@@ -211,6 +211,7 @@ allowed_production_env_workflows = {
     "grafana-state-bootstrap.yml",
     "protected-ansible-apply.yml",
     "protected-nutsnews-rollback.yml",
+    "protected-vps-maintenance.yml",
     "run-vps-backup.yml",
     "send-vps-health-report.yml",
     "verify-ops-portal-status.yml",
