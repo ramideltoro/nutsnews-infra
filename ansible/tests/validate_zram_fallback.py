@@ -28,6 +28,7 @@ APP_JS = (ROOT / "portal/assets/app.js").read_text(encoding="utf-8")
 STATUS = json.loads((ROOT / "portal/data/status.example.json").read_text(encoding="utf-8"))
 CADDY_COMPOSE = (ROOT / "compose/caddy/compose.yml").read_text(encoding="utf-8")
 APP_COMPOSE = (ROOT / "compose/nutsnews/compose.yml").read_text(encoding="utf-8")
+DOCKER_DAEMON = (ROOT / "ansible/roles/vps_service_foundation/templates/daemon.json.j2").read_text(encoding="utf-8")
 
 sys.dont_write_bytecode = True
 COLLECTOR_SPEC = importlib.util.spec_from_file_location(
@@ -116,6 +117,8 @@ for token in (
 require("Kernel OOM evidence" in REPORTER, "reporter must include kernel OOM evidence.")
 require("Swap State" in APP_JS and "Kernel OOM" in APP_JS, "portal UI must render swap state and OOM evidence.")
 require("mem_limit: 128m" in CADDY_COMPOSE, "Caddy/Ops Auth memory limits must remain in place.")
+require('"ipv6": false' in DOCKER_DAEMON, "Docker daemon must keep container IPv6 explicit and disabled.")
+require('"ip6tables": false' in DOCKER_DAEMON, "Docker daemon must not manage IPv6 firewall rules.")
 require(
     "mem_limit: ${NUTSNEWS_APP_MEMORY_LIMIT_MIB" in APP_COMPOSE,
     "NutsNews app memory limit must remain Docker-enforced.",
