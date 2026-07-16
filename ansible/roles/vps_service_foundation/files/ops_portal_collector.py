@@ -1889,7 +1889,7 @@ def app_state(docker: dict[str, Any]) -> dict[str, Any]:
     expected_reference = APP_IMAGE if APP_IMAGE_DIGEST else ""
     last_deployment_result = str(marker.get("deployment_result") or marker.get("status") or "not_deployed")
 
-    return {
+    state = {
         "enabled": APP_ENABLED,
         "health_path": APP_HEALTH_PATH,
         "staged_route_enabled": APP_STAGED_ROUTE_ENABLED,
@@ -1902,6 +1902,8 @@ def app_state(docker: dict[str, Any]) -> dict[str, Any]:
             "image_reference": expected_reference,
             "source_commit": APP_SOURCE_COMMIT,
             "build_id": APP_BUILD_ID,
+            "source_workflow_run_id": str(marker.get("source_workflow_run_id", "")),
+            "config_generation": str(marker.get("config_generation", "")),
             "deployment_target": APP_DEPLOYMENT_TARGET,
             "last_known_good_digest": APP_LAST_KNOWN_GOOD_DIGEST,
         },
@@ -1954,6 +1956,108 @@ def app_state(docker: dict[str, Any]) -> dict[str, Any]:
             },
         },
         "marker": marker,
+    }
+    state["release_gate"] = release_gate_state(state, marker)
+    return state
+
+
+def gate_timestamp_state(expires_at: Any) -> str:
+    parsed = parse_timestamp(expires_at)
+    if not parsed:
+        return "unknown"
+    if datetime.now(timezone.utc) >= parsed:
+        return "expired"
+    return "current"
+
+
+def release_gate_state(app: dict[str, Any], marker: dict[str, Any]) -> dict[str, Any]:
+    expected = app.get("expected", {})
+    actual = app.get("actual", {})
+    if not isinstance(expected, dict):
+        expected = {}
+    if not isinstance(actual, dict):
+        actual = {}
+    marker_digest = str(marker.get("image_digest", "")).strip()
+    marker_source = str(marker.get("source_commit", "")).strip()
+    marker_build = str(marker.get("build_id", "")).strip()
+    expected_digest = str(expected.get("image_digest", "")).strip()
+    expected_source = str(expected.get("source_commit", "")).strip()
+    expected_build = str(expected.get("build_id", "")).strip()
+    qualification_run = str(marker.get("qualification_run_id", "")).strip()
+    qualification_expires = str(marker.get("qualification_expires_at", "")).strip()
+    staging_deployment_id = str(marker.get("staging_deployment_id") or marker.get("deployment_id") or "").strip()
+    if not expected_digest:
+        candidate_state = "not configured"
+    elif marker_digest and marker_digest != expected_digest:
+        candidate_state = "failed"
+    elif marker_source and expected_source and marker_source != expected_source:
+        candidate_state = "failed"
+    elif marker_build and expected_build and marker_build != expected_build:
+        candidate_state = "failed"
+    else:
+        candidate_state = "configured"
+
+    if not expected_digest:
+        qualification_state = "not configured"
+    elif not qualification_run:
+        qualification_state = "unknown"
+    elif gate_timestamp_state(qualification_expires) == "expired":
+        qualification_state = "expired"
+    elif candidate_state == "failed":
+        qualification_state = "failed"
+    else:
+        qualification_state = "passed"
+
+    if qualification_state in {"passed", "expired"} and not staging_deployment_id:
+        supersession_state = "unknown"
+    elif qualification_state == "passed":
+        supersession_state = "current"
+    elif qualification_state == "expired":
+        supersession_state = "expired"
+    else:
+        supersession_state = "unknown"
+
+    return {
+        "mode": "read-only",
+        "state_catalog": ["unknown", "not configured", "failed", "expired", "superseded", "current", "passed"],
+        "candidate": {
+            "state": candidate_state,
+            "image_digest": expected_digest,
+            "source_commit": expected_source,
+            "build_id": expected_build,
+            "source_workflow_run_id": str(marker.get("source_workflow_run_id", "")).strip(),
+            "config_generation": str(expected.get("config_generation", "")).strip()
+            or str(marker.get("config_generation", "")).strip(),
+            "test_suite_commit": marker_source or expected_source,
+        },
+        "staging": {
+            "deployment_id": staging_deployment_id,
+            "health_state": "unknown",
+            "ready_state": "unknown",
+            "supersession_state": supersession_state,
+        },
+        "qualification": {
+            "state": qualification_state,
+            "run_id": qualification_run,
+            "expires_at": qualification_expires,
+            "time_state": gate_timestamp_state(qualification_expires),
+        },
+        "production": {
+            "expected_digest": expected_digest,
+            "running_digest": str(actual.get("running_repo_digest", "")).strip(),
+            "source_commit": expected_source,
+            "running_source_commit": str(actual.get("source_commit", "")).strip(),
+            "build_id": expected_build,
+            "running_build_id": str(actual.get("build_id", "")).strip(),
+            "promotion_run_id": str(marker.get("promotion_run_id", "")).strip(),
+            "promotion_run_url": str(marker.get("promotion_run_url", "")).strip(),
+            "promoted_at": str(marker.get("recorded_at", "")).strip(),
+            "previous_digest": str(expected.get("last_known_good_digest", "")).strip(),
+        },
+        "rollback": {
+            "state": str(marker.get("rollback_state", "")).strip() or "not configured",
+            "previous_digest": str(expected.get("last_known_good_digest", "")).strip(),
+        },
     }
 
 

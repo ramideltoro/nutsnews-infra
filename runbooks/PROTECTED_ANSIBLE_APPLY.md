@@ -93,6 +93,9 @@ For an app release rehearsal, include the complete release identity bundle:
 The no-secret verifier rejects missing, expired, tampered, stale, superseded,
 or mismatched staging qualification evidence before SSH keys, production app
 secrets, deploy secrets, or the `production-vps` Environment are available.
+The gate rehearsal and bypass inventory are covered by
+`ansible/tests/validate_gate_rehearsal.py`; see the canonical operator guide in
+`ramideltoro/nutsnews-docs` for the full Simple/Intermediate/Expert flow.
 
 ## Run Apply Mode
 
@@ -118,6 +121,10 @@ source/test revision, and runs the safe production smoke surfaces against
 config, homepage, public API shape, a static asset, cache/security headers,
 contact validation failure, and auth session reachability without printing
 secrets or submitting a real contact message.
+
+The Ops Portal reads only the reviewed manifest, sanitized Docker identity, and
+last app apply marker for release-gate status. Treat `unknown`, `not configured`,
+`failed`, `expired`, or `superseded` as not eligible for promotion.
 
 ## Run Fixed Rollback
 

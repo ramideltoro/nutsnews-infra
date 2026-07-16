@@ -583,6 +583,12 @@ jobs:
           NUTSNEWS_STAGING_DEPLOY_PUBLIC_KEY: ${{ secrets.NUTSNEWS_STAGING_DEPLOY_PUBLIC_KEY }}
           SYNC_VERCEL_PRODUCTION: ${{ inputs.sync_vercel_production }}
           NUTSNEWS_VERCEL_SYNC_ENVS_FILE: ${{ runner.temp }}/vercel-selected.json
+          RELEASE_SOURCE_WORKFLOW_RUN_ID: ${{ inputs.release_source_workflow_run_id }}
+          ELIGIBILITY_STAGING_DEPLOYMENT_ID: ${{ needs.verify-production-eligibility.outputs.staging_deployment_id }}
+          ELIGIBILITY_QUALIFICATION_RUN_ID: ${{ needs.verify-production-eligibility.outputs.qualification_run_id }}
+          ELIGIBILITY_EXPIRES_AT: ${{ needs.verify-production-eligibility.outputs.expires_at }}
+          ROLLBACK_FAILED_IMAGE_DIGEST: ${{ inputs.rollback_failed_image_digest }}
+          ROLLBACK_CONFIRMATION: ${{ inputs.rollback_confirmation }}
           RUN_MODE: ${{ inputs.run_mode }}
         run: |
           set -euo pipefail
@@ -816,6 +822,30 @@ jobs:
               "vps_service_foundation_backup_keep_yearly": env_int("NUTSNEWS_BACKUP_KEEP_YEARLY", 2),
               "vps_service_foundation_nutsnews_app_envs": app_envs,
               "vps_service_foundation_nutsnews_app_vercel_envs": vercel_envs,
+              "vps_service_foundation_nutsnews_app_source_workflow_run_id": os.environ.get(
+                  "RELEASE_SOURCE_WORKFLOW_RUN_ID",
+                  "",
+              ),
+              "vps_service_foundation_nutsnews_app_staging_deployment_id": os.environ.get(
+                  "ELIGIBILITY_STAGING_DEPLOYMENT_ID",
+                  "",
+              ),
+              "vps_service_foundation_nutsnews_app_qualification_run_id": os.environ.get(
+                  "ELIGIBILITY_QUALIFICATION_RUN_ID",
+                  "",
+              ),
+              "vps_service_foundation_nutsnews_app_qualification_expires_at": os.environ.get(
+                  "ELIGIBILITY_EXPIRES_AT",
+                  "",
+              ),
+              "vps_service_foundation_nutsnews_app_promotion_run_id": os.environ["GITHUB_RUN_ID"],
+              "vps_service_foundation_nutsnews_app_promotion_run_url": run_url,
+              "vps_service_foundation_nutsnews_app_rollback_state": (
+                  "selected"
+                  if os.environ.get("ROLLBACK_FAILED_IMAGE_DIGEST", "").strip()
+                  and os.environ.get("ROLLBACK_CONFIRMATION", "").strip() == "rollback-recorded-last-known-good"
+                  else "not configured"
+              ),
               "vps_service_foundation_ops_portal_allowed_email": "rami.deltoro@gmail.com",
               "vps_service_foundation_ops_portal_domain": ops_portal_domain,
               "vps_service_foundation_ops_portal_callback_path": ops_portal_callback_path,

@@ -297,6 +297,7 @@ for key in (
     "marker",
     "expected",
     "actual",
+    "release_gate",
 ):
     require(key in app, f"App fixture is missing {key}.")
 require(app["enabled"] is False, "App fixture should remain disabled by default.")
@@ -317,8 +318,33 @@ for label in (
     "Rollback digest",
     "Staged route",
     "Public route",
+    "Candidate",
+    "Staging deploy",
+    "Qualification",
+    "Supersession",
+    "Previous digest",
 ):
     require(label in APP_JS, f"Portal UI is missing app field: {label}.")
+release_gate = app["release_gate"]
+require(release_gate.get("mode") == "read-only", "Release gate fixture must be read-only.")
+for key in ("candidate", "staging", "qualification", "production", "rollback", "state_catalog"):
+    require(key in release_gate, f"Release gate fixture missing {key}.")
+for state in ("unknown", "not configured", "failed", "expired", "superseded", "current", "passed"):
+    require(state in release_gate["state_catalog"], f"Release gate state catalog missing {state}.")
+require(release_gate["candidate"]["state"] == "not configured", "Fixture candidate state should be not configured.")
+require(release_gate["staging"]["health_state"] == "unknown", "Fixture staging health must default to unknown.")
+require(release_gate["staging"]["supersession_state"] == "unknown", "Fixture staging supersession must default to unknown.")
+require(release_gate["qualification"]["state"] == "not configured", "Fixture qualification state should be not configured.")
+require(release_gate["rollback"]["state"] == "not configured", "Fixture rollback state should be not configured.")
+for token in (
+    "release_gate_state",
+    "gate_timestamp_state",
+    "qualification_run_id",
+    "qualification_expires_at",
+    "staging_deployment_id",
+    "promotion_run_url",
+):
+    require(token in COLLECTOR, f"Collector missing release-gate token: {token}.")
 app_links = STATUS["app_links"]
 require(isinstance(app_links, list) and len(app_links) >= 3, "Fixture app links missing app-layer links.")
 for required_name in (
