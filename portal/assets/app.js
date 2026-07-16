@@ -778,12 +778,20 @@ function renderLogs(data) {
 
 function renderSecurity(data) {
   const security = data.security || {};
+  const logs = data.logs || {};
   const updates = security.pending_updates || {};
   const failed = security.failed_logins || {};
   const ssh = security.ssh_hardening || {};
+  const firewallSummary = logs.firewall_deny_summary || {};
+  const firewallCounters = security.firewall_counters || {};
+  const topPorts = Array.isArray(firewallSummary.top_destination_ports)
+    ? firewallSummary.top_destination_ports.map((item) => `${item.value}:${item.count}`).join(", ")
+    : "";
   const firewall = Array.isArray(security.firewall) ? security.firewall.join(" | ") : "unknown";
   renderMetrics("security-grid", [
     { label: "Firewall", value: firewall || "unknown", hint: "UFW verbose status" },
+    { label: "Firewall Denies", value: text(firewallSummary.recent_ufw_deny_lines, "0"), hint: `Suppressed ${text(firewallSummary.suppressed_from_journal_warnings, "0")} warning lines` },
+    { label: "Firewall Counters", value: text(firewallCounters.input_drop_path_packets, "0"), hint: topPorts ? `Top ports ${topPorts}` : text(firewallCounters.source, "nft UFW chain counters") },
     { label: "Pending Updates", value: text(updates.count, "0"), hint: `${text(updates.security_count, "0")} security updates` },
     { label: "Last Reboot", value: text(security.last_reboot), hint: "UTC" },
     { label: "Failed Logins", value: text(failed.recent_failed_login_lines, "0"), hint: `${text(failed.invalid_user_lines, "0")} invalid user lines` },

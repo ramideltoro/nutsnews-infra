@@ -1118,7 +1118,30 @@
   "logs": {
     "auth": [],
     "caddy": [],
-    "journal_warnings": [],
+    "firewall_deny_summary": {
+      "recent_samples": [
+        "kernel: [UFW BLOCK] IN=eth0 OUT= MAC=[redacted] SRC=[redacted] DST=[redacted] LEN=40 PROTO=TCP DPT=23"
+      ],
+      "recent_ufw_deny_lines": 42,
+      "sample_limit": 6,
+      "source": "journal warning tail",
+      "suppressed_from_journal_warnings": 42,
+      "top_destination_ports": [
+        {
+          "count": 40,
+          "value": "23"
+        }
+      ],
+      "top_protocols": [
+        {
+          "count": 42,
+          "value": "TCP"
+        }
+      ]
+    },
+    "journal_warnings": [
+      "systemd[1]: Example non-firewall warning remains visible"
+    ],
     "redaction": "token, secret, password, authorization, credential, and private-key patterns are redacted"
   },
   "portal": {
@@ -1265,8 +1288,29 @@
       "recent_failed_login_lines": 0
     },
     "firewall": [
-      "Status: active"
+      "Status: active",
+      "Logging: off"
     ],
+    "firewall_counters": {
+      "available": true,
+      "counters": {
+        "ufw-after-logging-input": {
+          "bytes": 12000,
+          "packets": 120
+        },
+        "ufw-reject-input": {
+          "bytes": 11800,
+          "packets": 118
+        },
+        "ufw-track-input": {
+          "bytes": 11800,
+          "packets": 118
+        }
+      },
+      "input_drop_path_bytes": 11800,
+      "input_drop_path_packets": 118,
+      "source": "nft UFW chain counters"
+    },
     "last_reboot": "2026-07-05T00:00:00+00:00",
     "open_ports": [
       "tcp LISTEN 0 4096 127.0.0.1:8080 0.0.0.0:*"

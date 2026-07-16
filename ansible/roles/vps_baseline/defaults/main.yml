@@ -21,6 +21,7 @@ vps_baseline_ufw_allow_tcp_ports:
   - 22
   - 80
   - 443
+vps_baseline_ufw_logging: "off"
 
 vps_baseline_unattended_reboot: "false"
 vps_baseline_unattended_reboot_time: "04:30"

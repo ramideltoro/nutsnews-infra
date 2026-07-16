@@ -24,6 +24,8 @@ REPORTER = (ROOT / "ansible/roles/vps_service_foundation/files/ops_portal_report
 BACKUP_RUNNER = (ROOT / "ansible/roles/vps_service_foundation/files/vps_restic_backup.py").read_text(encoding="utf-8")
 DEFAULTS = (ROOT / "ansible/roles/vps_service_foundation/defaults/main.yml").read_text(encoding="utf-8")
 TASKS = (ROOT / "ansible/roles/vps_service_foundation/tasks/main.yml").read_text(encoding="utf-8")
+BASELINE_DEFAULTS = (ROOT / "ansible/roles/vps_baseline/defaults/main.yml").read_text(encoding="utf-8")
+BASELINE_TASKS = (ROOT / "ansible/roles/vps_baseline/tasks/main.yml").read_text(encoding="utf-8")
 COLLECTOR_UNIT = (
     ROOT / "ansible/roles/vps_service_foundation/templates/nutsnews-ops-portal-collector.service.j2"
 ).read_text(encoding="utf-8")
@@ -169,6 +171,50 @@ for token in (
     "metric_status_counts",
 ):
     require(token in APP_JS or token in STYLES, f"Portal UI missing {token}.")
+
+logs = STATUS["logs"]
+firewall_summary = logs.get("firewall_deny_summary", {})
+journal_warning_lines = logs.get("journal_warnings", [])
+require("vps_baseline_ufw_logging: \"off\"" in BASELINE_DEFAULTS, "UFW packet logging must default to off.")
+require("logging: \"{{ vps_baseline_ufw_logging }}\"" in BASELINE_TASKS, "Baseline must manage UFW logging.")
+require("UFW_JOURNAL_RE" in COLLECTOR, "Collector must recognize UFW journal lines.")
+require("firewall_deny_summary" in COLLECTOR, "Collector must expose bounded UFW deny summaries.")
+require("firewall_counters" in COLLECTOR, "Collector must expose UFW aggregate counters.")
+require("Firewall Denies" in APP_JS, "Portal UI must render firewall deny summary.")
+require("Firewall Counters" in APP_JS, "Portal UI must render firewall counters.")
+require(
+    isinstance(journal_warning_lines, list) and not any("[UFW " in line for line in journal_warning_lines),
+    "Journal warning fixture must keep UFW packet logs out of the raw warning panel.",
+)
+require(firewall_summary.get("suppressed_from_journal_warnings", 0) > 0, "Fixture must show suppressed UFW warning volume.")
+require(firewall_summary.get("recent_ufw_deny_lines", 0) > 0, "Fixture must show recent UFW deny aggregates.")
+require(firewall_summary.get("sample_limit") == 6, "Firewall sample limit must be bounded.")
+for sample in firewall_summary.get("recent_samples", []):
+    require("SRC=[redacted]" in sample and "DST=[redacted]" in sample, "Firewall samples must redact host addresses.")
+sample_lines = [
+    "kernel: [UFW BLOCK] IN=eth0 OUT= MAC=aa SRC=203.0.113.10 DST=65.75.202.112 LEN=40 PROTO=TCP DPT=23",
+    "kernel: [UFW BLOCK] IN=eth0 OUT= MAC=bb SRC=203.0.113.11 DST=65.75.202.112 LEN=40 PROTO=UDP DPT=53",
+    "systemd[1]: Non-firewall warning",
+]
+sample_summary = COLLECTOR_MODULE.firewall_deny_summary(sample_lines)
+require(sample_summary["suppressed_from_journal_warnings"] == 2, "Firewall summary must count suppressed UFW lines.")
+require(sample_summary["recent_ufw_deny_lines"] == 2, "Firewall summary must count UFW denies.")
+require(
+    "SRC=[redacted]" in "\n".join(sample_summary["recent_samples"]),
+    "Firewall summary must redact source addresses.",
+)
+require(
+    all("[UFW " not in line for line in COLLECTOR_MODULE.safe_lines("\n".join(
+        line for line in sample_lines if not COLLECTOR_MODULE.is_firewall_journal_line(line)
+    ))),
+    "Collector filter must leave raw journal warnings free of UFW lines.",
+)
+counter_summary = COLLECTOR_MODULE.parse_firewall_counter_summary(
+    "counter packets 30 bytes 1800 jump ufw-after-logging-input\n"
+    "counter packets 25 bytes 1500 jump ufw-reject-input\n"
+)
+require(counter_summary["available"] is True, "Firewall counter parser must detect nft UFW counters.")
+require(counter_summary["input_drop_path_packets"] == 25, "Firewall counter parser must prefer reject path packets.")
 
 free_tier = STATUS["free_tier_usage"]
 providers = free_tier.get("providers", [])

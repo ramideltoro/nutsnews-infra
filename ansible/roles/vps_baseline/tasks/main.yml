@@ -97,6 +97,10 @@
   community.general.ufw:
     state: enabled
 
+- name: Configure UFW packet logging
+  community.general.ufw:
+    logging: "{{ vps_baseline_ufw_logging }}"
+
 - name: Configure unattended upgrade periodic settings
   ansible.builtin.template:
     src: apt_periodic.conf
