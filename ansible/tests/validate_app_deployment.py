@@ -113,8 +113,8 @@ assert "nutsnews_environment.health_path == '/readyz'" in environment_validation
 
 assert caddy_compose.count("networks:\n      - edge") == 2
 assert "com.docker.compose.network=edge" in caddy_compose
-assert "\n  edge:\n    name: nutsnews-edge" in caddy_compose
-assert "name: nutsnews-edge" in caddy_compose
+assert "\n  edge:\n    name: nutsnews-edge-v6" in caddy_compose
+assert "name: nutsnews-edge-v6" in caddy_compose
 assert "nutsnews-edge-staging" not in caddy_compose
 assert "vps_service_foundation_nutsnews_environments.production" in staged_route
 assert "uri strip_prefix" in staged_route

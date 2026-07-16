@@ -45,7 +45,7 @@ for token in (
     "vps_service_foundation_infra_health_log_file:",
     "vps_service_foundation_infra_health_host: 172.17.0.1",
     'vps_service_foundation_infra_health_url: "http://172.17.0.1:{{ vps_service_foundation_infra_health_port }}/health"',
-    "vps_service_foundation_infra_health_ufw_allow_from: 172.18.0.0/16",
+    "vps_service_foundation_infra_health_ufw_allow_from: 172.20.0.0/16",
 ):
     require(token in DEFAULTS, f"Defaults missing {token}.")
 
@@ -74,7 +74,7 @@ for token in (
 require("community.general.ufw" in TASKS, "Ansible must manage the health service UFW rule.")
 require("vps_service_foundation_infra_health_port | string" in TASKS, "UFW rule must use the configured health port.")
 require("vps_service_foundation_infra_health_host == '172.17.0.1'" in TASKS, "Ansible must reject a broad health bind.")
-require("vps_service_foundation_infra_health_ufw_allow_from == '172.18.0.0/16'" in TASKS, "Ansible must keep the Caddy UFW source narrow.")
+require("vps_service_foundation_infra_health_ufw_allow_from == '172.20.0.0/16'" in TASKS, "Ansible must keep the Caddy UFW source narrow.")
 require("register: vps_service_foundation_infra_health_service_install" in TASKS, "Health unit installation must record changes.")
 require("vps_service_foundation_infra_health_service_install.changed" in TASKS, "Health service must restart after unit changes.")
 require("register: vps_service_foundation_infra_health_listener" in TASKS, "Health listener must be inspected after unit changes.")

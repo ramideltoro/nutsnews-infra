@@ -880,7 +880,7 @@ vps_service_foundation_nutsnews_environments:
     route_path: "{{ vps_service_foundation_nutsnews_app_route_path }}"
     public_route_enabled: "{{ vps_service_foundation_nutsnews_app_public_route_enabled | bool }}"
     public_domain: "{{ vps_service_foundation_nutsnews_app_public_domain }}"
-    network_name: nutsnews-edge
+    network_name: nutsnews-edge-v6
     network_alias: nutsnews-app
     cache_volume_name: nutsnews-app-cache
     # This matches the four-vCPU host allocation, so it does not reduce the
@@ -992,7 +992,7 @@ vps_service_foundation_infra_health_service: nutsnews-infra-health.service
 vps_service_foundation_infra_health_host: 172.17.0.1
 vps_service_foundation_infra_health_port: 18080
 vps_service_foundation_infra_health_url: "http://172.17.0.1:{{ vps_service_foundation_infra_health_port }}/health"
-vps_service_foundation_infra_health_ufw_allow_from: 172.18.0.0/16
+vps_service_foundation_infra_health_ufw_allow_from: 172.20.0.0/16
 vps_service_foundation_infra_health_ufw_comment: NutsNews Caddy to infra health
 vps_service_foundation_infra_health_threshold_percent: 60
 vps_service_foundation_infra_health_resource_checks:

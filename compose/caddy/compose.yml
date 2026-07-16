@@ -82,4 +82,9 @@ networks:
   # com.docker.compose.network=edge. This is the production app network only;
   # a staging app gets its own network and cannot become Caddy's upstream.
   edge:
-    name: nutsnews-edge
+    name: nutsnews-edge-v6
+    enable_ipv6: true
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
+        - subnet: fd00:6e75:7473:20::/64

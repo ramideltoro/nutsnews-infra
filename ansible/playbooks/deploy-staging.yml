@@ -40,7 +40,7 @@
           - vps_service_foundation_nutsnews_environments.staging.network_name == 'nutsnews-edge-staging'
           - vps_service_foundation_nutsnews_environments.production.project_name == 'nutsnews-app'
           - vps_service_foundation_nutsnews_environments.production.container_name == 'nutsnews-app'
-          - vps_service_foundation_nutsnews_environments.production.network_name == 'nutsnews-edge'
+          - vps_service_foundation_nutsnews_environments.production.network_name == 'nutsnews-edge-v6'
         fail_msg: >-
           This play is permanently staging-only. It refuses the production
           inventory, production app identity, routes, and network before any

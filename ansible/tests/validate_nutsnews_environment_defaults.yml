@@ -28,7 +28,7 @@
           - vps_service_foundation_nutsnews_environments.production.name == 'production'
           - vps_service_foundation_nutsnews_environments.production.enabled | bool
           - vps_service_foundation_nutsnews_environments.production.project_name == 'nutsnews-app'
-          - vps_service_foundation_nutsnews_environments.production.network_name == 'nutsnews-edge'
+          - vps_service_foundation_nutsnews_environments.production.network_name == 'nutsnews-edge-v6'
           - vps_service_foundation_nutsnews_environments.production.cpu_limit | int == 4
           - vps_service_foundation_nutsnews_environments.production.memory_limit_mib | int == 768
           - vps_service_foundation_nutsnews_environments.production.memory_reservation_mib | int == 512

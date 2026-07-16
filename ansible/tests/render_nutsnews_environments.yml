@@ -40,7 +40,7 @@
         route_path: /app-stage
         public_route_enabled: true
         public_domain: vps.nutsnews.com
-        network_name: nutsnews-edge
+        network_name: nutsnews-edge-v6
         network_alias: nutsnews-app
         cache_volume_name: nutsnews-app-cache
         cpu_limit: 4
