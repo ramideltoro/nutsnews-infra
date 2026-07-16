@@ -68,6 +68,11 @@ on:
         required: false
         default: ""
         type: string
+      release_source_workflow_run_id:
+        description: Optional trusted app source workflow run ID for an automated release.
+        required: false
+        default: ""
+        type: string
       release_migration_head:
         description: Optional verified migration head for an automated release.
         required: false
@@ -92,8 +97,124 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  verify-production-eligibility:
+    name: Verify production eligibility before secrets
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      attestations: read
+      contents: read
+      deployments: read
+    outputs:
+      app_release: ${{ steps.eligibility.outputs.app_release }}
+      staging_deployment_id: ${{ steps.eligibility.outputs.staging_deployment_id }}
+      qualification_run_id: ${{ steps.eligibility.outputs.qualification_run_id }}
+      expires_at: ${{ steps.eligibility.outputs.expires_at }}
+
+    steps:
+      - name: Checkout reviewed production verifier
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+
+      - name: Validate release input bundle
+        id: release_inputs
+        shell: bash
+        env:
+          RELEASE_SOURCE_COMMIT: ${{ inputs.release_source_commit }}
+          RELEASE_IMAGE_DIGEST: ${{ inputs.release_image_digest }}
+          RELEASE_BUILD_ID: ${{ inputs.release_build_id }}
+          RELEASE_SOURCE_WORKFLOW_RUN_ID: ${{ inputs.release_source_workflow_run_id }}
+          RELEASE_MIGRATION_HEAD: ${{ inputs.release_migration_head }}
+          RELEASE_SCHEMA_VERSION: ${{ inputs.release_schema_version }}
+          RELEASE_SUPABASE_PROJECT_REF: ${{ inputs.release_supabase_project_ref }}
+        run: |
+          set -euo pipefail
+          supplied=0
+          for value in \
+            "$RELEASE_SOURCE_COMMIT" \
+            "$RELEASE_IMAGE_DIGEST" \
+            "$RELEASE_BUILD_ID" \
+            "$RELEASE_SOURCE_WORKFLOW_RUN_ID" \
+            "$RELEASE_MIGRATION_HEAD" \
+            "$RELEASE_SCHEMA_VERSION" \
+            "$RELEASE_SUPABASE_PROJECT_REF"
+          do
+            if [[ -n "$value" ]]; then
+              supplied=$((supplied + 1))
+            fi
+          done
+          if [[ "$supplied" -eq 0 ]]; then
+            echo "app_release=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [[ "$supplied" -ne 7 ]]; then
+            echo "Production app release verification requires source commit, image digest, build ID, source workflow run ID, migration head, schema version, and Supabase project reference together." >&2
+            exit 1
+          fi
+          echo "app_release=true" >> "$GITHUB_OUTPUT"
+
+      - name: Verify baseline apply does not hide a production app release
+        if: steps.release_inputs.outputs.app_release == 'false'
+        shell: bash
+        run: |
+          set -euo pipefail
+          previous_manifest="$RUNNER_TEMP/previous-vps-release.yml"
+          current_manifest="ansible/inventories/production/host_vars/vps.nutsnews.com.yml"
+          if git rev-parse HEAD^ >/dev/null 2>&1; then
+            git show "HEAD^:${current_manifest}" > "$previous_manifest" 2>/dev/null || rm -f "$previous_manifest"
+          fi
+          python3 ansible/scripts/verify_production_eligibility.py check-no-release \
+            --current-manifest "$current_manifest" \
+            --previous-manifest "$previous_manifest" \
+            --github-output "$RUNNER_TEMP/production-eligibility-output"
+
+      - name: Verify exact staged qualification
+        if: steps.release_inputs.outputs.app_release == 'true'
+        id: eligibility_release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_SOURCE_COMMIT: ${{ inputs.release_source_commit }}
+          RELEASE_IMAGE_DIGEST: ${{ inputs.release_image_digest }}
+          RELEASE_BUILD_ID: ${{ inputs.release_build_id }}
+          RELEASE_SOURCE_WORKFLOW_RUN_ID: ${{ inputs.release_source_workflow_run_id }}
+          RELEASE_MIGRATION_HEAD: ${{ inputs.release_migration_head }}
+          RELEASE_SCHEMA_VERSION: ${{ inputs.release_schema_version }}
+          RELEASE_SUPABASE_PROJECT_REF: ${{ inputs.release_supabase_project_ref }}
+        run: |
+          set -euo pipefail
+          umask 077
+          mkdir -p "$RUNNER_TEMP/production-eligibility"
+          gh attestation verify "oci://ghcr.io/ramideltoro/nutsnews@${RELEASE_IMAGE_DIGEST}" \
+            --repo "$GITHUB_REPOSITORY" \
+            --predicate-type https://nutsnews.com/attestations/staging-qualification/v1 \
+            --format json > "$RUNNER_TEMP/production-eligibility/verified-attestation.json"
+          python3 ansible/scripts/verify_production_eligibility.py verify \
+            --manifest ansible/inventories/production/host_vars/vps.nutsnews.com.yml \
+            --verified-attestation "$RUNNER_TEMP/production-eligibility/verified-attestation.json" \
+            --source-commit "$RELEASE_SOURCE_COMMIT" \
+            --image-digest "$RELEASE_IMAGE_DIGEST" \
+            --build-id "$RELEASE_BUILD_ID" \
+            --source-workflow-run-id "$RELEASE_SOURCE_WORKFLOW_RUN_ID" \
+            --migration-head "$RELEASE_MIGRATION_HEAD" \
+            --schema-version "$RELEASE_SCHEMA_VERSION" \
+            --supabase-project-ref "$RELEASE_SUPABASE_PROJECT_REF" \
+            --output "$RUNNER_TEMP/production-eligibility/staging-qualification.json" \
+            --github-output "$RUNNER_TEMP/production-eligibility-output"
+
+      - name: Publish eligibility outputs
+        id: eligibility
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s "$RUNNER_TEMP/production-eligibility-output"
+          cat "$RUNNER_TEMP/production-eligibility-output" >> "$GITHUB_OUTPUT"
+
   baseline:
     name: VPS baseline
+    needs: verify-production-eligibility
     runs-on: ubuntu-latest
     timeout-minutes: 30
     environment: production-vps
@@ -114,6 +235,7 @@ jobs:
           RELEASE_SOURCE_COMMIT: ${{ inputs.release_source_commit }}
           RELEASE_IMAGE_DIGEST: ${{ inputs.release_image_digest }}
           RELEASE_BUILD_ID: ${{ inputs.release_build_id }}
+          RELEASE_SOURCE_WORKFLOW_RUN_ID: ${{ inputs.release_source_workflow_run_id }}
           RELEASE_MIGRATION_HEAD: ${{ inputs.release_migration_head }}
           RELEASE_SCHEMA_VERSION: ${{ inputs.release_schema_version }}
           RELEASE_SUPABASE_PROJECT_REF: ${{ inputs.release_supabase_project_ref }}
@@ -121,7 +243,7 @@ jobs:
           set -euo pipefail
 
           supplied=0
-          for value in "$RELEASE_SOURCE_COMMIT" "$RELEASE_IMAGE_DIGEST" "$RELEASE_BUILD_ID" "$RELEASE_MIGRATION_HEAD" "$RELEASE_SCHEMA_VERSION" "$RELEASE_SUPABASE_PROJECT_REF"; do
+          for value in "$RELEASE_SOURCE_COMMIT" "$RELEASE_IMAGE_DIGEST" "$RELEASE_BUILD_ID" "$RELEASE_SOURCE_WORKFLOW_RUN_ID" "$RELEASE_MIGRATION_HEAD" "$RELEASE_SCHEMA_VERSION" "$RELEASE_SUPABASE_PROJECT_REF"; do
             if [[ -n "$value" ]]; then
               supplied=$((supplied + 1))
             fi
@@ -129,8 +251,8 @@ jobs:
           if [[ "$supplied" -eq 0 ]]; then
             exit 0
           fi
-          if [[ "$supplied" -ne 6 ]]; then
-            echo "Automated release verification requires source commit, image digest, build ID, migration head, schema version, and Supabase project reference together." >&2
+          if [[ "$supplied" -ne 7 ]]; then
+            echo "Automated release verification requires source commit, image digest, build ID, source workflow run ID, migration head, schema version, and Supabase project reference together." >&2
             exit 1
           fi
 

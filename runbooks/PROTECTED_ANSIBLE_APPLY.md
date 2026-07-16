@@ -4,6 +4,14 @@ Use this runbook for the manual GitHub Actions workflow that applies the Ansible
 
 The workflow is manual-only for now. It does not run on merge, does not use root SSH, and does not store secrets in the repository.
 
+Before any job can enter the `production-vps` Environment, the workflow runs a
+no-secret production eligibility check. Baseline-only changes may proceed when
+the reviewed production release identity is unchanged. Any production app
+release change must match a current, unexpired staging qualification
+attestation for the exact image digest, source commit, build ID, source
+workflow run, staging deployment ID, infra config generation, and test-suite
+revision.
+
 ## Add Required Environment Secrets
 
 Add these secrets to the existing `production-vps` GitHub Environment:
@@ -72,6 +80,20 @@ The protected workflow rejects enabled backups unless the restic password and rc
 
 Check mode is the default because surprise infrastructure changes are how simple systems become weekend projects with invoices.
 
+For an app release rehearsal, include the complete release identity bundle:
+
+- `release_source_commit`
+- `release_image_digest`
+- `release_build_id`
+- `release_source_workflow_run_id`
+- `release_migration_head`
+- `release_schema_version`
+- `release_supabase_project_ref`
+
+The no-secret verifier rejects missing, expired, tampered, stale, superseded,
+or mismatched staging qualification evidence before SSH keys, production app
+secrets, deploy secrets, or the `production-vps` Environment are available.
+
 ## Run Apply Mode
 
 1. Run check mode first and review the output.
@@ -84,6 +106,10 @@ Check mode is the default because surprise infrastructure changes are how simple
 8. Review the final `PLAY RECAP`.
 
 Apply mode connects as `nutsnews_ops` with sudo. It must never use root SSH.
+
+Apply mode uses the same eligibility gate as check mode. Do not approve apply
+for a production app digest unless the verifier accepted the exact staging
+qualification record for that digest and deployment.
 
 ## Read The Output
 

@@ -142,7 +142,6 @@ protected_workflow = PROTECTED_WORKFLOW.read_text(encoding="utf-8")
 for required in (
     "repository_dispatch:",
     "nutsnews-production-release",
-    "NUTSNEWS_INFRA_RELEASE_TOKEN",
     "git fetch origin main --prune",
     "current-vps-release.yml",
     'git switch -c "$release_branch" origin/main',
@@ -193,6 +192,7 @@ assert 'payload?.deploymentTarget === imageDeploymentTarget' in protected_workfl
 assert 'response.headers.get("x-nutsnews-deployment-target") === imageDeploymentTarget' in protected_workflow
 
 assert "NUTSNEWS_APP_IMAGE_TAG" not in promotion_workflow
+assert "NUTSNEWS_INFRA_RELEASE_TOKEN" not in promotion_workflow
 assert ":latest" not in promotion_workflow.lower()
 assert "gh pr checks \"$PR_URL\" --required" not in promotion_workflow
 
