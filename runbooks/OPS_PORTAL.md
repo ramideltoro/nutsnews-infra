@@ -228,6 +228,7 @@ systemctl status nutsnews-ops-alert-check.timer
 systemctl status nutsnews-ops-health-report.timer
 systemctl status nutsnews-restic-backup.timer
 systemctl status nutsnews-restic-verify.timer
+systemctl status nutsnews-docker-cleanup.timer
 sudo docker compose -f /opt/nutsnews/apps/caddy/compose.yml ps
 ```
 
@@ -255,6 +256,12 @@ systemctl list-timers nutsnews-ops-portal-collector.timer
 journalctl -u nutsnews-ops-portal-collector.service -n 80 --no-pager
 python3 -m json.tool /opt/nutsnews/portal-assets/data/status.json | grep -A6 '"slow_sections"'
 ```
+
+Docker cleanup status is collected from
+`/opt/nutsnews/portal-assets/data/docker-cleanup-status.json` into the
+`docker_cleanup` section of the portal feed. The public status summarizes
+cadence, filters, latest result, prune return codes, Docker storage summary, and
+protected-image counts without publishing protected refs or secrets.
 
 If email reports do not arrive:
 

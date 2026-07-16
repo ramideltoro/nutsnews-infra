@@ -23,6 +23,7 @@ Use this runbook after the service foundation PR is merged and before applying t
 - Optional GitOps-controlled NutsNews app route on `https://vps.nutsnews.com` while `/health` remains the infrastructure health endpoint
 - Small Ansible-managed zram fallback swap on `/dev/zram0` with low swappiness
 - Local portal status collector managed by `nutsnews-ops-portal-collector.timer`
+- Conservative Docker image and build-cache cleanup managed by `nutsnews-docker-cleanup.timer`
 - Caddy rate limiting for public health, API, auth-sensitive, admin-sensitive, ops-sensitive, and general public paths
 
 ## Apply Safely
@@ -47,12 +48,14 @@ curl -fsS http://127.0.0.1:8080/
 curl -fsS http://127.0.0.1:8080/data/status.json
 systemctl status nutsnews-infra-health.service
 systemctl status nutsnews-ops-portal-collector.timer
+systemctl status nutsnews-docker-cleanup.timer
 sudo ss -ltnp 'sport = :18080'
 sudo ufw status verbose
 free -h
 swapon --show
 cat /proc/sys/vm/swappiness
 sudo journalctl -k --since "-7 days" --no-pager | grep -Ei "out of memory|oom-killer|killed process" || true
+sudo python3 -m json.tool /opt/nutsnews/portal-assets/data/docker-cleanup-status.json
 sudo /usr/local/bin/nutsnews-ops-portal-collector
 sudo docker logs nutsnews-caddy --since 10m | grep -E '"status":429|rate'
 ```
@@ -78,6 +81,35 @@ curl -i https://vps.nutsnews.com/api/auth/signin/google
 ```
 
 `/health` must keep returning the infrastructure health response. `/healthz`
+
+## Docker Cleanup
+
+Docker cleanup is declared in Ansible and runs only through
+`nutsnews-docker-cleanup.timer`. The default cadence is weekly on Sunday at
+`04:35 UTC` with a `30min` randomized delay. The runner prunes build cache older
+than `168h` and unused dangling images older than `168h`; it does not run
+`docker system prune`, prune volumes, or prune containers.
+
+The cleanup service reads the configured production, staging, and
+last-known-good app image refs before pruning. If a protected app image is
+present only as an unsafe untagged, non-running image, the image-prune phase is
+skipped and the status records `protected_untagged_image_present`. Running
+containers are also discovered before cleanup, and Docker will not remove images
+that are in use by active containers.
+
+Cleanup status is visible without secrets at:
+
+```bash
+systemctl list-timers nutsnews-docker-cleanup.timer
+systemctl status nutsnews-docker-cleanup.timer
+systemctl status nutsnews-docker-cleanup.service
+sudo python3 -m json.tool /opt/nutsnews/portal-assets/data/docker-cleanup-status.json
+sudo tail -n 20 /opt/nutsnews/logs/docker-cleanup/cleanup.jsonl
+```
+
+Do not run ad hoc Docker prune commands over SSH for routine hygiene. Change the
+timer cadence, filters, or protection policy in this repository, merge it, and
+apply it through the protected workflow.
 must return the app health response with the reviewed source commit and build
 identity. Record exact statuses, redirects, security headers, cookies,
 CSRF/CORS behavior, asset loading, cache behavior, Turnstile/contact-form

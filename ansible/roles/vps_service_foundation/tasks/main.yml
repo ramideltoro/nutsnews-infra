@@ -479,6 +479,25 @@
         group: root
         mode: "0755"
 
+    - name: Install conservative Docker cleanup runner
+      ansible.builtin.copy:
+        src: docker_cleanup.py
+        dest: "{{ vps_service_foundation_docker_cleanup_bin }}"
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Validate conservative Docker cleanup settings
+      ansible.builtin.assert:
+        that:
+          - vps_service_foundation_docker_cleanup_image_until is match('^[0-9]+(h|m|s)$')
+          - vps_service_foundation_docker_cleanup_build_cache_until is match('^[0-9]+(h|m|s)$')
+          - vps_service_foundation_docker_cleanup_on_calendar | trim | length > 0
+        fail_msg: >-
+          Docker cleanup requires explicit systemd calendar and age filters
+          such as 168h. Refuse broad or empty prune settings.
+        success_msg: Docker cleanup cadence and prune filters are conservative and valid.
+
     - name: Install operations portal reporter environment
       ansible.builtin.template:
         src: ops-reporter.env.j2
@@ -695,6 +714,48 @@
         owner: root
         group: root
         mode: "0644"
+
+    - name: Install conservative Docker cleanup service
+      ansible.builtin.template:
+        src: nutsnews-docker-cleanup.service.j2
+        dest: "/etc/systemd/system/{{ vps_service_foundation_docker_cleanup_service }}"
+        owner: root
+        group: root
+        mode: "0644"
+
+    - name: Install conservative Docker cleanup timer
+      ansible.builtin.template:
+        src: nutsnews-docker-cleanup.timer.j2
+        dest: "/etc/systemd/system/{{ vps_service_foundation_docker_cleanup_timer }}"
+        owner: root
+        group: root
+        mode: "0644"
+
+    - name: Seed Docker cleanup status before the first scheduled run
+      ansible.builtin.copy:
+        dest: "{{ vps_service_foundation_docker_cleanup_status_file }}"
+        owner: root
+        group: root
+        mode: "0644"
+        force: false
+        content: |
+          {{
+            {
+              'schema_version': 1,
+              'status': 'installed_pending_first_run',
+              'ok': None,
+              'managed_by': 'ansible',
+              'service': vps_service_foundation_docker_cleanup_service,
+              'timer': vps_service_foundation_docker_cleanup_timer,
+              'on_calendar': vps_service_foundation_docker_cleanup_on_calendar,
+              'randomized_delay_seconds': vps_service_foundation_docker_cleanup_randomized_delay_seconds,
+              'filters': {
+                'image_until': vps_service_foundation_docker_cleanup_image_until,
+                'build_cache_until': vps_service_foundation_docker_cleanup_build_cache_until
+              },
+              'notes': 'Initial GitOps-managed status. The scheduled unit will replace this after its first run.'
+            } | to_nice_json
+          }}
 
     - name: Manage Grafana Alloy observability agent
       when: vps_service_foundation_grafana_alloy_enabled | bool
@@ -1135,6 +1196,13 @@
         name: "{{ vps_service_foundation_backup_verify_timer }}"
         enabled: "{{ vps_service_foundation_backup_enabled | bool }}"
         state: "{{ (vps_service_foundation_backup_enabled | bool) | ternary('started', 'stopped') }}"
+        daemon_reload: true
+
+    - name: Manage conservative Docker cleanup timer
+      ansible.builtin.systemd_service:
+        name: "{{ vps_service_foundation_docker_cleanup_timer }}"
+        enabled: "{{ vps_service_foundation_docker_cleanup_enabled | bool }}"
+        state: "{{ (vps_service_foundation_docker_cleanup_enabled | bool) | ternary('started', 'stopped') }}"
         daemon_reload: true
 
     - name: Manage Cloudflare DDNS timer
