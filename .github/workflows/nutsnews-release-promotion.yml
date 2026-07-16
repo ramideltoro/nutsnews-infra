@@ -17,9 +17,8 @@ jobs:
     name: Create checked VPS release promotion
     if: github.event.client_payload.source_repository == 'ramideltoro/nutsnews'
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 5
     env:
-      GH_TOKEN: ${{ secrets.NUTSNEWS_INFRA_RELEASE_TOKEN }}
       SOURCE_REPOSITORY: ${{ github.event.client_payload.source_repository }}
       SOURCE_COMMIT: ${{ github.event.client_payload.source_commit }}
       IMAGE_REPOSITORY: ${{ github.event.client_payload.image_repository }}
@@ -32,6 +31,13 @@ jobs:
       SOURCE_WORKFLOW_RUN_ID: ${{ github.event.client_payload.source_workflow_run_id }}
 
     steps:
+      - name: Pause direct production release dispatch
+        shell: bash
+        run: |
+          echo "nutsnews-production-release is paused until the staging-first handoff is activated." >&2
+          echo "A production app release must enter through the no-secret staging qualification gate." >&2
+          exit 1
+
       - name: Checkout reviewed infrastructure main
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
         with:
@@ -40,11 +46,6 @@ jobs:
       - name: Validate trusted release payload and automation token
         run: |
           set -euo pipefail
-
-          if [[ -z "$GH_TOKEN" ]]; then
-            echo "NUTSNEWS_INFRA_RELEASE_TOKEN is required for GitOps promotion automation." >&2
-            exit 1
-          fi
 
           python3 ansible/scripts/promote_nutsnews_release.py \
             --validate-only \
@@ -292,6 +293,7 @@ jobs:
             --field release_source_commit="$SOURCE_COMMIT" \
             --field release_image_digest="$IMAGE_DIGEST" \
             --field release_build_id="$BUILD_ID" \
+            --field release_source_workflow_run_id="$SOURCE_WORKFLOW_RUN_ID" \
             --field release_migration_head="$MIGRATION_HEAD" \
             --field release_schema_version="$SCHEMA_VERSION" \
             --field release_supabase_project_ref="$SUPABASE_PROJECT_REF"
