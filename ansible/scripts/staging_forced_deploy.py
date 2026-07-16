@@ -335,6 +335,14 @@ def verify(request: dict[str, object]) -> None:
         health = state.get("Health", {})
         return state.get("Running") is True and isinstance(health, dict) and health.get("Status") == "healthy"
 
+    def health_status(state: dict[str, object]) -> str:
+        health = state.get("Health", {})
+        if isinstance(health, dict):
+            status = health.get("Status")
+            if isinstance(status, str) and status:
+                return status
+        return "none"
+
     staging_labels = labels(staging_config)
     production_labels = labels(production_config)
     access_labels = labels(access_config)
@@ -369,6 +377,11 @@ def verify(request: dict[str, object]) -> None:
         for mount in caddy_mounts
     ) if isinstance(caddy_mounts, list) else False
 
+    production_observation = {
+        "running": production_state.get("Running") is True,
+        "healthy": healthy(production_state),
+        "health_status": health_status(production_state),
+    }
     boundary = {
         "staging_unpublished": staging_ports in (None, {}) and access_ports in (None, {}),
         "compose_projects": (
@@ -413,7 +426,6 @@ def verify(request: dict[str, object]) -> None:
             and "resp_headers>Location delete" in caddy_text
             and "reverse_proxy nutsnews-app-staging:3000" in caddy_text
         ),
-        "production_healthy": healthy(production_state),
         "access_verifier_healthy": healthy(access_state),
     }
     if not all(boundary.values()):
@@ -426,6 +438,7 @@ def verify(request: dict[str, object]) -> None:
                 "actual_digest": digest,
                 "config_generation": config_generation,
                 "boundary": boundary,
+                "production": production_observation,
             },
             separators=(",", ":"),
         )

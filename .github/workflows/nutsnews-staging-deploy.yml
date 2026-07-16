@@ -355,13 +355,18 @@ jobs:
               "directory_separation",
               "env_file_permissions",
               "caddy_route",
-              "production_healthy",
               "access_verifier_healthy",
           }
           boundary = result.get("boundary")
+          production = result.get("production")
           assert result.get("ok") is True and result.get("operation") == "verify"
           assert isinstance(boundary, dict) and set(boundary) == expected_boundary
           assert all(value is True for value in boundary.values())
+          assert isinstance(production, dict)
+          assert set(production) == {"running", "healthy", "health_status"}
+          assert isinstance(production["running"], bool)
+          assert isinstance(production["healthy"], bool)
+          assert production["health_status"] in {"healthy", "unhealthy", "starting", "none"}
           with Path(os.environ["GITHUB_STEP_SUMMARY"]).open("a", encoding="utf-8") as summary:
               summary.write("\n## Live staging runtime boundary\n\n")
               summary.write("- Staging app and Access verifier publish no host ports.\n")
@@ -371,7 +376,9 @@ jobs:
               summary.write("- Logs: json-file, 10m maximum size, 3 files.\n")
               summary.write("- Runtime/state directories are distinct and root-owned.\n")
               summary.write("- Production, staging, and Access env files are root:root mode 0600; contents were not read.\n")
-              summary.write("- Active Caddy staging route, production health, and Access verifier health passed.\n")
+              summary.write("- Active Caddy staging route and Access verifier health passed.\n")
+              summary.write("- Production container health was recorded as sanitized observation only: ")
+              summary.write(f"running={production['running']} healthy={production['healthy']} status={production['health_status']}.\n")
           PY
 
       - name: Finalize staging Deployment status

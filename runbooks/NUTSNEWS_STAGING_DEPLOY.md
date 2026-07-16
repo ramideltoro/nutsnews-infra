@@ -28,6 +28,13 @@ mode before apply, waits for `/readyz`, verifies Docker's resolved digest, and
 writes a GitHub Deployment audit record. It never calls a production workflow
 or targets the production runtime.
 
+The server-side staging verifier still inspects production container identity,
+network separation, and root-only production env-file permissions as part of
+the isolation boundary. Current production container health is recorded in the
+sanitized runtime result, but it is not a required staging deploy gate; an
+already-unhealthy production app must be recovered through the protected
+production eligibility and apply path after staging has independently qualified.
+
 See the matching operational guide in `ramideltoro/nutsnews-docs` for the
 candidate schema, Environment setup, approval procedure, evidence, and
 rollback guidance. A live staging apply remains separately approved work.

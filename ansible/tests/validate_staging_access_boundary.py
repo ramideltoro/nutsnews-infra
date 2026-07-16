@@ -157,7 +157,9 @@ assert "nutsnews-staging-app.env" in defaults
 assert 'mode: "0600"' in access_tasks and "no_log: true" in access_tasks
 assert 'SSH_ORIGINAL_COMMAND' in forced_command and 'arbitrary_command_rejected' in forced_command
 assert 'operation in {"check", "apply"}' in forced_command
-assert '"production"' not in forced_command
+assert 'elif operation == "verify"' in forced_command
+assert 'operation == "production"' not in forced_command
+assert 'operation in {"production"' not in forced_command
 assert "stdout=subprocess.PIPE" in forced_command
 assert "stderr=subprocess.STDOUT" in forced_command
 assert "TASK_LINE.findall(result.stdout)" in forced_command
@@ -182,10 +184,13 @@ for boundary_check in (
     "directory_separation",
     "env_file_permissions",
     "caddy_route",
-    "production_healthy",
     "access_verifier_healthy",
 ):
     assert boundary_check in forced_command and boundary_check in workflow
+assert '"production": production_observation' in forced_command
+assert 'production = result.get("production")' in workflow
+assert "Production container health was recorded as sanitized observation only" in workflow
+assert '"production_healthy"' not in workflow
 assert '"uri /verify?" in caddy_text' in forced_command
 assert '"request>uri delete" in caddy_text' in forced_command
 assert '"request>headers>Cf-Access-Jwt-Assertion delete" in caddy_text' in forced_command
