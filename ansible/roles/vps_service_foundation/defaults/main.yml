@@ -734,10 +734,17 @@ vps_service_foundation_nutsnews_app_image: >-
   }}
 vps_service_foundation_nutsnews_app_source_commit: ""
 vps_service_foundation_nutsnews_app_build_id: ""
+vps_service_foundation_nutsnews_app_source_workflow_run_id: ""
 vps_service_foundation_nutsnews_app_deployment_target: production-vps
 vps_service_foundation_nutsnews_app_last_known_good_digest: ""
 vps_service_foundation_nutsnews_app_config_generation: ""
 vps_service_foundation_nutsnews_app_deployment_id: ""
+vps_service_foundation_nutsnews_app_staging_deployment_id: ""
+vps_service_foundation_nutsnews_app_qualification_run_id: ""
+vps_service_foundation_nutsnews_app_qualification_expires_at: ""
+vps_service_foundation_nutsnews_app_promotion_run_id: ""
+vps_service_foundation_nutsnews_app_promotion_run_url: ""
+vps_service_foundation_nutsnews_app_rollback_state: not configured
 vps_service_foundation_nutsnews_app_migration_head: ""
 vps_service_foundation_nutsnews_app_schema_version: ""
 vps_service_foundation_nutsnews_app_supabase_project_ref: ""
@@ -855,10 +862,17 @@ vps_service_foundation_nutsnews_environments:
     image_review_status: "{{ vps_service_foundation_nutsnews_app_image_review_status }}"
     source_commit: "{{ vps_service_foundation_nutsnews_app_source_commit }}"
     build_id: "{{ vps_service_foundation_nutsnews_app_build_id }}"
+    source_workflow_run_id: "{{ vps_service_foundation_nutsnews_app_source_workflow_run_id }}"
     deployment_target: "{{ vps_service_foundation_nutsnews_app_deployment_target }}"
     last_known_good_digest: "{{ vps_service_foundation_nutsnews_app_last_known_good_digest }}"
     config_generation: "{{ vps_service_foundation_nutsnews_app_config_generation }}"
     deployment_id: "{{ vps_service_foundation_nutsnews_app_deployment_id }}"
+    staging_deployment_id: "{{ vps_service_foundation_nutsnews_app_staging_deployment_id }}"
+    qualification_run_id: "{{ vps_service_foundation_nutsnews_app_qualification_run_id }}"
+    qualification_expires_at: "{{ vps_service_foundation_nutsnews_app_qualification_expires_at }}"
+    promotion_run_id: "{{ vps_service_foundation_nutsnews_app_promotion_run_id }}"
+    promotion_run_url: "{{ vps_service_foundation_nutsnews_app_promotion_run_url }}"
+    rollback_state: "{{ vps_service_foundation_nutsnews_app_rollback_state }}"
     migration_head: "{{ vps_service_foundation_nutsnews_app_migration_head }}"
     schema_version: "{{ vps_service_foundation_nutsnews_app_schema_version }}"
     supabase_project_ref: "{{ vps_service_foundation_nutsnews_app_supabase_project_ref }}"
@@ -909,10 +923,17 @@ vps_service_foundation_nutsnews_environments:
       {{ (vps_service_foundation_nutsnews_staging_deploy_authorized | bool) | ternary('reviewed', 'unreviewed') }}
     source_commit: "{{ vps_service_foundation_nutsnews_staging_source_commit }}"
     build_id: "{{ vps_service_foundation_nutsnews_staging_build_id }}"
+    source_workflow_run_id: ""
     deployment_target: vps-staging
     last_known_good_digest: ""
     config_generation: "{{ vps_service_foundation_nutsnews_staging_config_generation }}"
     deployment_id: "{{ vps_service_foundation_nutsnews_staging_deployment_id }}"
+    staging_deployment_id: "{{ vps_service_foundation_nutsnews_staging_deployment_id }}"
+    qualification_run_id: ""
+    qualification_expires_at: ""
+    promotion_run_id: ""
+    promotion_run_url: ""
+    rollback_state: not configured
     migration_head: ""
     schema_version: "{{ vps_service_foundation_nutsnews_staging_schema_version }}"
     staged_route_enabled: false

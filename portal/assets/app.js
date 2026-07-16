@@ -859,6 +859,12 @@ function renderAppLayer(data) {
   const actual = app.actual || {};
   const secrets = app.secrets || {};
   const marker = app.marker || {};
+  const releaseGate = app.release_gate || {};
+  const candidate = releaseGate.candidate || {};
+  const stagingGate = releaseGate.staging || {};
+  const qualification = releaseGate.qualification || {};
+  const production = releaseGate.production || {};
+  const rollback = releaseGate.rollback || {};
   const requiredKeys = secrets.required_secret_keys || [];
   const missingRequiredKeys = secrets.missing_required_secret_keys || [];
   const configuredKeys = secrets.configured_secret_keys || [];
@@ -902,6 +908,14 @@ function renderAppLayer(data) {
     { label: "Secrets", value: `missing ${text(missingCount)}`, hint: secretHint },
     { label: "Env file", value: envState, hint: text(envFile) },
     { label: "App marker", value: markerStatus, hint: markerUpdated },
+  ]);
+  renderMetrics("release-gate-grid", [
+    { label: "Candidate", value: text(candidate.state, "unknown"), hint: `${shortCommit(candidate.source_commit)} ${text(candidate.build_id, "no build")}` },
+    { label: "Staging deploy", value: text(stagingGate.deployment_id, "not configured"), hint: `${text(stagingGate.health_state, "unknown")} / ${text(stagingGate.ready_state, "unknown")}` },
+    { label: "Qualification", value: text(qualification.state, "unknown"), hint: `run ${text(qualification.run_id, "unknown")} expires ${text(qualification.expires_at, "unknown")}` },
+    { label: "Supersession", value: text(stagingGate.supersession_state, "unknown"), hint: "Compared from retained gate metadata" },
+    { label: "Promotion", value: text(production.promotion_run_id, "unknown"), hint: text(production.promoted_at, "unknown") },
+    { label: "Previous digest", value: text(production.previous_digest || rollback.previous_digest, "not configured"), hint: `rollback ${text(rollback.state, "not configured")}` },
   ]);
   $("app-method").textContent = `Env file: ${envFile} • Staged: ${text(app.staged_route_enabled, false)} • Public: ${text(app.public_route_enabled, false)} • Marker: ${markerStatus}`;
   $("app-notes").textContent = app.enabled

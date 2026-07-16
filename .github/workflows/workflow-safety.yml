@@ -132,6 +132,7 @@ jobs:
           python3 ansible/tests/validate_staging_qualification.py
           python3 ansible/tests/validate_production_eligibility.py
           python3 ansible/tests/validate_production_rollback.py
+          python3 ansible/tests/validate_gate_rehearsal.py
 
       - name: Validate Vercel-to-VPS environment sync guardrails
         shell: bash

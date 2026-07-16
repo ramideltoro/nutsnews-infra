@@ -898,6 +898,8 @@
       "image_reference": "",
       "image_repository": "ghcr.io/ramideltoro/nutsnews",
       "last_known_good_digest": "",
+      "source_workflow_run_id": "",
+      "config_generation": "",
       "source_commit": ""
     },
     "health_path": "/healthz",
@@ -943,13 +945,72 @@
       "deployment_target": "production-vps",
       "image_digest": "",
       "image_repo": "ghcr.io/ramideltoro/nutsnews",
+      "image_review_status": "unreviewed",
       "last_known_good_digest": "",
+      "config_generation": "",
+      "deployment_id": "",
+      "source_workflow_run_id": "",
+      "staging_deployment_id": "",
+      "qualification_run_id": "",
+      "qualification_expires_at": "",
+      "promotion_run_id": "",
+      "promotion_run_url": "",
+      "rollback_state": "not configured",
       "public_route_enabled": false,
       "recorded_at": "2026-07-04T20:45:00+00:00",
       "route_path": "/app-stage",
       "source_commit": "",
       "staged_route_enabled": false,
       "status": "disabled"
+    },
+    "release_gate": {
+      "candidate": {
+        "build_id": "",
+        "config_generation": "",
+        "image_digest": "",
+        "source_commit": "",
+        "source_workflow_run_id": "",
+        "state": "not configured",
+        "test_suite_commit": ""
+      },
+      "mode": "read-only",
+      "production": {
+        "build_id": "",
+        "expected_digest": "",
+        "previous_digest": "",
+        "promoted_at": "2026-07-04T20:45:00+00:00",
+        "promotion_run_id": "",
+        "promotion_run_url": "",
+        "running_build_id": "",
+        "running_digest": "",
+        "running_source_commit": "",
+        "source_commit": ""
+      },
+      "qualification": {
+        "expires_at": "",
+        "run_id": "",
+        "state": "not configured",
+        "time_state": "unknown"
+      },
+      "rollback": {
+        "previous_digest": "",
+        "state": "not configured"
+      },
+      "staging": {
+        "deployment_id": "",
+        "health_state": "unknown",
+        "ready_state": "unknown",
+        "supersession_state": "unknown"
+      },
+      "state_catalog": [
+        "unknown",
+        "not configured",
+        "failed",
+        "expired",
+        "superseded",
+        "current",
+        "passed"
+      ]
     }
   },
   "app_links": [
