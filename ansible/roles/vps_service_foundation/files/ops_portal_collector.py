@@ -88,6 +88,21 @@ DISK_SCAN_ROOTS = [
     for item in os.environ.get("NUTSNEWS_DISK_SCAN_ROOTS", "/opt/nutsnews,/var/log,/var/lib/docker,/home").split(",")
     if item.strip()
 ]
+COLLECTOR_TIMER_CADENCE_SECONDS = int(os.environ.get("NUTSNEWS_COLLECTOR_TIMER_CADENCE_SECONDS", "60"))
+SLOW_CACHE_FILE = Path(
+    os.environ.get("NUTSNEWS_COLLECTOR_SLOW_CACHE_FILE", "/opt/nutsnews/portal-assets/data/collector-slow-cache.json")
+)
+SLOW_SECTION_TTLS = {
+    "docker_inspect": int(os.environ.get("NUTSNEWS_COLLECTOR_DOCKER_INSPECT_CACHE_SECONDS", "300")),
+    "docker_compose": int(os.environ.get("NUTSNEWS_COLLECTOR_DOCKER_COMPOSE_CACHE_SECONDS", "300")),
+    "processes": int(os.environ.get("NUTSNEWS_COLLECTOR_PROCESSES_CACHE_SECONDS", "300")),
+    "logs": int(os.environ.get("NUTSNEWS_COLLECTOR_LOGS_CACHE_SECONDS", "300")),
+    "security": int(os.environ.get("NUTSNEWS_COLLECTOR_SECURITY_CACHE_SECONDS", "900")),
+    "backups": int(os.environ.get("NUTSNEWS_COLLECTOR_BACKUPS_CACHE_SECONDS", "300")),
+    "free_tier_local": int(os.environ.get("NUTSNEWS_COLLECTOR_FREE_TIER_LOCAL_CACHE_SECONDS", "900")),
+    "oom_evidence": int(os.environ.get("NUTSNEWS_COLLECTOR_OOM_EVIDENCE_CACHE_SECONDS", "900")),
+    "observability": int(os.environ.get("NUTSNEWS_COLLECTOR_OBSERVABILITY_CACHE_SECONDS", "300")),
+}
 SWAP_USAGE_CACHE_FILE = Path(
     os.environ.get("NUTSNEWS_SWAP_USAGE_CACHE_FILE", "/opt/nutsnews/portal-assets/data/swap-usage-cache.json")
 )
@@ -114,6 +129,8 @@ ALLOY_PERMISSION_ERROR_PATTERNS = [
     ALLOY_FILE_PERMISSION_ERROR,
 ]
 ALLOY_FILE_PERMISSION_ERROR_RE = re.compile(ALLOY_FILE_PERMISSION_ERROR)
+COLLECTOR_STARTED_MONOTONIC = time.monotonic()
+CACHE_EVENTS: list[dict[str, Any]] = []
 
 
 def utc_now() -> str:
@@ -370,6 +387,111 @@ def write_public_json(path: Path, data: dict[str, Any], mode: int = 0o644) -> No
     tmp_file.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     tmp_file.replace(path)
     path.chmod(mode)
+
+
+def section_ttl(name: str) -> int:
+    return max(safe_int(SLOW_SECTION_TTLS.get(name), 300), COLLECTOR_TIMER_CADENCE_SECONDS)
+
+
+def cache_metadata(
+    section: str,
+    state: str,
+    ttl_seconds: int,
+    collected_at: str,
+    duration_ms: int,
+    error: str = "",
+) -> dict[str, Any]:
+    age = age_seconds(collected_at)
+    stale = age is None or age >= ttl_seconds
+    return {
+        "section": section,
+        "state": state,
+        "ttl_seconds": ttl_seconds,
+        "collected_at": collected_at,
+        "age_seconds": age,
+        "stale": stale,
+        "duration_ms": duration_ms,
+        "error": redact_line(error),
+    }
+
+
+def attach_cache_metadata(value: Any, metadata: dict[str, Any]) -> dict[str, Any]:
+    if isinstance(value, dict):
+        result = dict(value)
+    else:
+        result = {"value": value}
+    result["_collector_cache"] = metadata
+    CACHE_EVENTS.append(metadata)
+    return result
+
+
+def value_without_cache_metadata(value: Any) -> Any:
+    if isinstance(value, dict):
+        result = dict(value)
+        result.pop("_collector_cache", None)
+        return result
+    return value
+
+
+def cached_slow_section(section: str, ttl_seconds: int, producer: Any) -> dict[str, Any]:
+    now_epoch = int(time.time())
+    cache = read_json(SLOW_CACHE_FILE, {})
+    sections = cache.get("sections", {}) if isinstance(cache, dict) else {}
+    if not isinstance(sections, dict):
+        sections = {}
+    entry = sections.get(section, {})
+    if not isinstance(entry, dict):
+        entry = {}
+    collected_at_epoch = safe_int(entry.get("collected_at_epoch"), 0)
+    cached_value = entry.get("value")
+    if collected_at_epoch and now_epoch - collected_at_epoch < ttl_seconds and isinstance(cached_value, dict):
+        metadata = cache_metadata(
+            section,
+            "fresh_cache",
+            ttl_seconds,
+            str(entry.get("collected_at", "unknown")),
+            safe_int(entry.get("duration_ms"), 0),
+        )
+        return attach_cache_metadata(cached_value, metadata)
+
+    started = time.monotonic()
+    try:
+        produced = producer()
+    except Exception as error:
+        duration_ms = int((time.monotonic() - started) * 1000)
+        if isinstance(cached_value, dict):
+            metadata = cache_metadata(
+                section,
+                "stale_cache",
+                ttl_seconds,
+                str(entry.get("collected_at", "unknown")),
+                safe_int(entry.get("duration_ms"), duration_ms),
+                str(error),
+            )
+            return attach_cache_metadata(cached_value, metadata)
+        metadata = cache_metadata(section, "unavailable", ttl_seconds, "unknown", duration_ms, str(error))
+        return attach_cache_metadata({"available": False, "error": "Collector section failed."}, metadata)
+
+    duration_ms = int((time.monotonic() - started) * 1000)
+    collected_at = utc_now()
+    clean_value = value_without_cache_metadata(produced)
+    if isinstance(clean_value, dict):
+        sections[section] = {
+            "collected_at": collected_at,
+            "collected_at_epoch": now_epoch,
+            "duration_ms": duration_ms,
+            "ttl_seconds": ttl_seconds,
+            "value": clean_value,
+        }
+        try:
+            write_public_json(
+                SLOW_CACHE_FILE,
+                {"schema_version": 1, "updated_at": collected_at, "sections": sections},
+            )
+        except OSError:
+            pass
+    metadata = cache_metadata(section, "live", ttl_seconds, collected_at, duration_ms)
+    return attach_cache_metadata(clean_value, metadata)
 
 
 def safe_int(value: Any, default: int = 0) -> int:
@@ -1057,6 +1179,14 @@ def docker_state() -> dict[str, Any]:
             name = item.get("Names", "")
             if name:
                 names.append(name)
+            health = "unknown"
+            status_text = str(item.get("Status", ""))
+            if "(healthy)" in status_text:
+                health = "healthy"
+            elif "(unhealthy)" in status_text:
+                health = "unhealthy"
+            elif "(health: starting)" in status_text:
+                health = "starting"
             containers.append(
                 {
                     "name": name,
@@ -1064,7 +1194,7 @@ def docker_state() -> dict[str, Any]:
                     "state": item.get("State", ""),
                     "status": item.get("Status", ""),
                     "ports": item.get("Ports", ""),
-                    "health": "unknown",
+                    "health": health,
                     "restart_count": 0,
                     "compose_project": item.get("Label", ""),
                     "configured_image": "",
@@ -1075,44 +1205,99 @@ def docker_state() -> dict[str, Any]:
                 }
             )
 
+    inspect_cache = {"state": "not_needed"}
     if names:
-        inspect = run(["docker", "inspect", *names], timeout=10)
-        if inspect["ok"]:
-            try:
-                inspected = json.loads(inspect["stdout"])
-            except json.JSONDecodeError:
-                inspected = []
-            details = {item.get("Name", "").lstrip("/"): item for item in inspected}
+        inspected_state = cached_slow_section(
+            "docker_inspect",
+            section_ttl("docker_inspect"),
+            lambda: docker_inspect_state(names),
+        )
+        inspect_cache = inspected_state.get("_collector_cache", {})
+        details = inspected_state.get("containers", {})
+        if isinstance(details, dict):
             for container in containers:
                 detail = details.get(container["name"], {})
-                state = detail.get("State", {})
-                labels = detail.get("Config", {}).get("Labels", {}) or {}
-                container["restart_count"] = detail.get("RestartCount", 0)
-                container["health"] = state.get("Health", {}).get("Status", "none")
-                container["compose_project"] = labels.get("com.docker.compose.project", "")
-                container["configured_image"] = detail.get("Config", {}).get("Image", "")
-                container["image_id"] = detail.get("Image", "")
-                container["source_commit"] = labels.get("org.opencontainers.image.revision", "")
-                container["build_id"] = labels.get("io.nutsnews.build.id", "") or labels.get(
-                    "org.opencontainers.image.version",
-                    "",
-                )
+                if not isinstance(detail, dict):
+                    continue
+                for key in (
+                    "restart_count",
+                    "health",
+                    "compose_project",
+                    "configured_image",
+                    "image_id",
+                    "repo_digests",
+                    "source_commit",
+                    "build_id",
+                ):
+                    if key in detail:
+                        container[key] = detail[key]
 
-            image_ids = sorted({container["image_id"] for container in containers if container["image_id"]})
-            if image_ids:
-                image_inspect = run(["docker", "image", "inspect", *image_ids], timeout=10)
-                if image_inspect["ok"]:
-                    try:
-                        inspected_images = json.loads(image_inspect["stdout"])
-                    except json.JSONDecodeError:
-                        inspected_images = []
-                    images_by_id = {item.get("Id", ""): item for item in inspected_images}
-                    for container in containers:
-                        image_detail = images_by_id.get(container["image_id"], {})
-                        repo_digests = image_detail.get("RepoDigests", [])
-                        if isinstance(repo_digests, list):
-                            container["repo_digests"] = [str(item) for item in repo_digests]
+    compose_state = cached_slow_section(
+        "docker_compose",
+        section_ttl("docker_compose"),
+        docker_compose_state,
+    )
+    compose_projects = compose_state.get("compose_projects", [])
+    if not isinstance(compose_projects, list):
+        compose_projects = []
 
+    return {
+        "available": ps["ok"],
+        "error": "" if ps["ok"] else ps["stderr"],
+        "containers": containers,
+        "compose_projects": compose_projects,
+        "inspect_cache": inspect_cache,
+        "compose_cache": compose_state.get("_collector_cache", {}),
+    }
+
+
+def docker_inspect_state(names: list[str]) -> dict[str, Any]:
+    inspect = run(["docker", "inspect", *names], timeout=10)
+    details_by_name: dict[str, dict[str, Any]] = {}
+    if not inspect["ok"]:
+        return {"available": False, "containers": details_by_name, "error": inspect["stderr"]}
+
+    try:
+        inspected = json.loads(inspect["stdout"])
+    except json.JSONDecodeError:
+        inspected = []
+    details = {item.get("Name", "").lstrip("/"): item for item in inspected}
+    image_ids = sorted({str(item.get("Image", "")) for item in details.values() if item.get("Image")})
+    images_by_id: dict[str, dict[str, Any]] = {}
+    if image_ids:
+        image_inspect = run(["docker", "image", "inspect", *image_ids], timeout=10)
+        if image_inspect["ok"]:
+            try:
+                inspected_images = json.loads(image_inspect["stdout"])
+            except json.JSONDecodeError:
+                inspected_images = []
+            images_by_id = {item.get("Id", ""): item for item in inspected_images}
+
+    for name, detail in details.items():
+        state = detail.get("State", {})
+        labels = detail.get("Config", {}).get("Labels", {}) or {}
+        image_id = detail.get("Image", "")
+        image_detail = images_by_id.get(image_id, {})
+        repo_digests = image_detail.get("RepoDigests", [])
+        if not isinstance(repo_digests, list):
+            repo_digests = []
+        details_by_name[name] = {
+            "restart_count": detail.get("RestartCount", 0),
+            "health": state.get("Health", {}).get("Status", "none"),
+            "compose_project": labels.get("com.docker.compose.project", ""),
+            "configured_image": detail.get("Config", {}).get("Image", ""),
+            "image_id": image_id,
+            "repo_digests": [str(item) for item in repo_digests],
+            "source_commit": labels.get("org.opencontainers.image.revision", ""),
+            "build_id": labels.get("io.nutsnews.build.id", "") or labels.get(
+                "org.opencontainers.image.version",
+                "",
+            ),
+        }
+    return {"available": True, "containers": details_by_name, "error": ""}
+
+
+def docker_compose_state() -> dict[str, Any]:
     compose = run(["docker", "compose", "ls", "--format", "json"], timeout=8)
     compose_projects: list[dict[str, Any]] = []
     if compose["ok"] and compose["stdout"].strip():
@@ -1122,12 +1307,10 @@ def docker_state() -> dict[str, Any]:
                 compose_projects = parsed
         except json.JSONDecodeError:
             compose_projects = []
-
     return {
-        "available": ps["ok"],
-        "error": "" if ps["ok"] else ps["stderr"],
-        "containers": containers,
+        "available": compose["ok"],
         "compose_projects": compose_projects,
+        "error": "" if compose["ok"] else compose["stderr"],
     }
 
 
@@ -1665,7 +1848,11 @@ def resource_state() -> dict[str, Any]:
             "used_percent": percent(memory_used, memory_total),
         },
         "swap": swap_state(mem),
-        "oom_evidence": oom_evidence_state(),
+        "oom_evidence": cached_slow_section(
+            "oom_evidence",
+            section_ttl("oom_evidence"),
+            oom_evidence_state,
+        ),
         "disk": disk_usage(Path("/")),
         "nutsnews_disk": disk_usage(ROOT_DIR),
         "network": network_usage(),
@@ -2127,19 +2314,43 @@ def collect() -> dict[str, Any]:
     ]
     reporting = reporting_state()
     reporting.update(systemd_timer_schedule("nutsnews-ops-health-report.timer"))
-    backups = backup_state()
+    backups = cached_slow_section("backups", section_ttl("backups"), backup_state)
     app = app_state(docker)
     free_tier = free_tier_usage_state()
     external_free_tier_providers = free_tier.get("providers", [])
     if not isinstance(external_free_tier_providers, list):
         external_free_tier_providers = []
-    free_tier["providers"] = local_usage_providers(resources, docker, backups) + external_free_tier_providers
+    local_free_tier = cached_slow_section(
+        "free_tier_local",
+        section_ttl("free_tier_local"),
+        lambda: {"providers": local_usage_providers(resources, docker, backups)},
+    )
+    local_free_tier_providers = local_free_tier.get("providers", [])
+    if not isinstance(local_free_tier_providers, list):
+        local_free_tier_providers = []
+    free_tier["providers"] = local_free_tier_providers + external_free_tier_providers
+    free_tier["local_cache"] = local_free_tier.get("_collector_cache", {})
     free_tier["summary"] = summarize_free_tier_usage(free_tier)
-    observability = observability_state()
+    observability = cached_slow_section(
+        "observability",
+        section_ttl("observability"),
+        observability_state,
+    )
+    processes = cached_slow_section("processes", section_ttl("processes"), process_state)
+    logs = cached_slow_section("logs", section_ttl("logs"), log_sections)
+    security = cached_slow_section("security", section_ttl("security"), security_state)
+    collector = {
+        "runtime_seconds": round(time.monotonic() - COLLECTOR_STARTED_MONOTONIC, 3),
+        "timer_cadence_seconds": COLLECTOR_TIMER_CADENCE_SECONDS,
+        "slow_cache_file": str(SLOW_CACHE_FILE),
+        "slow_section_ttls": SLOW_SECTION_TTLS,
+        "slow_sections": CACHE_EVENTS,
+    }
 
     return {
         "schema_version": 1,
         "generated_at": utc_now(),
+        "collector": collector,
         "portal": {
             "mode": "read-only",
             "public_exposure": "Caddy serves https://ops.nutsnews.com through Google OAuth and keeps 127.0.0.1:8080 for health checks and SSH tunnel fallback.",
@@ -2157,13 +2368,13 @@ def collect() -> dict[str, Any]:
             "architecture": platform.machine(),
         },
         "resources": resources,
-        "processes": process_state(),
+        "processes": processes,
         "disk_usage": cached_disk_hotspots(),
         "process_network": process_network_state(),
         "docker": docker,
         "services": services,
-        "logs": log_sections(),
-        "security": security_state(),
+        "logs": logs,
+        "security": security,
         "backups": backups,
         "observability": observability,
         "free_tier_usage": free_tier,

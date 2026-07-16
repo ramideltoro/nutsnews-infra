@@ -99,6 +99,18 @@ require(len(alert_ids) == len(set(alert_ids)), "Portal alert IDs must be unique 
 require('alert["id"]' in REPORTER, "Reporter cooldown must use stable alert identity.")
 require("ALERT_STATE_MAX_ENTRIES" in REPORTER, "Reporter alert state must have a bounded cleanup policy.")
 
+collector = STATUS.get("collector", {})
+require(collector.get("timer_cadence_seconds") == 60, "Collector fixture must keep minute-level cadence visible.")
+require("runtime_seconds" in collector, "Collector fixture must expose collector runtime.")
+require("slow_section_ttls" in collector, "Collector fixture must expose slow-section TTLs.")
+require("slow_sections" in collector, "Collector fixture must expose slow-section cache metadata.")
+require("NUTSNEWS_COLLECTOR_SLOW_CACHE_FILE" in COLLECTOR_UNIT, "Collector unit must pass slow cache file.")
+require("NUTSNEWS_COLLECTOR_SECURITY_CACHE_SECONDS" in COLLECTOR_UNIT, "Collector unit must pass security TTL.")
+for section in ("docker_inspect", "logs", "security", "backups", "processes"):
+    require(section in COLLECTOR, f"Collector code must include slow section {section}.")
+require("cached_slow_section" in COLLECTOR, "Collector must cache slow sections.")
+require("stale_cache" in COLLECTOR, "Collector must retain stale cached data on section failure.")
+
 alloy = STATUS.get("observability", {}).get("alloy", {})
 require(alloy.get("enabled") is True, "Fixture must show Alloy enabled for portal visibility.")
 require(alloy.get("collect_docker") is False, "Fixture must show Docker/cAdvisor collection disabled by default.")

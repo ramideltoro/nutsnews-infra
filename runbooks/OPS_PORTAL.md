@@ -44,6 +44,8 @@ Alert cooldown uses each alert's stable machine ID plus its severity, not the re
 
 Free Tier Usage is read-only. The quota catalog lives in `vps_service_foundation_free_tier_quotas`; recheck official provider docs before changing those values. Local VPS, Docker, and backup entries come from live read-only collector data. Provider credentials are optional and only support read-only collection. The dashboard groups rows by service and labels each metric as `measured`, `missing credential`, `unavailable`, `unsupported`, or `unknown`. If a token, usage endpoint, or normalized snapshot is missing, malformed, or stale, the portal shows an honest unavailable state for that metric or provider instead of failing the whole dashboard.
 
+Collector refresh stays on a one-minute systemd timer for critical health, but slower sections use `/opt/nutsnews/portal-assets/data/collector-slow-cache.json`. Docker inspect/image metadata, Compose project listings, process rankings, log excerpts, security/update scans, backup filesystem metadata, local free-tier storage rows, OOM journal evidence, and Alloy visibility all expose `_collector_cache` metadata with `live`, `fresh_cache`, `stale_cache`, or `unavailable` state. Treat `stale_cache` as preserved last-known-safe portal data and inspect `journalctl -u nutsnews-ops-portal-collector.service` before changing cadences.
+
 Alloy telemetry visibility is read-only. The collector checks `alloy.service`, the local readiness URL, whether Docker log shipping is enabled separately from cAdvisor/container metrics, `.prom` files under the configured textfile directory, and recent journal matches for `containerd.sock: connect: permission denied`. A nonzero recent match count raises a portal alert because it means the broken cAdvisor/container path has returned or the post-apply validation window needs investigation. The portal does not read Alloy secrets or expose any control that can restart or reconfigure Alloy.
 
 SSH hardening allows `nutsnews_ops` to create only local TCP forwards to `127.0.0.1:8080` or `localhost:8080` for portal access. Remote forwarding, gateway exposure, stream-local forwarding, tunnel devices, and broad forwarding stay disabled.
@@ -241,6 +243,7 @@ If the portal loads but shows stale data, check the timer:
 ```bash
 systemctl list-timers nutsnews-ops-portal-collector.timer
 journalctl -u nutsnews-ops-portal-collector.service -n 80 --no-pager
+python3 -m json.tool /opt/nutsnews/portal-assets/data/status.json | grep -A6 '"slow_sections"'
 ```
 
 If email reports do not arrive:
