@@ -1,0 +1,52 @@
+{% set ns = namespace(refs=[]) %}
+{% for environment_name in vps_service_foundation_nutsnews_environment_names %}
+{% set environment = vps_service_foundation_nutsnews_environments[environment_name] %}
+{% if environment.image | default('') | trim %}
+{% set ns.refs = ns.refs + [environment.image | trim] %}
+{% endif %}
+{% if environment.image_repo | default('') | trim and environment.image_digest | default('') | trim %}
+{% set ns.refs = ns.refs + [(environment.image_repo | trim) ~ '@' ~ (environment.image_digest | trim)] %}
+{% endif %}
+{% if environment.image_repo | default('') | trim and environment.last_known_good_digest | default('') | trim %}
+{% set ns.refs = ns.refs + [(environment.image_repo | trim) ~ '@' ~ (environment.last_known_good_digest | trim)] %}
+{% endif %}
+{% endfor %}
+[Unit]
+Description=NutsNews conservative Docker image and build-cache cleanup
+Documentation={{ vps_service_foundation_docs_base_url }}/blob/main/NUTSNEWS_VPS_SERVICE_FOUNDATION.md
+After=docker.service
+Wants=docker.service
+ConditionPathIsDirectory=/var/lib/docker
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+Environment="NUTSNEWS_DOCKER_CLEANUP_STATUS_FILE={{ vps_service_foundation_docker_cleanup_status_file }}"
+Environment="NUTSNEWS_DOCKER_CLEANUP_LOG_FILE={{ vps_service_foundation_docker_cleanup_log_file }}"
+Environment="NUTSNEWS_DOCKER_CLEANUP_IMAGE_UNTIL={{ vps_service_foundation_docker_cleanup_image_until }}"
+Environment="NUTSNEWS_DOCKER_CLEANUP_BUILD_CACHE_UNTIL={{ vps_service_foundation_docker_cleanup_build_cache_until }}"
+Environment="NUTSNEWS_DOCKER_CLEANUP_PROTECTED_IMAGE_REFS={{ ns.refs | unique | join(',') }}"
+ExecStart={{ vps_service_foundation_docker_cleanup_bin }}
+TimeoutStartSec=20min
+UMask=0027
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+CPUWeight=50
+IOWeight=50
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=read-only
+ProtectSystem=strict
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+SystemCallArchitectures=native
+RestrictAddressFamilies=AF_UNIX
+ReadWritePaths={{ vps_service_foundation_portal_data_dir }} {{ vps_service_foundation_docker_cleanup_log_dir }}
+
+[Install]
+WantedBy=multi-user.target

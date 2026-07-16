@@ -51,6 +51,9 @@ REPORTING_STATUS_FILE = Path(
 BACKUP_STATUS_FILE = Path(
     os.environ.get("NUTSNEWS_BACKUP_STATUS_FILE", "/opt/nutsnews/portal-assets/data/backup-status.json")
 )
+DOCKER_CLEANUP_STATUS_FILE = Path(
+    os.environ.get("NUTSNEWS_DOCKER_CLEANUP_STATUS_FILE", "/opt/nutsnews/portal-assets/data/docker-cleanup-status.json")
+)
 APP_ENABLED = os.environ.get("NUTSNEWS_APP_ENABLED", "0").strip().lower() in {"1", "true", "yes", "on"}
 APP_STAGED_ROUTE_ENABLED = os.environ.get("NUTSNEWS_APP_STAGED_ROUTE_ENABLED", "0").strip().lower() in {
     "1",
@@ -1632,6 +1635,70 @@ def free_tier_usage_state() -> dict[str, Any]:
         }
 
 
+def compact_command_result(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        return {}
+    return {
+        "ok": value.get("ok"),
+        "skipped": bool(value.get("skipped", False)),
+        "reason": redact_line(value.get("reason", "")),
+        "returncode": safe_int(value.get("returncode"), -1) if value.get("returncode") is not None else None,
+        "stdout": redact_line(value.get("stdout", ""))[:1200],
+        "stderr": redact_line(value.get("stderr", ""))[:1200],
+    }
+
+
+def docker_cleanup_state() -> dict[str, Any]:
+    default = {
+        "schema_version": 1,
+        "available": False,
+        "status": "unknown",
+        "status_file": str(DOCKER_CLEANUP_STATUS_FILE),
+    }
+    data = read_json(DOCKER_CLEANUP_STATUS_FILE, {})
+    if not isinstance(data, dict):
+        return default
+
+    protected = data.get("protected_images", {})
+    protected = protected if isinstance(protected, dict) else {}
+    protected_items = protected.get("protected", [])
+    protected_items = protected_items if isinstance(protected_items, list) else []
+    unsafe_items = protected.get("unsafe_untagged_ids", [])
+    unsafe_items = unsafe_items if isinstance(unsafe_items, list) else []
+    missing_refs = protected.get("missing_refs", [])
+    missing_refs = missing_refs if isinstance(missing_refs, list) else []
+    ok = data.get("ok")
+    status = str(data.get("status") or "").strip()
+    if not status:
+        status = "success" if ok is True else ("failed" if ok is False else "unknown")
+
+    return {
+        "schema_version": data.get("schema_version", 1),
+        "available": True,
+        "status": status,
+        "ok": ok,
+        "started_at": data.get("started_at", "unknown"),
+        "completed_at": data.get("completed_at", "unknown"),
+        "age_seconds": age_seconds(data.get("completed_at")),
+        "managed_by": data.get("managed_by", "systemd"),
+        "service": data.get("service", "nutsnews-docker-cleanup.service"),
+        "timer": data.get("timer", "nutsnews-docker-cleanup.timer"),
+        "on_calendar": data.get("on_calendar", "unknown"),
+        "filters": data.get("filters", {}),
+        "before": redact_line(data.get("before", ""))[:1200],
+        "after": redact_line(data.get("after", ""))[:1200],
+        "build_cache_prune": compact_command_result(data.get("build_cache_prune")),
+        "image_prune": compact_command_result(data.get("image_prune")),
+        "protected_image_summary": {
+            "protected_count": len(protected_items),
+            "running_count": sum(1 for item in protected_items if isinstance(item, dict) and item.get("running")),
+            "tagged_count": sum(1 for item in protected_items if isinstance(item, dict) and item.get("tagged")),
+            "missing_ref_count": len(missing_refs),
+            "unsafe_untagged_count": len(unsafe_items),
+        },
+    }
+
+
 def gib(value: Any) -> float | None:
     try:
         return round(float(value) / (1024**3), 2)
@@ -2390,6 +2457,8 @@ def collect() -> dict[str, Any]:
             "nutsnews-restic-backup.service",
             "nutsnews-restic-verify.timer",
             "nutsnews-restic-verify.service",
+            "nutsnews-docker-cleanup.timer",
+            "nutsnews-docker-cleanup.service",
         ]
     ]
     reporting = reporting_state()
@@ -2416,6 +2485,7 @@ def collect() -> dict[str, Any]:
         section_ttl("observability"),
         observability_state,
     )
+    docker_cleanup = docker_cleanup_state()
     processes = cached_slow_section("processes", section_ttl("processes"), process_state)
     logs = cached_slow_section("logs", section_ttl("logs"), log_sections)
     security = cached_slow_section("security", section_ttl("security"), security_state)
@@ -2457,6 +2527,7 @@ def collect() -> dict[str, Any]:
         "security": security,
         "backups": backups,
         "observability": observability,
+        "docker_cleanup": docker_cleanup,
         "free_tier_usage": free_tier,
         "email_reporting": reporting,
         "alerts": {

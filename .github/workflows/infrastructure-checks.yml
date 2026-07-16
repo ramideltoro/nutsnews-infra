@@ -287,6 +287,7 @@ jobs:
           python3 -m py_compile ansible/roles/vps_service_foundation/files/ops_free_tier_usage.py
           python3 -m py_compile ansible/roles/vps_service_foundation/files/ops_portal_reporter.py
           python3 -m py_compile ansible/roles/vps_service_foundation/files/vps_restic_backup.py
+          python3 -m py_compile ansible/roles/vps_service_foundation/files/docker_cleanup.py
           grep -Fq 'vps_service_foundation_collector_timer' ansible/roles/vps_service_foundation/tasks/main.yml
           grep -Fq 'nutsnews-ops-portal-collector.timer' ansible/roles/vps_service_foundation/defaults/main.yml
           grep -Fq 'nutsnews-ops-alert-check.timer' ansible/roles/vps_service_foundation/defaults/main.yml
@@ -327,6 +328,7 @@ jobs:
           python3 ansible/tests/validate_backup_workflows.py
           python3 ansible/tests/validate_ops_portal_status_workflow.py
           python3 ansible/tests/validate_vps_runtime_drift_check.py
+          python3 ansible/tests/validate_docker_cleanup.py
           python3 ansible/tests/validate_cloudflare_ddns.py
           python3 ansible/tests/validate_zram_fallback.py
           python3 ansible/tests/validate_no_backup_secrets.py

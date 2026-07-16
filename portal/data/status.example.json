@@ -37,6 +37,48 @@
     ],
     "timer_cadence_seconds": 60
   },
+  "docker_cleanup": {
+    "after": "TYPE            TOTAL     ACTIVE    SIZE      RECLAIMABLE\nImages          23        3         4.771GB   1.235GB (25%)\nBuild Cache     17        0         1.976GB   1.848GB",
+    "age_seconds": 3600,
+    "available": true,
+    "before": "TYPE            TOTAL     ACTIVE    SIZE      RECLAIMABLE\nImages          23        3         4.771GB   1.235GB (25%)\nBuild Cache     17        0         1.976GB   1.848GB",
+    "build_cache_prune": {
+      "ok": true,
+      "reason": "",
+      "returncode": 0,
+      "skipped": false,
+      "stderr": "",
+      "stdout": "Total reclaimed space: 0B"
+    },
+    "completed_at": "2026-07-16T09:35:00Z",
+    "filters": {
+      "build_cache_until": "168h",
+      "image_until": "168h"
+    },
+    "image_prune": {
+      "ok": true,
+      "reason": "",
+      "returncode": 0,
+      "skipped": false,
+      "stderr": "",
+      "stdout": "Total reclaimed space: 0B"
+    },
+    "managed_by": "systemd",
+    "ok": true,
+    "on_calendar": "Sun *-*-* 04:35:00 UTC",
+    "protected_image_summary": {
+      "missing_ref_count": 0,
+      "protected_count": 3,
+      "running_count": 2,
+      "tagged_count": 3,
+      "unsafe_untagged_count": 0
+    },
+    "schema_version": 1,
+    "service": "nutsnews-docker-cleanup.service",
+    "started_at": "2026-07-16T09:34:58Z",
+    "status": "success",
+    "timer": "nutsnews-docker-cleanup.timer"
+  },
   "backups": {
     "_collector_cache": {
       "age_seconds": 42,

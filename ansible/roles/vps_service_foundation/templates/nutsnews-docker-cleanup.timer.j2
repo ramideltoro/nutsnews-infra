@@ -1,0 +1,12 @@
+[Unit]
+Description=Run NutsNews Docker image and build-cache cleanup on a schedule
+Documentation={{ vps_service_foundation_docs_base_url }}/blob/main/NUTSNEWS_VPS_SERVICE_FOUNDATION.md
+
+[Timer]
+OnCalendar={{ vps_service_foundation_docker_cleanup_on_calendar }}
+RandomizedDelaySec={{ vps_service_foundation_docker_cleanup_randomized_delay_seconds }}
+Persistent=true
+Unit={{ vps_service_foundation_docker_cleanup_service }}
+
+[Install]
+WantedBy=timers.target
