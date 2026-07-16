@@ -193,6 +193,8 @@ assert 'release_deployment_target" != "production-vps"' in protected_workflow
 assert 'imageDeploymentTarget !== "vps"' in protected_workflow
 assert 'payload?.deploymentTarget === imageDeploymentTarget' in protected_workflow
 assert 'response.headers.get("x-nutsnews-deployment-target") === imageDeploymentTarget' in protected_workflow
+assert "--expected-deployment-target production-vps" in protected_workflow
+assert "--expected-health-deployment-target vps" in protected_workflow
 
 assert "NUTSNEWS_APP_IMAGE_TAG" not in promotion_workflow
 assert "NUTSNEWS_INFRA_RELEASE_TOKEN" not in promotion_workflow

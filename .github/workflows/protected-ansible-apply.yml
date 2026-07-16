@@ -1083,7 +1083,7 @@ jobs:
             --base-url https://vps.nutsnews.com/ \
             --expected-source-commit "$RELEASE_SOURCE_COMMIT" \
             --expected-build-id "$RELEASE_BUILD_ID" \
-            --expected-deployment-target vps \
+            --expected-deployment-target production-vps \
             --expected-health-deployment-target vps \
             --expected-runtime-env production \
             --expected-image-digest "$RELEASE_IMAGE_DIGEST" \
