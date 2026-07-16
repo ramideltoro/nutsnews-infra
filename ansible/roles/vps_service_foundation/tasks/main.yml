@@ -890,7 +890,68 @@
           ansible.builtin.systemd_service:
             name: alloy
             enabled: true
+            masked: false
             state: started
+            daemon_reload: true
+
+    - name: Reconcile disabled Grafana Alloy observability agent
+      when: not (vps_service_foundation_grafana_alloy_enabled | bool)
+      block:
+        - name: Gather service facts for disabled Grafana Alloy reconciliation
+          ansible.builtin.service_facts:
+
+        - name: Check whether disabled Grafana Alloy user exists
+          ansible.builtin.command:
+            argv:
+              - id
+              - -u
+              - "{{ vps_service_foundation_grafana_alloy_user }}"
+          register: vps_service_foundation_grafana_alloy_user_lookup
+          changed_when: false
+          failed_when: false
+
+        - name: Remove disabled Grafana Alloy supplementary access
+          ansible.builtin.user:
+            name: "{{ vps_service_foundation_grafana_alloy_user }}"
+            groups: ""
+            append: false
+          when: vps_service_foundation_grafana_alloy_user_lookup.rc == 0
+
+        - name: Stop and disable NutsNews observability textfile timer when Alloy is disabled
+          ansible.builtin.systemd_service:
+            name: "{{ vps_service_foundation_observability_textfile_timer }}"
+            enabled: false
+            state: stopped
+          when: vps_service_foundation_observability_textfile_timer in ansible_facts.services
+
+        - name: Stop NutsNews observability textfile service when Alloy is disabled
+          ansible.builtin.systemd_service:
+            name: "{{ vps_service_foundation_observability_textfile_service }}"
+            state: stopped
+          when: vps_service_foundation_observability_textfile_service in ansible_facts.services
+
+        - name: Stop, disable, and mask Grafana Alloy service when disabled
+          ansible.builtin.systemd_service:
+            name: alloy
+            enabled: false
+            masked: true
+            state: stopped
+            daemon_reload: true
+          when: "'alloy.service' in ansible_facts.services"
+
+        - name: Remove disabled Grafana Alloy managed artifacts
+          ansible.builtin.file:
+            path: "{{ item }}"
+            state: absent
+          loop:
+            - "{{ vps_service_foundation_grafana_alloy_env_file }}"
+            - "{{ vps_service_foundation_grafana_alloy_config_file }}"
+            - "{{ vps_service_foundation_grafana_alloy_systemd_dropin_file }}"
+            - "/etc/systemd/system/{{ vps_service_foundation_observability_textfile_service }}"
+            - "/etc/systemd/system/{{ vps_service_foundation_observability_textfile_timer }}"
+
+        - name: Reload systemd after disabled Grafana Alloy artifact cleanup
+          ansible.builtin.systemd_service:
             daemon_reload: true
 
     - name: Capture Grafana Alloy post-apply validation start

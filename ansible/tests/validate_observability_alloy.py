@@ -118,6 +118,33 @@ require(
     "file log permission errors" in TASKS and "vps_service_foundation_grafana_alloy_file_permission_error_pattern" in TASKS,
     "Alloy journal validation for file log permission errors is missing.",
 )
+disabled_reconcile = TASKS.find("- name: Reconcile disabled Grafana Alloy observability agent")
+enabled_service = TASKS.find("- name: Enable Grafana Alloy service")
+validation_start = TASKS.find("- name: Capture Grafana Alloy post-apply validation start")
+require(disabled_reconcile >= 0, "Disabled Alloy reconciliation block is missing.")
+require(
+    enabled_service < disabled_reconcile < validation_start,
+    "Disabled Alloy reconciliation must run after enabled management and before post-apply validation.",
+)
+disabled_block = TASKS[disabled_reconcile:validation_start]
+for token in (
+    "not (vps_service_foundation_grafana_alloy_enabled | bool)",
+    "ansible.builtin.service_facts:",
+    "Stop, disable, and mask Grafana Alloy service when disabled",
+    "enabled: false",
+    "masked: true",
+    "state: stopped",
+    "Remove disabled Grafana Alloy supplementary access",
+    'groups: ""',
+    "vps_service_foundation_grafana_alloy_env_file",
+    "vps_service_foundation_grafana_alloy_config_file",
+    "vps_service_foundation_grafana_alloy_systemd_dropin_file",
+    "vps_service_foundation_observability_textfile_service",
+    "vps_service_foundation_observability_textfile_timer",
+    "Reload systemd after disabled Grafana Alloy artifact cleanup",
+):
+    require(token in disabled_block, f"Disabled Alloy reconciliation missing {token}.")
+require("masked: false" in TASKS[enabled_service:disabled_reconcile], "Enabled Alloy management must unmask Alloy for rollback.")
 require(
     "Allow observability agent to read encrypted VPS backup logs" in TASKS,
     "Existing backup logs must be reconciled for Alloy read access.",

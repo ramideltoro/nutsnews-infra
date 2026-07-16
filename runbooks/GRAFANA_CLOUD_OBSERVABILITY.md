@@ -187,6 +187,14 @@ If the backend secret is missing, stop and configure remote state before applyin
 
 The existing protected apply workflow still connects as `nutsnews_ops`, never root SSH, and applies only the declared Ansible baseline.
 
+## Disable Alloy On The VPS
+
+Set `enable_grafana_alloy` to `false` in `Protected Ansible Apply` when Alloy must be off. This is an enforced disabled state, not just a skipped install path.
+
+In check/apply mode Ansible stops and disables the observability textfile timer, stops/disables/masks `alloy.service` when the unit exists, removes the managed Alloy environment file, config file, systemd drop-in, and textfile unit files, and removes supplementary access from the `alloy` user when that user exists. The package and Grafana apt repository can remain installed so rollback is a normal GitOps re-enable, but the service has no managed credential/config artifact to run with while disabled.
+
+Rollback is to rerun the protected workflow with `enable_grafana_alloy=true`; the enabled path un-masks `alloy.service`, recreates the managed config and root-only env file from protected Environment secrets, validates Alloy, starts the textfile timer, and performs the usual readiness and journal checks.
+
 ## Verify Telemetry
 
 Use Grafana Explore after apply:
