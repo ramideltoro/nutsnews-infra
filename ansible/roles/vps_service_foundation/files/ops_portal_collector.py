@@ -108,6 +108,11 @@ SWAP_USAGE_CACHE_FILE = Path(
 )
 OOM_EVIDENCE_WINDOW = os.environ.get("NUTSNEWS_OOM_EVIDENCE_WINDOW", "-7 days").strip() or "-7 days"
 OOM_EVIDENCE_RE = re.compile(r"(?i)(out of memory|oom-killer|killed process)")
+UFW_JOURNAL_RE = re.compile(r"\[(?:UFW BLOCK|UFW LIMIT BLOCK|UFW ALLOW)\]")
+UFW_DENY_JOURNAL_RE = re.compile(r"\[(?:UFW BLOCK|UFW LIMIT BLOCK)\]")
+FIREWALL_FIELD_RE = re.compile(r"\b([A-Z][A-Z0-9]*)=([^\s]+)")
+FIREWALL_COUNTER_RE = re.compile(r"counter packets\s+(\d+)\s+bytes\s+(\d+)\s+jump\s+(ufw-[A-Za-z0-9-]+)")
+FIREWALL_COUNTER_LABELS = ("ufw-after-logging-input", "ufw-reject-input", "ufw-track-input")
 DOCS_BASE_URL = os.environ.get("NUTSNEWS_DOCS_BASE_URL", "https://github.com/ramideltoro/nutsnews-docs")
 INFRA_REPO_URL = os.environ.get("NUTSNEWS_INFRA_REPO_URL", "https://github.com/ramideltoro/nutsnews-infra")
 ALLOY_ENABLED = os.environ.get("NUTSNEWS_ALLOY_ENABLED", "0").strip().lower() in {"1", "true", "yes", "on"}
@@ -365,6 +370,68 @@ def redact_line(line: str) -> str:
 def safe_lines(text: str, limit: int = 80) -> list[str]:
     lines = [redact_line(line.rstrip()) for line in text.splitlines()]
     return lines[-limit:]
+
+
+def is_firewall_journal_line(line: str) -> bool:
+    return bool(UFW_JOURNAL_RE.search(line))
+
+
+def is_firewall_deny_journal_line(line: str) -> bool:
+    return bool(UFW_DENY_JOURNAL_RE.search(line))
+
+
+def firewall_fields(line: str) -> dict[str, str]:
+    return {key: value for key, value in FIREWALL_FIELD_RE.findall(line)}
+
+
+def redact_firewall_line(line: str) -> str:
+    redacted = redact_line(line)
+    return re.sub(r"\b(?:MAC|SRC|DST)=\S+", lambda match: match.group(0).split("=", 1)[0] + "=[redacted]", redacted)
+
+
+def top_field_counts(lines: list[str], field: str, limit: int = 5) -> list[dict[str, Any]]:
+    counts: dict[str, int] = {}
+    for line in lines:
+        value = firewall_fields(line).get(field, "")
+        if not value:
+            continue
+        counts[value] = counts.get(value, 0) + 1
+    return [
+        {"value": value, "count": count}
+        for value, count in sorted(counts.items(), key=lambda item: (-item[1], item[0]))[:limit]
+    ]
+
+
+def firewall_deny_summary(journal_lines: list[str], sample_limit: int = 6) -> dict[str, Any]:
+    firewall_lines = [line for line in journal_lines if is_firewall_journal_line(line)]
+    deny_lines = [line for line in firewall_lines if is_firewall_deny_journal_line(line)]
+    return {
+        "source": "journal warning tail",
+        "suppressed_from_journal_warnings": len(firewall_lines),
+        "recent_ufw_deny_lines": len(deny_lines),
+        "sample_limit": sample_limit,
+        "top_destination_ports": top_field_counts(deny_lines, "DPT"),
+        "top_protocols": top_field_counts(deny_lines, "PROTO"),
+        "recent_samples": safe_lines("\n".join(redact_firewall_line(line) for line in deny_lines), limit=sample_limit),
+    }
+
+
+def parse_firewall_counter_summary(nft_ruleset: str) -> dict[str, Any]:
+    counters: dict[str, dict[str, int]] = {}
+    for packets, bytes_count, label in FIREWALL_COUNTER_RE.findall(nft_ruleset):
+        if label not in FIREWALL_COUNTER_LABELS:
+            continue
+        current = counters.setdefault(label, {"packets": 0, "bytes": 0})
+        current["packets"] += int(packets)
+        current["bytes"] += int(bytes_count)
+    input_drop = counters.get("ufw-reject-input") or counters.get("ufw-after-logging-input") or {}
+    return {
+        "available": bool(counters),
+        "source": "nft UFW chain counters",
+        "input_drop_path_packets": input_drop.get("packets", 0),
+        "input_drop_path_bytes": input_drop.get("bytes", 0),
+        "counters": counters,
+    }
 
 
 def read_text(path: Path, default: str = "") -> str:
@@ -1317,6 +1384,8 @@ def docker_compose_state() -> dict[str, Any]:
 def log_sections() -> dict[str, Any]:
     caddy = run(["docker", "logs", "--tail", "80", "nutsnews-caddy"], timeout=8)
     journal = run(["journalctl", "-p", "warning..alert", "-n", "80", "--no-pager"], timeout=8)
+    journal_lines = (journal["stdout"] + journal["stderr"]).splitlines()
+    non_firewall_journal_lines = [line for line in journal_lines if not is_firewall_journal_line(line)]
     auth_log = Path("/var/log/auth.log")
     auth_lines = []
     if auth_log.exists():
@@ -1325,7 +1394,8 @@ def log_sections() -> dict[str, Any]:
     return {
         "redaction": "token, secret, password, authorization, credential, and private-key patterns are redacted",
         "caddy": safe_lines(caddy["stdout"] + caddy["stderr"]),
-        "journal_warnings": safe_lines(journal["stdout"] + journal["stderr"]),
+        "journal_warnings": safe_lines("\n".join(non_firewall_journal_lines)),
+        "firewall_deny_summary": firewall_deny_summary(journal_lines),
         "auth": auth_lines,
     }
 
@@ -1377,8 +1447,18 @@ def ssh_hardening() -> dict[str, str]:
 def security_state() -> dict[str, Any]:
     ufw = run(["ufw", "status", "verbose"], timeout=8)
     ports = run(["ss", "-tulpenH"], timeout=8)
+    nft = run(["nft", "list", "ruleset"], timeout=8)
+    firewall_counters = parse_firewall_counter_summary(nft["stdout"]) if nft["ok"] else {
+        "available": False,
+        "source": "nft UFW chain counters",
+        "input_drop_path_packets": 0,
+        "input_drop_path_bytes": 0,
+        "counters": {},
+        "error": nft["stderr"],
+    }
     return {
         "firewall": safe_lines(ufw["stdout"] + ufw["stderr"], limit=30),
+        "firewall_counters": firewall_counters,
         "open_ports": safe_lines(ports["stdout"] + ports["stderr"], limit=80),
         "ssh_hardening": ssh_hardening(),
         "pending_updates": pending_updates(),
