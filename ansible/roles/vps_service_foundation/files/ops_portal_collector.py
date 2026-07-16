@@ -2547,6 +2547,7 @@ def runbook_links() -> list[dict[str, str]]:
         {"name": "Protected Ansible apply", "url": f"{DOCS_BASE_URL}/blob/main/NUTSNEWS_PROTECTED_ANSIBLE_APPLY.md"},
         {"name": "VPS service foundation", "url": f"{DOCS_BASE_URL}/blob/main/NUTSNEWS_VPS_SERVICE_FOUNDATION.md"},
         {"name": "VPS backup setup", "url": f"{DOCS_BASE_URL}/blob/main/NUTSNEWS_VPS_BACKUPS.md"},
+        {"name": "VPS maintenance", "url": f"{DOCS_BASE_URL}/blob/main/NUTSNEWS_VPS_MAINTENANCE.md"},
         {"name": "VPS restore", "url": f"{DOCS_BASE_URL}/blob/main/NUTSNEWS_VPS_RESTORE.md"},
         {"name": "VPS disaster recovery", "url": f"{DOCS_BASE_URL}/blob/main/NUTSNEWS_VPS_DISASTER_RECOVERY.md"},
         {"name": "Infra operations platform", "url": f"{DOCS_BASE_URL}/blob/main/NUTSNEWS_INFRA_OPERATIONS_PLATFORM.md"},

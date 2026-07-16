@@ -1,0 +1,207 @@
+name: Protected VPS Maintenance
+
+on:
+  workflow_dispatch:
+    inputs:
+      maintenance_mode:
+        description: Fixed maintenance action to run on the VPS.
+        required: true
+        default: preflight
+        type: choice
+        options:
+          - preflight
+          - package-maintenance
+          - reboot
+          - post-reboot
+      confirm_package_maintenance:
+        description: Required only for package-maintenance mode.
+        required: true
+        default: not-applying
+        type: choice
+        options:
+          - not-applying
+          - apply-package-maintenance
+      confirm_reboot:
+        description: Required only for reboot mode.
+        required: true
+        default: not-rebooting
+        type: choice
+        options:
+          - not-rebooting
+          - reboot-vps.nutsnews.com
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-vps-maintenance
+  cancel-in-progress: false
+
+jobs:
+  maintenance:
+    name: Protected VPS maintenance
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    environment: production-vps
+
+    steps:
+      - name: Checkout reviewed maintenance runner
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Validate dispatch inputs
+        shell: bash
+        env:
+          MAINTENANCE_MODE: ${{ inputs.maintenance_mode }}
+          CONFIRM_PACKAGE_MAINTENANCE: ${{ inputs.confirm_package_maintenance }}
+          CONFIRM_REBOOT: ${{ inputs.confirm_reboot }}
+        run: |
+          set -euo pipefail
+
+          case "$MAINTENANCE_MODE" in
+            preflight|package-maintenance|reboot|post-reboot) ;;
+            *)
+              echo "Unsupported maintenance_mode: $MAINTENANCE_MODE" >&2
+              exit 1
+              ;;
+          esac
+
+          if [[ "$MAINTENANCE_MODE" == "package-maintenance" ]]; then
+            if [[ "$CONFIRM_PACKAGE_MAINTENANCE" != "apply-package-maintenance" ]]; then
+              echo "package-maintenance mode requires confirm_package_maintenance=apply-package-maintenance." >&2
+              exit 1
+            fi
+            if [[ "$CONFIRM_REBOOT" != "not-rebooting" ]]; then
+              echo "package-maintenance mode must not set a reboot confirmation." >&2
+              exit 1
+            fi
+          elif [[ "$CONFIRM_PACKAGE_MAINTENANCE" != "not-applying" ]]; then
+            echo "confirm_package_maintenance is only valid for package-maintenance mode." >&2
+            exit 1
+          fi
+
+          if [[ "$MAINTENANCE_MODE" == "reboot" ]]; then
+            if [[ "$CONFIRM_REBOOT" != "reboot-vps.nutsnews.com" ]]; then
+              echo "reboot mode requires confirm_reboot=reboot-vps.nutsnews.com." >&2
+              exit 1
+            fi
+          elif [[ "$CONFIRM_REBOOT" != "not-rebooting" ]]; then
+            echo "confirm_reboot is only valid for reboot mode." >&2
+            exit 1
+          fi
+
+      - name: Validate required environment secrets
+        shell: bash
+        env:
+          NUTSNEWS_VPS_SSH_PRIVATE_KEY: ${{ secrets.NUTSNEWS_VPS_SSH_PRIVATE_KEY }}
+          NUTSNEWS_VPS_KNOWN_HOSTS: ${{ secrets.NUTSNEWS_VPS_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+
+          missing=0
+          for secret_name in \
+            NUTSNEWS_VPS_SSH_PRIVATE_KEY \
+            NUTSNEWS_VPS_KNOWN_HOSTS
+          do
+            if [[ -z "${!secret_name}" ]]; then
+              echo "Missing required production-vps environment secret: $secret_name" >&2
+              missing=1
+            fi
+          done
+          exit "$missing"
+
+      - name: Prepare SSH material
+        shell: bash
+        env:
+          NUTSNEWS_VPS_SSH_PRIVATE_KEY: ${{ secrets.NUTSNEWS_VPS_SSH_PRIVATE_KEY }}
+          NUTSNEWS_VPS_KNOWN_HOSTS: ${{ secrets.NUTSNEWS_VPS_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          umask 077
+
+          install -m 0700 -d "$HOME/.ssh"
+          printf '%s\n' "$NUTSNEWS_VPS_SSH_PRIVATE_KEY" > "$HOME/.ssh/nutsnews_vps"
+          chmod 0600 "$HOME/.ssh/nutsnews_vps"
+
+          printf '%s\n' "$NUTSNEWS_VPS_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          chmod 0600 "$HOME/.ssh/known_hosts"
+
+          ssh-keygen -y -f "$HOME/.ssh/nutsnews_vps" > /dev/null
+          ssh-keygen -F 65.75.202.112 -f "$HOME/.ssh/known_hosts" > /dev/null
+
+      - name: Run fixed maintenance mode
+        shell: bash
+        env:
+          MAINTENANCE_MODE: ${{ inputs.maintenance_mode }}
+          CONFIRM_PACKAGE_MAINTENANCE: ${{ inputs.confirm_package_maintenance }}
+          CONFIRM_REBOOT: ${{ inputs.confirm_reboot }}
+          VPS_HOST: 65.75.202.112
+          VPS_USER: nutsnews_ops
+        run: |
+          set -euo pipefail
+
+          ssh_args=(
+            -i "$HOME/.ssh/nutsnews_vps"
+            -o UserKnownHostsFile="$HOME/.ssh/known_hosts"
+            -o StrictHostKeyChecking=yes
+            -o IdentitiesOnly=yes
+            -o BatchMode=yes
+            -o LogLevel=ERROR
+            -o ConnectTimeout=10
+          )
+          target="${VPS_USER}@${VPS_HOST}"
+
+          remote_python() {
+            # shellcheck disable=SC2029
+            ssh "${ssh_args[@]}" "$target" "sudo -n /usr/bin/python3 - $*" < scripts/vps_maintenance.py
+          }
+
+          case "$MAINTENANCE_MODE" in
+            preflight)
+              remote_python --mode preflight
+              ;;
+            package-maintenance)
+              remote_python --mode package-maintenance --confirm "$CONFIRM_PACKAGE_MAINTENANCE"
+              ;;
+            post-reboot)
+              remote_python --mode post-reboot
+              ;;
+            reboot)
+              before_boot_id="$(remote_python --mode boot-id | tail -n 1)"
+              if [[ ! "$before_boot_id" =~ ^[0-9a-fA-F-]{32,36}$ ]]; then
+                echo "Could not read a valid pre-reboot boot ID." >&2
+                exit 1
+              fi
+
+              set +e
+              remote_python --mode reboot --confirm "$CONFIRM_REBOOT"
+              reboot_status="$?"
+              set -e
+              if [[ "$reboot_status" -ne 0 && "$reboot_status" -ne 255 ]]; then
+                echo "Reboot command failed before SSH disconnect. Exit code: $reboot_status" >&2
+                exit "$reboot_status"
+              fi
+
+              echo "Waiting for SSH to return after reboot."
+              ssh_ready=0
+              for _attempt in $(seq 1 90); do
+                if ssh "${ssh_args[@]}" "$target" "true" >/dev/null 2>&1; then
+                  ssh_ready=1
+                  break
+                fi
+                sleep 5
+              done
+              if [[ "$ssh_ready" -ne 1 ]]; then
+                echo "SSH did not return after reboot." >&2
+                exit 1
+              fi
+
+              remote_python --mode post-reboot --expected-boot-id "$before_boot_id"
+              ;;
+          esac
+
+      - name: Remove temporary SSH material
+        if: always()
+        shell: bash
+        run: rm -f "$HOME/.ssh/nutsnews_vps"
