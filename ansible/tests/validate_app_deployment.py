@@ -106,6 +106,10 @@ assert "nutsnews_environment.name == 'staging'" in environment_validation_tasks
 assert "image_review_status == 'reviewed'" in environment_validation_tasks
 assert "last_known_good_state_file" in state_tasks
 assert "nutsnews_production_runtime_contract.yml" in environment_tasks
+assert "Inspect existing non-selected NutsNews runtime directories" in tasks
+assert "Reconcile shared Compose source for existing non-selected runtimes" in tasks
+assert "source_compose_file" in tasks
+assert "item.stat.isdir | default(false)" in tasks
 assert "vps_service_foundation_nutsnews_production_required_runtime_env_keys" in production_runtime_contract_tasks
 assert "NUTSNEWS_PUBLIC_SUPABASE_URL" in production_runtime_contract_tasks
 assert "NUTSNEWS_PUBLIC_SUPABASE_ANON_KEY" in production_runtime_contract_tasks
