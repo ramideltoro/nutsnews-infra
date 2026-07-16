@@ -1,0 +1,43 @@
+[Unit]
+Description=NutsNews staging auto-idle after qualification expiry
+Documentation={{ vps_service_foundation_docs_base_url }}
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+Environment="NUTSNEWS_STAGING_AUTO_IDLE_ENABLED={{ (vps_service_foundation_nutsnews_staging_auto_idle_enabled | bool) | ternary('1', '0') }}"
+Environment="NUTSNEWS_STAGING_AUTO_IDLE_GRACE_SECONDS={{ vps_service_foundation_nutsnews_staging_auto_idle_grace_seconds }}"
+Environment="NUTSNEWS_STAGING_AUTO_IDLE_REMOVE_CACHE_VOLUME={{ (vps_service_foundation_nutsnews_staging_auto_idle_remove_cache_volume | bool) | ternary('1', '0') }}"
+Environment="NUTSNEWS_STAGING_AUTO_IDLE_STATUS_FILE={{ vps_service_foundation_nutsnews_staging_auto_idle_status_file }}"
+Environment="NUTSNEWS_STAGING_AUTO_IDLE_LOG_FILE={{ vps_service_foundation_nutsnews_staging_auto_idle_log_file }}"
+Environment="NUTSNEWS_STAGING_MUTATION_LOCK={{ vps_service_foundation_nutsnews_staging_mutation_lock }}"
+Environment="NUTSNEWS_APP_APPLY_MARKER_FILE={{ vps_service_foundation_nutsnews_app_apply_marker_file }}"
+Environment="NUTSNEWS_STAGING_APPLY_MARKER_FILE={{ vps_service_foundation_nutsnews_environments.staging.apply_marker_file }}"
+Environment="NUTSNEWS_STAGING_PROJECT_NAME={{ vps_service_foundation_nutsnews_environments.staging.project_name }}"
+Environment="NUTSNEWS_STAGING_APP_DIR={{ vps_service_foundation_nutsnews_environments.staging.app_dir }}"
+Environment="NUTSNEWS_STAGING_COMPOSE_FILE={{ vps_service_foundation_nutsnews_environments.staging.compose_file }}"
+Environment="NUTSNEWS_STAGING_ENV_FILE={{ vps_service_foundation_nutsnews_environments.staging.env_file }}"
+Environment="NUTSNEWS_STAGING_CACHE_VOLUME={{ vps_service_foundation_nutsnews_environments.staging.cache_volume_name }}"
+Environment="NUTSNEWS_STAGING_ACCESS_PROJECT={{ vps_service_foundation_nutsnews_staging_access_project }}"
+Environment="NUTSNEWS_STAGING_ACCESS_DIR={{ vps_service_foundation_nutsnews_staging_access_dir }}"
+Environment="NUTSNEWS_STAGING_ACCESS_COMPOSE_FILE={{ vps_service_foundation_nutsnews_staging_access_compose_file }}"
+Environment="NUTSNEWS_STAGING_ACCESS_ENV_FILE={{ vps_service_foundation_nutsnews_staging_access_env_file }}"
+ExecStart={{ vps_service_foundation_nutsnews_staging_auto_idle_bin }}
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=read-only
+ProtectSystem=strict
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+SystemCallArchitectures=native
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+ReadWritePaths={{ vps_service_foundation_portal_data_dir }} {{ vps_service_foundation_nutsnews_staging_auto_idle_log_dir }} /var/lock /var/run/docker.sock /run/docker.sock
+
+[Install]
+WantedBy=multi-user.target

@@ -358,6 +358,28 @@ def free_tier_lines(free_tier: dict[str, Any]) -> list[str]:
     return lines
 
 
+def staging_auto_idle_lines(app: dict[str, Any]) -> list[str]:
+    release_gate = app.get("release_gate", {}) if isinstance(app, dict) else {}
+    staging = release_gate.get("staging", {}) if isinstance(release_gate, dict) else {}
+    auto_idle = staging.get("auto_idle", {}) if isinstance(staging, dict) else {}
+    if not isinstance(auto_idle, dict) or not auto_idle:
+        return ["- Staging auto-idle: unknown"]
+    return [
+        "- "
+        f"Staging auto-idle: {auto_idle.get('status', 'unknown')} "
+        f"action={auto_idle.get('action', 'none')} "
+        f"reason={auto_idle.get('reason', 'none')}",
+        "- "
+        f"Qualification expires: {auto_idle.get('qualification_expires_at', 'unknown')} "
+        f"idle after: {auto_idle.get('idle_after', 'unknown')} "
+        f"checked: {auto_idle.get('checked_at', 'unknown')}",
+        "- "
+        f"Staging deployment: {auto_idle.get('staging_deployment_id', 'unknown')} "
+        f"marker: {auto_idle.get('staging_marker_deployment_id', 'unknown')} "
+        f"production touched: {auto_idle.get('production_touched', False)}",
+    ]
+
+
 def swap_summary_line(swap: dict[str, Any]) -> str:
     status = str(swap.get("status") or "unavailable")
     if status == "enabled":
@@ -389,6 +411,7 @@ def health_report_body(status: dict[str, Any]) -> str:
     disk_usage = status.get("disk_usage", {})
     backups = status.get("backups", {})
     free_tier = status.get("free_tier_usage", {})
+    app = status.get("app", {})
 
     lines = [
         "NutsNews VPS health report",
@@ -433,6 +456,9 @@ def health_report_body(status: dict[str, Any]) -> str:
             "",
             "Free-tier usage summary",
             *free_tier_lines(free_tier),
+            "",
+            "Staging auto-idle summary",
+            *staging_auto_idle_lines(app if isinstance(app, dict) else {}),
             "",
             "Reminder: this report is read-only. Fixes still go through PR, CI, merge, and protected apply.",
         ]

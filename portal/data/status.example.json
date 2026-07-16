@@ -1077,6 +1077,31 @@
         "state": "not configured"
       },
       "staging": {
+        "auto_idle": {
+          "action": "none",
+          "available": true,
+          "cache_volume": "nutsnews-app-staging-cache",
+          "checked_at": "2026-07-05T00:00:00Z",
+          "enabled": true,
+          "grace_seconds": 3600,
+          "idle_after": "",
+          "managed_containers": [
+            "nutsnews-app-staging",
+            "nutsnews-staging-access-verifier"
+          ],
+          "managed_projects": [
+            "nutsnews-staging",
+            "nutsnews-staging-access"
+          ],
+          "production_touched": false,
+          "qualification_expires_at": "",
+          "reason": "qualification_expiry_missing",
+          "remove_cache_volume": true,
+          "schema_version": 1,
+          "staging_deployment_id": "",
+          "staging_marker_deployment_id": "",
+          "status": "not_configured"
+        },
         "deployment_id": "",
         "health_state": "unknown",
         "ready_state": "unknown",
