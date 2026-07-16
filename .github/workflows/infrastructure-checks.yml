@@ -326,6 +326,7 @@ jobs:
           python3 ansible/tests/validate_ops_collector_cache.py
           python3 ansible/tests/validate_backup_workflows.py
           python3 ansible/tests/validate_ops_portal_status_workflow.py
+          python3 ansible/tests/validate_vps_runtime_drift_check.py
           python3 ansible/tests/validate_cloudflare_ddns.py
           python3 ansible/tests/validate_zram_fallback.py
           python3 ansible/tests/validate_no_backup_secrets.py

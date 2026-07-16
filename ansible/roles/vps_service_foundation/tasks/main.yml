@@ -1388,6 +1388,38 @@
       vars:
         nutsnews_environment: "{{ vps_service_foundation_nutsnews_environments[nutsnews_environment_name] }}"
 
+    - name: Inspect existing non-selected NutsNews runtime directories
+      ansible.builtin.stat:
+        path: "{{ vps_service_foundation_nutsnews_environments[item].app_dir }}"
+      loop: >-
+        {{
+          vps_service_foundation_nutsnews_environment_names
+          | difference(vps_service_foundation_nutsnews_deployment_environments)
+        }}
+      register: vps_service_foundation_non_selected_nutsnews_runtime_dirs
+      when: not ansible_check_mode
+
+    - name: Reconcile shared Compose source for existing non-selected runtimes
+      ansible.builtin.copy:
+        src: >-
+          {{
+            vps_service_foundation_nutsnews_environments[item.item].source_compose_file
+          }}
+        dest: "{{ vps_service_foundation_nutsnews_environments[item.item].compose_file }}"
+        owner: root
+        group: root
+        mode: "0644"
+      loop: >-
+        {{
+          vps_service_foundation_non_selected_nutsnews_runtime_dirs.results
+          | default([])
+        }}
+      loop_control:
+        label: "{{ item.item }}"
+      when:
+        - not ansible_check_mode
+        - item.stat.isdir | default(false)
+
     - name: Verify local Caddy health endpoint
       block:
         - name: Write deployed infrastructure commit marker

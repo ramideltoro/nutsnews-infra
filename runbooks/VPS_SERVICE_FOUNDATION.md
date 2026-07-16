@@ -211,6 +211,25 @@ for i in $(seq 1 35); do curl -sk -o /dev/null -w "%{http_code}\n" https://vps.n
 sudo docker logs nutsnews-caddy --since 10m | grep -E '"status":429|rate'
 ```
 
+## Runtime Drift Check
+
+After a protected apply, compare the reviewed source checkout with the live
+non-secret runtime files:
+
+```bash
+python3 ansible/scripts/vps_runtime_drift_check.py --target nutsnews-vps
+```
+
+The check reads live hashes for copied GitOps artifacts such as Caddy Compose,
+the shared NutsNews app Compose file, staging-access Compose, and the
+staging-access gateway. It also verifies the deployed infra commit marker and
+last apply metadata. It intentionally does not read `/etc/nutsnews` env files,
+provider tokens, app secrets, cookies, CSRF values, or response bodies.
+
+Protected apply also refreshes the shared app Compose source into any existing
+non-selected app runtime directory, such as a previously materialized staging
+directory, without rendering staging secrets or restarting staging.
+
 ## Recovery
 
 If the service layer fails:
