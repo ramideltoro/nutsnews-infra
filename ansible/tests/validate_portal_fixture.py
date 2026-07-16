@@ -176,6 +176,38 @@ for token in (
     require(token in APP_JS or token in STYLES, f"Portal UI missing {token}.")
 
 logs = STATUS["logs"]
+security = STATUS["security"]
+updates = security.get("pending_updates", {})
+unattended = security.get("unattended_upgrades", {})
+require(updates.get("informational_count") == 0, "Fixture must distinguish informational package updates.")
+require(updates.get("security_count") == 0, "Fixture must expose security update count.")
+require(updates.get("policy_status") == "current", "Fixture must expose package update policy status.")
+require(updates.get("security_stale_after_hours") == 30, "Fixture must expose stale security-update threshold.")
+require(updates.get("stale_security_updates") is False, "Fixture must expose stale security-update boolean.")
+require(unattended.get("timer") == "apt-daily-upgrade.timer", "Fixture must expose unattended-upgrades timer.")
+require(unattended.get("last_result") == "success", "Fixture must expose unattended-upgrades result.")
+require("unattended_upgrades_state" in COLLECTOR, "Collector must read unattended-upgrades state.")
+require("stale_security_updates" in COLLECTOR, "Collector must flag stale security updates.")
+require(
+    "NUTSNEWS_SECURITY_UPDATE_STALE_AFTER_HOURS" in COLLECTOR_UNIT,
+    "Collector unit must pass stale security-update threshold.",
+)
+require("Package Updates" in APP_JS, "Portal UI must label package update count.")
+require("Security Updates" in APP_JS, "Portal UI must label security update count.")
+require("Unattended Upgrades" in APP_JS, "Portal UI must render unattended-upgrades result.")
+stale_update_alerts = COLLECTOR_MODULE.alert_state(
+    {"disk": {}, "memory": {}, "swap": {}},
+    {"containers": []},
+    [],
+    {},
+    {"providers": []},
+    {},
+    {"pending_updates": {"stale_security_updates": True}, "unattended_upgrades": {"timer_active": "active"}},
+)
+require(
+    any(item.get("id") == "security.stale_pending_updates" for item in stale_update_alerts),
+    "Collector alert state must warn on stale pending security updates.",
+)
 firewall_summary = logs.get("firewall_deny_summary", {})
 journal_warning_lines = logs.get("journal_warnings", [])
 require("vps_baseline_ufw_logging: \"off\"" in BASELINE_DEFAULTS, "UFW packet logging must default to off.")

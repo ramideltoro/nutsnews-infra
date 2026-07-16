@@ -1360,14 +1360,36 @@
     "pending_updates": {
       "available": true,
       "count": 0,
+      "informational_count": 0,
+      "policy_status": "current",
       "sample": [],
-      "security_count": 0
+      "security_count": 0,
+      "security_sample": [],
+      "security_stale_after_hours": 30,
+      "stale_security_updates": false
     },
     "ssh_hardening": {
       "allow_tcp_forwarding": "no",
       "kbd_interactive_authentication": "no",
       "password_authentication": "no",
       "permit_root_login": "prohibit-password"
+    },
+    "unattended_upgrades": {
+      "last_completed_at": "Thu 2026-07-16 06:10:32 UTC",
+      "last_exit_status": 0,
+      "last_result": "success",
+      "last_started_at": "Thu 2026-07-16 06:10:14 UTC",
+      "last_success_age_seconds": 3600,
+      "last_success_at": "Thu 2026-07-16 06:10:32 UTC",
+      "last_timer_trigger_at": "Thu 2026-07-16 06:10:14 UTC",
+      "next_run_at": "Thu 2026-07-17 06:10:14 UTC",
+      "service": "apt-daily-upgrade.service",
+      "service_active": "inactive",
+      "service_enabled": "static",
+      "timer": "apt-daily-upgrade.timer",
+      "timer_active": "active",
+      "timer_enabled": "enabled",
+      "timer_sub_state": "waiting"
     }
   },
   "services": [

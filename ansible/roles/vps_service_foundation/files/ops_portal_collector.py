@@ -111,6 +111,10 @@ SWAP_USAGE_CACHE_FILE = Path(
 )
 OOM_EVIDENCE_WINDOW = os.environ.get("NUTSNEWS_OOM_EVIDENCE_WINDOW", "-7 days").strip() or "-7 days"
 OOM_EVIDENCE_RE = re.compile(r"(?i)(out of memory|oom-killer|killed process)")
+try:
+    SECURITY_UPDATE_STALE_AFTER_HOURS = int(os.environ.get("NUTSNEWS_SECURITY_UPDATE_STALE_AFTER_HOURS", "30"))
+except ValueError:
+    SECURITY_UPDATE_STALE_AFTER_HOURS = 30
 UFW_JOURNAL_RE = re.compile(r"\[(?:UFW BLOCK|UFW LIMIT BLOCK|UFW ALLOW)\]")
 UFW_DENY_JOURNAL_RE = re.compile(r"\[(?:UFW BLOCK|UFW LIMIT BLOCK)\]")
 FIREWALL_FIELD_RE = re.compile(r"\b([A-Z][A-Z0-9]*)=([^\s]+)")
@@ -171,8 +175,23 @@ def parse_timestamp(value: Any) -> datetime | None:
     return parsed
 
 
+def parse_systemd_timestamp(value: Any) -> datetime | None:
+    raw = str(value or "").strip()
+    if not raw or raw in {"n/a", "never"}:
+        return None
+    for pattern in ("%a %Y-%m-%d %H:%M:%S %Z", "%Y-%m-%d %H:%M:%S %Z"):
+        try:
+            parsed = datetime.strptime(raw, pattern)
+        except ValueError:
+            continue
+        return parsed.replace(tzinfo=timezone.utc)
+    return parse_timestamp(raw)
+
+
 def age_seconds(value: Any) -> int | None:
     parsed = parse_timestamp(value)
+    if not parsed:
+        parsed = parse_systemd_timestamp(value)
     if not parsed:
         return None
     return max(int((datetime.now(timezone.utc) - parsed).total_seconds()), 0)
@@ -1406,14 +1425,68 @@ def log_sections() -> dict[str, Any]:
 def pending_updates() -> dict[str, Any]:
     apt = run(["apt", "list", "--upgradable"], timeout=10)
     if not apt["ok"]:
-        return {"available": False, "count": 0, "security_count": 0, "sample": []}
+        return {
+            "available": False,
+            "count": 0,
+            "informational_count": 0,
+            "security_count": 0,
+            "security_stale_after_hours": SECURITY_UPDATE_STALE_AFTER_HOURS,
+            "policy_status": "unavailable",
+            "stale_security_updates": False,
+            "sample": [],
+            "security_sample": [],
+        }
     lines = [line for line in apt["stdout"].splitlines() if "/" in line and not line.startswith("Listing")]
     security = [line for line in lines if "security" in line.lower()]
+    policy_status = "current" if not security else "security_updates_pending"
     return {
         "available": True,
         "count": len(lines),
+        "informational_count": max(len(lines) - len(security), 0),
         "security_count": len(security),
+        "security_stale_after_hours": SECURITY_UPDATE_STALE_AFTER_HOURS,
+        "policy_status": policy_status,
+        "stale_security_updates": False,
         "sample": safe_lines("\n".join(lines[:12]), limit=12),
+        "security_sample": safe_lines("\n".join(security[:8]), limit=8),
+    }
+
+
+def unattended_upgrades_state() -> dict[str, Any]:
+    service = "apt-daily-upgrade.service"
+    timer = "apt-daily-upgrade.timer"
+    service_state = systemd_status(service)
+    timer_state = systemd_status(timer)
+    timer_schedule = systemd_timer_schedule(timer)
+    details = systemd_show(
+        service,
+        [
+            "ActiveState",
+            "SubState",
+            "Result",
+            "ExecMainStatus",
+            "ExecMainStartTimestamp",
+            "ExecMainExitTimestamp",
+        ],
+    )
+    last_completed_at = details.get("ExecMainExitTimestamp") or "unknown"
+    last_success_at = last_completed_at if details.get("Result") == "success" else "unknown"
+    return {
+        "service": service,
+        "timer": timer,
+        "service_active": service_state.get("active", "unknown"),
+        "service_enabled": service_state.get("enabled", "unknown"),
+        "timer_active": timer_state.get("active", "unknown"),
+        "timer_enabled": timer_state.get("enabled", "unknown"),
+        "timer_sub_state": timer_schedule.get("timer_sub_state", "unknown"),
+        "next_run_at": timer_schedule.get("next_run_at", "unknown"),
+        "last_timer_trigger_at": timer_schedule.get("last_timer_trigger_at", "unknown"),
+        "last_result": details.get("Result", "unknown") or "unknown",
+        "last_exit_status": safe_int(details.get("ExecMainStatus"), -1),
+        "last_started_at": details.get("ExecMainStartTimestamp") or "unknown",
+        "last_completed_at": last_completed_at,
+        "last_success_at": last_success_at,
+        "last_success_age_seconds": age_seconds(last_success_at),
     }
 
 
@@ -1459,12 +1532,30 @@ def security_state() -> dict[str, Any]:
         "counters": {},
         "error": nft["stderr"],
     }
+    updates = pending_updates()
+    unattended = unattended_upgrades_state()
+    security_count = safe_int(updates.get("security_count"), 0)
+    stale_after_seconds = max(safe_int(updates.get("security_stale_after_hours"), 30), 1) * 3600
+    last_success_age = unattended.get("last_success_age_seconds")
+    stale_security = bool(
+        security_count > 0
+        and (
+            not isinstance(last_success_age, int)
+            or last_success_age > stale_after_seconds
+            or unattended.get("last_result") not in {"success", "unknown"}
+            or unattended.get("timer_active") not in {"active", "activating"}
+        )
+    )
+    if stale_security:
+        updates["policy_status"] = "stale_security_updates"
+        updates["stale_security_updates"] = True
     return {
         "firewall": safe_lines(ufw["stdout"] + ufw["stderr"], limit=30),
         "firewall_counters": firewall_counters,
         "open_ports": safe_lines(ports["stdout"] + ports["stderr"], limit=80),
         "ssh_hardening": ssh_hardening(),
-        "pending_updates": pending_updates(),
+        "pending_updates": updates,
+        "unattended_upgrades": unattended,
         "last_reboot": boot_time(),
         "failed_logins": failed_login_summary(),
     }
@@ -2039,9 +2130,11 @@ def alert_state(
     backups: dict[str, Any],
     free_tier: dict[str, Any],
     observability: dict[str, Any] | None = None,
+    security: dict[str, Any] | None = None,
 ) -> list[dict[str, str]]:
     alerts = []
     observability = observability or {}
+    security = security or {}
     disk = resources.get("disk", {})
     memory = resources.get("memory", {})
     swap = resources.get("swap", {})
@@ -2138,6 +2231,28 @@ def alert_state(
             )
 
     alerts.extend(free_tier_alerts(free_tier))
+
+    updates = security.get("pending_updates", {})
+    unattended = security.get("unattended_upgrades", {})
+    if isinstance(updates, dict) and updates.get("stale_security_updates"):
+        alerts.append(
+            alert_item(
+                "security.stale_pending_updates",
+                "warning",
+                "Pending security package updates are stale; use the protected maintenance path.",
+            )
+        )
+    if (
+        isinstance(unattended, dict)
+        and unattended.get("timer_active") not in {None, "", "active", "activating", "unknown"}
+    ):
+        alerts.append(
+            alert_item(
+                "security.unattended_upgrades_timer_inactive",
+                "warning",
+                "The unattended-upgrades timer is not active.",
+            )
+        )
 
     alloy = observability.get("alloy", {})
     if isinstance(alloy, dict) and alloy.get("enabled"):
@@ -2532,7 +2647,7 @@ def collect() -> dict[str, Any]:
         "email_reporting": reporting,
         "alerts": {
             "email_configuration": reporting.get("status", "disabled"),
-            "items": alert_state(resources, docker, services, backups, free_tier, observability),
+            "items": alert_state(resources, docker, services, backups, free_tier, observability, security),
         },
         "gitops": gitops_state(),
         "app": app,
