@@ -1293,6 +1293,15 @@
         state: "{{ (vps_service_foundation_nutsnews_staging_auto_idle_enabled | bool) | ternary('started', 'stopped') }}"
         daemon_reload: true
 
+    - name: Refresh NutsNews staging auto-idle state
+      ansible.builtin.systemd_service:
+        name: "{{ vps_service_foundation_nutsnews_staging_auto_idle_service }}"
+        state: started
+        daemon_reload: true
+      when:
+        - vps_service_foundation_nutsnews_staging_auto_idle_enabled | bool
+        - not ansible_check_mode
+
     - name: Manage Cloudflare DDNS timer
       ansible.builtin.systemd_service:
         name: "{{ vps_service_foundation_cloudflare_ddns_timer }}"

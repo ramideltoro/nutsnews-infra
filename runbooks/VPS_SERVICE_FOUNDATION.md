@@ -97,6 +97,13 @@ skipped and the status records `protected_untagged_image_present`. Running
 containers are also discovered before cleanup, and Docker will not remove images
 that are in use by active containers.
 
+The staging auto-idle runner is the GitOps-managed cleanup path for staging
+containers after qualification expiry. Protected apply starts the oneshot after
+installing it, so an orphaned staging marker with no active qualification
+metadata is evaluated immediately instead of waiting for the next timer. The
+runner only targets the `nutsnews-staging` and `nutsnews-staging-access`
+projects and records `production_touched=false` in its public status file.
+
 Cleanup status is visible without secrets at:
 
 ```bash
