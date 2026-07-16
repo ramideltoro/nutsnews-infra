@@ -190,7 +190,7 @@ for required in (
     assert required in protected_workflow, f"Protected apply is missing required release verification: {required}"
 
 assert 'release_deployment_target" != "production-vps"' in protected_workflow
-assert 'imageDeploymentTarget !== "production-vps"' in protected_workflow
+assert 'imageDeploymentTarget !== "vps"' in protected_workflow
 assert 'payload?.deploymentTarget === imageDeploymentTarget' in protected_workflow
 assert 'response.headers.get("x-nutsnews-deployment-target") === imageDeploymentTarget' in protected_workflow
 
