@@ -183,11 +183,14 @@ for required in (
     "RELEASE_IMAGE_DEPLOYMENT_TARGET",
     "Verify released Docker image over SSH",
     "Verify released public health identity",
+    "Checkout exact app post-production smoke suite",
+    "Run safe production app smoke surfaces",
+    "--production-safe-surfaces",
 ):
     assert required in protected_workflow, f"Protected apply is missing required release verification: {required}"
 
 assert 'release_deployment_target" != "production-vps"' in protected_workflow
-assert 'imageDeploymentTarget !== "vps"' in protected_workflow
+assert 'imageDeploymentTarget !== "production-vps"' in protected_workflow
 assert 'payload?.deploymentTarget === imageDeploymentTarget' in protected_workflow
 assert 'response.headers.get("x-nutsnews-deployment-target") === imageDeploymentTarget' in protected_workflow
 

@@ -88,6 +88,21 @@ on:
         required: false
         default: ""
         type: string
+      rollback_failed_image_digest:
+        description: Optional failed production digest when applying a fixed recorded rollback.
+        required: false
+        default: ""
+        type: string
+      rollback_reason:
+        description: Optional sanitized reason for a fixed recorded rollback.
+        required: false
+        default: ""
+        type: string
+      rollback_confirmation:
+        description: For fixed rollback only, type rollback-recorded-last-known-good.
+        required: false
+        default: ""
+        type: string
 
 permissions:
   contents: read  # Required to check out the GitOps-managed Ansible playbooks.
@@ -129,6 +144,9 @@ jobs:
           RELEASE_MIGRATION_HEAD: ${{ inputs.release_migration_head }}
           RELEASE_SCHEMA_VERSION: ${{ inputs.release_schema_version }}
           RELEASE_SUPABASE_PROJECT_REF: ${{ inputs.release_supabase_project_ref }}
+          ROLLBACK_FAILED_IMAGE_DIGEST: ${{ inputs.rollback_failed_image_digest }}
+          ROLLBACK_REASON: ${{ inputs.rollback_reason }}
+          ROLLBACK_CONFIRMATION: ${{ inputs.rollback_confirmation }}
         run: |
           set -euo pipefail
           supplied=0
@@ -145,12 +163,26 @@ jobs:
               supplied=$((supplied + 1))
             fi
           done
+          rollback_supplied=0
+          for value in "$ROLLBACK_FAILED_IMAGE_DIGEST" "$ROLLBACK_REASON" "$ROLLBACK_CONFIRMATION"; do
+            if [[ -n "$value" ]]; then
+              rollback_supplied=$((rollback_supplied + 1))
+            fi
+          done
           if [[ "$supplied" -eq 0 ]]; then
+            if [[ "$rollback_supplied" -ne 0 ]]; then
+              echo "Rollback inputs require the complete restored release identity bundle." >&2
+              exit 1
+            fi
             echo "app_release=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
           if [[ "$supplied" -ne 7 ]]; then
             echo "Production app release verification requires source commit, image digest, build ID, source workflow run ID, migration head, schema version, and Supabase project reference together." >&2
+            exit 1
+          fi
+          if [[ "$rollback_supplied" -ne 0 && "$rollback_supplied" -ne 3 ]]; then
+            echo "Rollback verification requires failed digest, reason, and confirmation together." >&2
             exit 1
           fi
           echo "app_release=true" >> "$GITHUB_OUTPUT"
@@ -171,7 +203,7 @@ jobs:
             --github-output "$RUNNER_TEMP/production-eligibility-output"
 
       - name: Verify exact staged qualification
-        if: steps.release_inputs.outputs.app_release == 'true'
+        if: steps.release_inputs.outputs.app_release == 'true' && inputs.rollback_confirmation != 'rollback-recorded-last-known-good'
         id: eligibility_release
         shell: bash
         env:
@@ -202,6 +234,43 @@ jobs:
             --schema-version "$RELEASE_SCHEMA_VERSION" \
             --supabase-project-ref "$RELEASE_SUPABASE_PROJECT_REF" \
             --output "$RUNNER_TEMP/production-eligibility/staging-qualification.json" \
+            --github-output "$RUNNER_TEMP/production-eligibility-output"
+
+      - name: Verify fixed recorded rollback
+        if: steps.release_inputs.outputs.app_release == 'true' && inputs.rollback_confirmation == 'rollback-recorded-last-known-good'
+        shell: bash
+        env:
+          RELEASE_SOURCE_COMMIT: ${{ inputs.release_source_commit }}
+          RELEASE_IMAGE_DIGEST: ${{ inputs.release_image_digest }}
+          RELEASE_BUILD_ID: ${{ inputs.release_build_id }}
+          RELEASE_SOURCE_WORKFLOW_RUN_ID: ${{ inputs.release_source_workflow_run_id }}
+          RELEASE_MIGRATION_HEAD: ${{ inputs.release_migration_head }}
+          RELEASE_SCHEMA_VERSION: ${{ inputs.release_schema_version }}
+          RELEASE_SUPABASE_PROJECT_REF: ${{ inputs.release_supabase_project_ref }}
+          ROLLBACK_FAILED_IMAGE_DIGEST: ${{ inputs.rollback_failed_image_digest }}
+          ROLLBACK_REASON: ${{ inputs.rollback_reason }}
+          ROLLBACK_CONFIRMATION: ${{ inputs.rollback_confirmation }}
+        run: |
+          set -euo pipefail
+          umask 077
+          previous_manifest="$RUNNER_TEMP/previous-vps-release.yml"
+          current_manifest="ansible/inventories/production/host_vars/vps.nutsnews.com.yml"
+          git show "HEAD^:${current_manifest}" > "$previous_manifest"
+          python3 ansible/scripts/verify_production_eligibility.py verify-rollback \
+            --repo "$GITHUB_WORKSPACE" \
+            --manifest "$current_manifest" \
+            --previous-manifest "$previous_manifest" \
+            --source-commit "$RELEASE_SOURCE_COMMIT" \
+            --image-digest "$RELEASE_IMAGE_DIGEST" \
+            --build-id "$RELEASE_BUILD_ID" \
+            --source-workflow-run-id "$RELEASE_SOURCE_WORKFLOW_RUN_ID" \
+            --migration-head "$RELEASE_MIGRATION_HEAD" \
+            --schema-version "$RELEASE_SCHEMA_VERSION" \
+            --supabase-project-ref "$RELEASE_SUPABASE_PROJECT_REF" \
+            --failed-image-digest "$ROLLBACK_FAILED_IMAGE_DIGEST" \
+            --reason "$ROLLBACK_REASON" \
+            --confirmation "$ROLLBACK_CONFIRMATION" \
+            --output "$RUNNER_TEMP/production-eligibility/rollback.json" \
             --github-output "$RUNNER_TEMP/production-eligibility-output"
 
       - name: Publish eligibility outputs
@@ -271,7 +340,7 @@ jobs:
             echo "Reviewed infrastructure deployment target must be production-vps." >&2
             exit 1
           fi
-          printf 'RELEASE_IMAGE_DEPLOYMENT_TARGET=vps\n' >> "$GITHUB_ENV"
+          printf 'RELEASE_IMAGE_DEPLOYMENT_TARGET=production-vps\n' >> "$GITHUB_ENV"
           echo "Verified reviewed infrastructure target and immutable image target."
 
       - name: Validate dispatch inputs
@@ -923,7 +992,7 @@ jobs:
           if (
             !/^[0-9a-f]{40}$/.test(sourceCommit) ||
             !/^\d+-\d+$/.test(buildId) ||
-            imageDeploymentTarget !== "vps"
+            imageDeploymentTarget !== "production-vps"
           ) {
             throw new Error("Automated release health verification received invalid expected identity values.");
           }
@@ -959,6 +1028,38 @@ jobs:
           }
           throw new Error(`Timed out waiting for the released VPS identity: ${lastFailure}`);
           NODE
+
+      - name: Checkout exact app post-production smoke suite
+        if: inputs.release_source_commit != ''
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+        with:
+          repository: ramideltoro/nutsnews
+          ref: ${{ inputs.release_source_commit }}
+          path: nutsnews-source
+          persist-credentials: false
+
+      - name: Run safe production app smoke surfaces
+        if: inputs.release_source_commit != ''
+        shell: bash
+        working-directory: nutsnews-source
+        env:
+          RELEASE_SOURCE_COMMIT: ${{ inputs.release_source_commit }}
+          RELEASE_BUILD_ID: ${{ inputs.release_build_id }}
+          RELEASE_IMAGE_DIGEST: ${{ inputs.release_image_digest }}
+          RELEASE_MIGRATION_HEAD: ${{ inputs.release_migration_head }}
+        run: |
+          set -euo pipefail
+          node scripts/dual_target_web_smoke.mjs \
+            --base-url https://vps.nutsnews.com/ \
+            --expected-source-commit "$RELEASE_SOURCE_COMMIT" \
+            --expected-build-id "$RELEASE_BUILD_ID" \
+            --expected-deployment-target production-vps \
+            --expected-health-deployment-target production-vps \
+            --expected-runtime-env production \
+            --expected-image-digest "$RELEASE_IMAGE_DIGEST" \
+            --expected-config-generation "production-${RELEASE_BUILD_ID}-${RELEASE_MIGRATION_HEAD}" \
+            --production-safe-surfaces
+
       - name: Remove temporary credentials and sync material
         if: always()
         shell: bash

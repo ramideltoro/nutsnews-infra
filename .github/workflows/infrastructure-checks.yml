@@ -336,6 +336,7 @@ jobs:
           python3 ansible/tests/validate_staging_access_boundary.py
           python3 ansible/tests/validate_staging_qualification.py
           python3 ansible/tests/validate_production_eligibility.py
+          python3 ansible/tests/validate_production_rollback.py
           python3 ansible/tests/test_free_tier_usage.py
           python3 ansible/tests/test_ops_portal_reporter.py
           grep -q 'nutsnews-app.env.j2' ansible/roles/vps_service_foundation/tasks/nutsnews_environment.yml

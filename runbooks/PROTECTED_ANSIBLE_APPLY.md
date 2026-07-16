@@ -111,6 +111,33 @@ Apply mode uses the same eligibility gate as check mode. Do not approve apply
 for a production app digest unless the verifier accepted the exact staging
 qualification record for that digest and deployment.
 
+After an app release apply, the workflow verifies Docker is running the exact
+reviewed image, checks the public `/healthz` identity, checks out the exact app
+source/test revision, and runs the safe production smoke surfaces against
+`https://vps.nutsnews.com/`. The smoke covers health, readiness, runtime public
+config, homepage, public API shape, a static asset, cache/security headers,
+contact validation failure, and auth session reachability without printing
+secrets or submitting a real contact message.
+
+## Run Fixed Rollback
+
+Use `Protected NutsNews Rollback` only for a critical app or route failure after
+the recorded production release is known bad.
+
+1. Open GitHub Actions.
+2. Select `Protected NutsNews Rollback`.
+3. Set `failed_image_digest` to the current failed production digest.
+4. Enter a sanitized operator reason.
+5. Set `rollback_confirmation` to `rollback-recorded-last-known-good`.
+6. Approve the `production-vps` Environment gate.
+7. Let the workflow create and merge the rollback PR, then dispatch protected
+   apply with the restored release identity.
+
+The rollback workflow can select only the current manifest's recorded
+last-known-good digest as found in reviewed manifest history. It does not
+accept an arbitrary restored digest, SSH command, mutable tag, or database down
+migration.
+
 ## Read The Output
 
 The workflow prints the normal Ansible output and then repeats everything from `PLAY RECAP` onward.
