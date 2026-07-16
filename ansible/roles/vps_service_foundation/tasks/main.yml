@@ -601,6 +601,13 @@
           - vps_service_foundation_infra_health_host == '172.17.0.1'
           - vps_service_foundation_infra_health_port | int == 18080
           - vps_service_foundation_infra_health_ufw_allow_from == '172.20.0.0/16'
+          - >-
+            vps_service_foundation_infra_health_ufw_allow_from
+            not in vps_service_foundation_deprecated_infra_health_ufw_allow_from
+          - >-
+            vps_service_foundation_deprecated_infra_health_ufw_allow_from
+            == ['172.18.0.0/16']
+          - vps_service_foundation_deprecated_docker_networks == ['nutsnews-edge']
         fail_msg: >-
           The infrastructure health endpoint must bind only to the Docker
           host-gateway address and accept traffic only from the Caddy Docker
@@ -1086,6 +1093,17 @@
         success_msg: Infrastructure health listener is limited to the Docker host gateway.
       when: not ansible_check_mode
 
+    - name: Remove deprecated Caddy Docker health UFW sources
+      community.general.ufw:
+        rule: allow
+        direction: in
+        delete: true
+        from_ip: "{{ item }}"
+        port: "{{ vps_service_foundation_infra_health_port | string }}"
+        proto: tcp
+      loop: "{{ vps_service_foundation_deprecated_infra_health_ufw_allow_from }}"
+      when: item != vps_service_foundation_infra_health_ufw_allow_from
+
     - name: Allow Caddy Docker network to reach infrastructure health service
       community.general.ufw:
         rule: allow
@@ -1278,6 +1296,53 @@
         or 'Started' in vps_service_foundation_compose_up.stderr
         or 'Pulling' in vps_service_foundation_compose_up.stdout
         or 'Pulling' in vps_service_foundation_compose_up.stderr
+
+    - name: Inspect deprecated Docker networks before removal
+      ansible.builtin.command:
+        argv:
+          - docker
+          - network
+          - inspect
+          - --format
+          - "{{ '{{' }} len .Containers {{ '}}' }}"
+          - "{{ item }}"
+      loop: "{{ vps_service_foundation_deprecated_docker_networks }}"
+      loop_control:
+        label: "{{ item }}"
+      register: vps_service_foundation_deprecated_docker_network_inspect
+      changed_when: false
+      failed_when: >-
+        vps_service_foundation_deprecated_docker_network_inspect.rc
+        not in [0, 1]
+
+    - name: Assert deprecated Docker networks are empty before removal
+      ansible.builtin.assert:
+        that:
+          - item.rc != 0 or (item.stdout | int) == 0
+        fail_msg: >-
+          Deprecated Docker network {{ item.item }} still has attached
+          containers. Stop before removing it because the production network
+          boundary has not fully moved to the reviewed dual-stack bridge.
+        success_msg: >-
+          Deprecated Docker network {{ item.item }} is empty or absent.
+      loop: "{{ vps_service_foundation_deprecated_docker_network_inspect.results }}"
+      loop_control:
+        label: "{{ item.item }}"
+
+    - name: Remove empty deprecated Docker networks
+      ansible.builtin.command:
+        argv:
+          - docker
+          - network
+          - rm
+          - "{{ item.item }}"
+      loop: "{{ vps_service_foundation_deprecated_docker_network_inspect.results }}"
+      loop_control:
+        label: "{{ item.item }}"
+      changed_when: true
+      when:
+        - item.rc == 0
+        - (item.stdout | int) == 0
 
     - name: Wait for direct staging Caddy TLS after reconciliation
       ansible.builtin.command:
