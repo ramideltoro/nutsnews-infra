@@ -24,6 +24,9 @@ REPORTER = (ROOT / "ansible/roles/vps_service_foundation/files/ops_portal_report
 BACKUP_RUNNER = (ROOT / "ansible/roles/vps_service_foundation/files/vps_restic_backup.py").read_text(encoding="utf-8")
 DEFAULTS = (ROOT / "ansible/roles/vps_service_foundation/defaults/main.yml").read_text(encoding="utf-8")
 TASKS = (ROOT / "ansible/roles/vps_service_foundation/tasks/main.yml").read_text(encoding="utf-8")
+OPS_PORTAL_REFRESH_TASKS = (
+    ROOT / "ansible/roles/vps_service_foundation/tasks/ops_portal_refresh.yml"
+).read_text(encoding="utf-8")
 BASELINE_DEFAULTS = (ROOT / "ansible/roles/vps_baseline/defaults/main.yml").read_text(encoding="utf-8")
 BASELINE_TASKS = (ROOT / "ansible/roles/vps_baseline/tasks/main.yml").read_text(encoding="utf-8")
 COLLECTOR_UNIT = (
@@ -306,16 +309,42 @@ second_refresh_block = TASKS.split("- name: Refresh operations portal status aft
     1,
 )[0]
 for refresh_block in (first_refresh_block, second_refresh_block):
-    require("ansible.builtin.systemd_service" in refresh_block, "Portal status refresh must use systemd.")
     require(
-        "vps_service_foundation_collector_service" in refresh_block,
-        "Portal status refresh must use the collector service with its EnvironmentFile.",
+        "ansible.builtin.include_tasks: ops_portal_refresh.yml" in refresh_block,
+        "Portal status refresh must use the orderly lifecycle task.",
     )
-    require("state: restarted" in refresh_block, "Portal status refresh must rerun the one-shot collector service.")
     require(
         "vps_service_foundation_collector_bin" not in refresh_block,
         "Portal status refresh must not bypass the collector unit free-tier env.",
     )
+require(
+    "vps_service_foundation_collector_refresh_wait_retries: 45" in DEFAULTS,
+    "Collector refresh wait retries must be bounded.",
+)
+require(
+    "vps_service_foundation_collector_refresh_wait_delay_seconds: 2" in DEFAULTS,
+    "Collector refresh wait delay must be bounded.",
+)
+for token in (
+    "Pause operations portal collector timer for protected refresh",
+    "Wait for in-flight operations portal collector to finish",
+    "Refresh operations portal status snapshot with managed unit",
+    "Resume operations portal collector timer after protected refresh",
+    "vps_service_foundation_collector_timer",
+    "vps_service_foundation_collector_service",
+    "vps_service_foundation_collector_refresh_wait_retries",
+    "vps_service_foundation_collector_refresh_wait_delay_seconds",
+    "not in ['active', 'activating']",
+):
+    require(token in OPS_PORTAL_REFRESH_TASKS, f"Orderly refresh task missing {token}.")
+require(
+    "state: restarted" not in OPS_PORTAL_REFRESH_TASKS,
+    "Portal status refresh must not terminate an active collector with restart.",
+)
+require(
+    "always:" in OPS_PORTAL_REFRESH_TASKS,
+    "Portal status refresh must always resume the collector timer.",
+)
 for quota_key in (
     "fast_origin_transfer_gb",
     "logs_gb",
