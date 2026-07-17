@@ -281,6 +281,8 @@ for required in (
     "gh attestation verify",
     "verify_production_eligibility.py verify",
     "Verify Vercel Production deployed the same source commit",
+    'const productionHealthOrigins = ["https://www.nutsnews.com"]',
+    "const verifiedProductionUrl = await verifyProductionAlias();",
     "Verify production Supabase schema contract",
     "production-supabase-migration.yml",
     "NUTSNEWS_INFRA_RELEASE_TOKEN",
@@ -291,6 +293,7 @@ assert "repository_dispatch:" not in promotion_workflow
 assert "nutsnews-production-release" not in promotion_workflow
 assert "Pause direct production release dispatch" not in promotion_workflow
 assert "environment: production-vps" not in promotion_workflow
+assert "await verifyHealth(deploymentUrl)" not in promotion_workflow
 assert promotion_workflow.index("Verify staging qualification attestation is current") < promotion_workflow.index(
     "NUTSNEWS_INFRA_RELEASE_TOKEN"
 )

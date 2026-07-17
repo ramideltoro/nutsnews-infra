@@ -25,11 +25,13 @@ hours, and invalidated earlier by a staging redeploy or relevant infra/config or
 test-suite revision.
 
 A successful qualification also starts the staging-qualified production
-promotion workflow. Promotion is still blocked unless the same source commit is
-already deployed by Vercel Production, the production Supabase schema contract
-matches the release migration head and rollback-compatible schema version, the
-qualification remains the current successful staging deployment, and the
-reviewed GitOps manifest PR passes its checks before protected production apply.
+promotion workflow. Promotion is still blocked unless Vercel Production has a
+successful deployment record for the same source commit and the public
+`https://www.nutsnews.com` alias reports that commit, the production Supabase
+schema contract matches the release migration head and rollback-compatible
+schema version, the qualification remains the current successful staging
+deployment, and the reviewed GitOps manifest PR passes its checks before
+protected production apply.
 
 The retained evidence artifact is named with the staging deployment ID, workflow
 run ID, and attempt so reruns create separate immutable history. Evidence must
