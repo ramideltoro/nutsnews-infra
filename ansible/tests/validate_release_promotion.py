@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import importlib.util
+import re
 import tempfile
 from pathlib import Path
 
@@ -13,6 +14,7 @@ REPO = ROOT.parent
 SCRIPT_PATH = ROOT / "scripts/promote_nutsnews_release.py"
 PROMOTION_WORKFLOW = REPO / ".github/workflows/nutsnews-release-promotion.yml"
 PROTECTED_WORKFLOW = REPO / ".github/workflows/protected-ansible-apply.yml"
+PAUSE_CONFIG = REPO / ".github/release-promotion-pause.yml"
 
 
 spec = importlib.util.spec_from_file_location("promote_nutsnews_release", SCRIPT_PATH)
@@ -140,8 +142,30 @@ promotion_workflow = PROMOTION_WORKFLOW.read_text(encoding="utf-8")
 protected_workflow = PROTECTED_WORKFLOW.read_text(encoding="utf-8")
 
 for required in (
-    "repository_dispatch:",
-    "nutsnews-production-release",
+    "workflow_run:",
+    "Qualify Verified NutsNews Staging Candidate",
+    "workflow_dispatch:",
+    "qualification_run_id:",
+    "promote-qualified-staging-release",
+    "gh run view \"$qualification_run_id\"",
+    "gh run download \"$qualification_run_id\"",
+    "staging-qualification-*",
+    "*/qualification/staging-qualification.json",
+    "staging_qualification.py validate-record",
+    "Verify qualified source commit remains reachable from NutsNews main",
+    "compare/{source_commit}...main",
+    "Checkout exact app source for release contract",
+    "getMigrationContract",
+    "readApplicationMigrationContract",
+    "Verify Vercel Production deployed the same source commit",
+    'deployment?.creator?.login === "vercel[bot]"',
+    "Verify production Supabase schema contract",
+    "api/runtime-config",
+    "nutsnews_migration_schema_contract",
+    "production-supabase-migration.yml",
+    "Verify staging qualification attestation is current",
+    "gh attestation verify",
+    "verify_production_eligibility.py verify",
     "git fetch origin main --prune",
     "current-vps-release.yml",
     'git switch -c "$release_branch" origin/main',
@@ -151,6 +175,9 @@ for required in (
     "gh pr checks \"$PR_URL\" --json name,bucket",
     "Promotion checks did not pass before the timeout.",
     "gh pr merge \"$PR_URL\" --merge",
+    "GH_TOKEN: ${{ secrets.NUTSNEWS_INFRA_RELEASE_TOKEN }}",
+    "NUTSNEWS_INFRA_RELEASE_TOKEN is required for release GitOps automation.",
+    "NUTSNEWS_INFRA_RELEASE_TOKEN is required to dispatch Protected Ansible Apply.",
     "gh workflow run protected-ansible-apply.yml",
     "gh run watch \"$run_id\"",
     "--exit-status",
@@ -164,6 +191,20 @@ for required in (
 ):
     assert required in promotion_workflow, f"Promotion workflow is missing required guardrail: {required}"
 
+assert (
+    promotion_workflow.index("Verify staging qualification attestation is current")
+    < promotion_workflow.index("current-vps-release.yml")
+    < promotion_workflow.index("gh pr list")
+), "A rerun must verify staging qualification before it reuses or creates a release pull request."
+assert (
+    promotion_workflow.index("Verify Vercel Production deployed the same source commit")
+    < promotion_workflow.index("Verify production Supabase schema contract")
+    < promotion_workflow.index("Verify staging qualification attestation is current")
+), "Vercel and production Supabase gates must pass before promotion PR creation."
+assert (
+    promotion_workflow.index("Verify staging qualification attestation is current")
+    < promotion_workflow.index("NUTSNEWS_INFRA_RELEASE_TOKEN")
+), "Release automation token must be used only after the staging qualification gate."
 assert (
     promotion_workflow.index("current-vps-release.yml")
     < promotion_workflow.index("gh pr list")
@@ -197,8 +238,33 @@ assert "--expected-deployment-target production-vps" in protected_workflow
 assert "--expected-health-deployment-target production-vps" in protected_workflow
 
 assert "NUTSNEWS_APP_IMAGE_TAG" not in promotion_workflow
-assert "NUTSNEWS_INFRA_RELEASE_TOKEN" not in promotion_workflow
+assert "repository_dispatch:" not in promotion_workflow
+assert "nutsnews-production-release" not in promotion_workflow
 assert ":latest" not in promotion_workflow.lower()
 assert "gh pr checks \"$PR_URL\" --required" not in promotion_workflow
+assert "environment: production-vps" not in promotion_workflow
+assert "contents: write" not in promotion_workflow
+assert "actions: write" not in promotion_workflow
+
+pause_step = re.search(
+    r"(?ms)^\s+- name:\s+.*pause.*?\n(?:(?!^\s+- name:).)*^\s+run:\s*\|\n(?:(?!^\s+- name:).)*^\s+exit\s+1\s*$",
+    promotion_workflow,
+)
+permanent_pause_markers = (
+    "Pause direct production release dispatch",
+    "is paused until",
+    "production release is paused",
+)
+if pause_step or any(marker in promotion_workflow for marker in permanent_pause_markers):
+    assert PAUSE_CONFIG.exists(), (
+        "A promotion pause must be controlled by .github/release-promotion-pause.yml, "
+        "not by an unconditional workflow exit."
+    )
+    pause_config = PAUSE_CONFIG.read_text(encoding="utf-8")
+    assert re.search(r"(?m)^enabled:\s*true\s*$", pause_config), "Pause config must explicitly enable the pause."
+    assert re.search(r"(?m)^reason:\s*\"[^\"]{12,}\"\s*$", pause_config), "Pause config must include a reviewed reason."
+    assert re.search(r"(?m)^expires_at:\s*\"20[0-9]{2}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z\"\s*$", pause_config), (
+        "Pause config must include an explicit UTC expiry timestamp."
+    )
 
 print("Automatic NutsNews VPS release promotion guardrails passed.")

@@ -92,13 +92,38 @@ for required in (
 ):
     require(required in baseline_job, f"Protected apply missing required gate/app verification: {required}.")
 
-require("nutsnews-production-release is paused" in PROMOTION, "Old direct production dispatch must remain paused.")
+for required in (
+    "workflow_run:",
+    "Qualify Verified NutsNews Staging Candidate",
+    "workflow_dispatch:",
+    "qualification_run_id:",
+    "promote-qualified-staging-release",
+    "Verify Vercel Production deployed the same source commit",
+    "Verify production Supabase schema contract",
+    "production-supabase-migration.yml",
+    "Verify staging qualification attestation is current",
+    "verify_production_eligibility.py verify",
+):
+    require(required in PROMOTION, f"Promotion workflow missing staging-qualified production gate: {required}.")
+require("repository_dispatch:" not in PROMOTION, "Promotion workflow must not accept direct production repository dispatch.")
+require("nutsnews-production-release" not in PROMOTION, "Promotion workflow must not accept the old direct production event.")
 require("environment: production-vps" not in PROMOTION, "Old promotion workflow must not attach production-vps.")
-require("NUTSNEWS_INFRA_RELEASE_TOKEN" not in PROMOTION, "Old promotion workflow must not hold release token.")
+require("NUTSNEWS_INFRA_RELEASE_TOKEN" in PROMOTION, "Promotion workflow must use the existing release token for GitOps mechanics.")
 require(
-    PROMOTION.index("nutsnews-production-release is paused")
+    PROMOTION.index("Verify staging qualification attestation is current") < PROMOTION.index("NUTSNEWS_INFRA_RELEASE_TOKEN"),
+    "Promotion workflow must not expose the release token before staging qualification is reverified.",
+)
+require(
+    PROMOTION.index("Verify Vercel Production deployed the same source commit")
+    < PROMOTION.index("Verify production Supabase schema contract")
+    < PROMOTION.index("Verify staging qualification attestation is current")
+    < PROMOTION.index("Create or reuse the checked release promotion pull request"),
+    "Promotion workflow must pass Vercel, Supabase, and attestation gates before the GitOps PR.",
+)
+require(
+    PROMOTION.index("Verify staging qualification attestation is current")
     < PROMOTION.index("gh workflow run protected-ansible-apply.yml"),
-    "Old promotion workflow must fail closed before any retained legacy dispatch code.",
+    "Promotion workflow must reverify staging qualification before protected apply dispatch.",
 )
 
 for required in (

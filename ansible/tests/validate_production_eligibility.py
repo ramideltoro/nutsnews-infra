@@ -273,7 +273,26 @@ assert "production-vps" not in protected_workflow.split("verify-production-eligi
 assert "NUTSNEWS_VPS_SSH_PRIVATE_KEY" not in protected_workflow.split("verify-production-eligibility:", 1)[1].split("baseline:", 1)[0]
 assert "NUTSNEWS_INFRA_RELEASE_TOKEN" not in protected_workflow
 
-assert "nutsnews-production-release is paused" in promotion_workflow
+for required in (
+    "workflow_run:",
+    "Qualify Verified NutsNews Staging Candidate",
+    "workflow_dispatch:",
+    "Verify staging qualification attestation is current",
+    "gh attestation verify",
+    "verify_production_eligibility.py verify",
+    "Verify Vercel Production deployed the same source commit",
+    "Verify production Supabase schema contract",
+    "production-supabase-migration.yml",
+    "NUTSNEWS_INFRA_RELEASE_TOKEN",
+):
+    assert required in promotion_workflow, f"Promotion workflow missing staging-first guardrail: {required}"
+
+assert "repository_dispatch:" not in promotion_workflow
+assert "nutsnews-production-release" not in promotion_workflow
+assert "Pause direct production release dispatch" not in promotion_workflow
 assert "environment: production-vps" not in promotion_workflow
+assert promotion_workflow.index("Verify staging qualification attestation is current") < promotion_workflow.index(
+    "NUTSNEWS_INFRA_RELEASE_TOKEN"
+)
 
 print("Production eligibility gate guardrails passed.")

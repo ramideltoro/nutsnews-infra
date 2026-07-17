@@ -1,11 +1,31 @@
 name: Promote NutsNews Production Release
 
-on:
-  repository_dispatch:
-    types: [nutsnews-production-release]
+on: # zizmor: ignore[dangerous-triggers] trusted promotion resolves only a successful infra qualification run and revalidates its attestation before writing release state.
+  workflow_run:
+    workflows:
+      - Qualify Verified NutsNews Staging Candidate
+    types:
+      - completed
+  workflow_dispatch:
+    inputs:
+      qualification_run_id:
+        description: Successful staging qualification workflow run ID to promote.
+        required: true
+        type: string
+      staging_deployment_id:
+        description: Optional expected stg-* deployment ID from that qualification.
+        required: false
+        type: string
+      qualification_confirmation:
+        description: Type promote-qualified-staging-release.
+        required: true
+        type: string
 
 permissions:
+  actions: read
+  attestations: read
   contents: read
+  deployments: read
   pull-requests: read
 
 concurrency:
@@ -14,69 +34,141 @@ concurrency:
 
 jobs:
   promote:
-    name: Create checked VPS release promotion
-    if: github.event.client_payload.source_repository == 'ramideltoro/nutsnews'
+    name: Promote staging-qualified release to production VPS
+    if: >-
+      ${{
+        (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success') ||
+        (github.event_name == 'workflow_dispatch' && inputs.qualification_confirmation == 'promote-qualified-staging-release')
+      }}
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 90
     env:
-      SOURCE_REPOSITORY: ${{ github.event.client_payload.source_repository }}
-      SOURCE_COMMIT: ${{ github.event.client_payload.source_commit }}
-      IMAGE_REPOSITORY: ${{ github.event.client_payload.image_repository }}
-      IMAGE_DIGEST: ${{ github.event.client_payload.image_digest }}
-      BUILD_ID: ${{ github.event.client_payload.build_id }}
-      MIGRATION_HEAD: ${{ github.event.client_payload.migration_head }}
-      SCHEMA_VERSION: ${{ github.event.client_payload.schema_version }}
-      SUPABASE_PROJECT_REF: ${{ github.event.client_payload.supabase_project_ref }}
-      VERCEL_DEPLOYMENT_URL: ${{ github.event.client_payload.vercel_deployment_url }}
-      SOURCE_WORKFLOW_RUN_ID: ${{ github.event.client_payload.source_workflow_run_id }}
+      EVENT_QUALIFICATION_RUN_ID: ${{ github.event.workflow_run.id }}
+      INPUT_QUALIFICATION_RUN_ID: ${{ inputs.qualification_run_id }}
+      REQUESTED_STAGING_DEPLOYMENT_ID: ${{ inputs.staging_deployment_id }}
 
     steps:
-      - name: Pause direct production release dispatch
-        shell: bash
-        run: |
-          echo "nutsnews-production-release is paused until the staging-first handoff is activated." >&2
-          echo "A production app release must enter through the no-secret staging qualification gate." >&2
-          exit 1
-
-      - name: Checkout reviewed infrastructure main
+      - name: Checkout reviewed infrastructure automation
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
         with:
           persist-credentials: false
 
-      - name: Validate trusted release payload and automation token
+      - name: Resolve successful staging qualification evidence
+        id: qualified
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+          umask 077
 
-          python3 ansible/scripts/promote_nutsnews_release.py \
-            --validate-only \
-            --image-repository "$IMAGE_REPOSITORY" \
-            --image-digest "$IMAGE_DIGEST" \
-            --source-commit "$SOURCE_COMMIT" \
-            --build-id "$BUILD_ID" \
-            --migration-head "$MIGRATION_HEAD" \
-            --schema-version "$SCHEMA_VERSION" \
-            --supabase-project-ref "$SUPABASE_PROJECT_REF"
+          qualification_run_id="${EVENT_QUALIFICATION_RUN_ID:-$INPUT_QUALIFICATION_RUN_ID}"
+          if [[ ! "$qualification_run_id" =~ ^[1-9][0-9]{0,19}$ ]]; then
+            echo "A numeric staging qualification workflow run ID is required." >&2
+            exit 1
+          fi
 
-          python3 - <<'PY'
-          import os
-          from urllib.parse import urlparse
+          run_json="$RUNNER_TEMP/qualification-run.json"
+          gh run view "$qualification_run_id" \
+            --repo "$GITHUB_REPOSITORY" \
+            --json databaseId,workflowName,event,status,conclusion,headBranch,headSha,url \
+            > "$run_json"
 
-          source_repo = os.environ["SOURCE_REPOSITORY"]
-          source_run = os.environ["SOURCE_WORKFLOW_RUN_ID"]
-          deployment_url = urlparse(os.environ["VERCEL_DEPLOYMENT_URL"])
+          python3 - "$run_json" "$qualification_run_id" <<'PY'
+          import json
+          import re
+          import sys
 
-          if source_repo != "ramideltoro/nutsnews":
-              raise SystemExit("Only ramideltoro/nutsnews may request a NutsNews VPS release.")
-          if not source_run.isdigit():
-              raise SystemExit("Source workflow run ID must be numeric.")
-          if deployment_url.scheme != "https" or deployment_url.hostname not in {
-              "nutsnews.com",
-              "www.nutsnews.com",
-          } and not (deployment_url.hostname or "").endswith(".vercel.app"):
-              raise SystemExit("Vercel deployment URL must use an approved HTTPS host.")
+          run = json.load(open(sys.argv[1], encoding="utf-8"))
+          expected_run_id = sys.argv[2]
+          checks = {
+              "databaseId": int(expected_run_id),
+              "workflowName": "Qualify Verified NutsNews Staging Candidate",
+              "status": "completed",
+              "conclusion": "success",
+              "headBranch": "main",
+          }
+          for key, expected in checks.items():
+              if run.get(key) != expected:
+                  raise SystemExit(f"Qualification run does not satisfy {key}={expected!r}.")
+          if not re.fullmatch(r"[0-9a-f]{40}", str(run.get("headSha", ""))):
+              raise SystemExit("Qualification run must be bound to a full infra main commit.")
           PY
 
-      - name: Verify the source commit is already reachable from NutsNews main
+          artifact_dir="$RUNNER_TEMP/qualification-artifacts"
+          mkdir -p "$artifact_dir"
+          gh run download "$qualification_run_id" \
+            --repo "$GITHUB_REPOSITORY" \
+            --dir "$artifact_dir" \
+            --pattern "staging-qualification-*"
+
+          mapfile -t records < <(find "$artifact_dir" -type f -path "*/qualification/staging-qualification.json" | sort)
+          if [[ "${#records[@]}" -ne 1 ]]; then
+            echo "Expected exactly one staging-qualification.json artifact for run ${qualification_run_id}, found ${#records[@]}." >&2
+            exit 1
+          fi
+          record_path="${records[0]}"
+
+          python3 ansible/scripts/staging_qualification.py validate-record \
+            --record "$record_path"
+
+          python3 - "$record_path" "$qualification_run_id" "$REQUESTED_STAGING_DEPLOYMENT_ID" "$GITHUB_OUTPUT" <<'PY'
+          import json
+          import re
+          import sys
+
+          record = json.load(open(sys.argv[1], encoding="utf-8"))
+          qualification_run_id = sys.argv[2]
+          expected_staging_deployment_id = sys.argv[3]
+          output_path = sys.argv[4]
+
+          source = record.get("source", {})
+          image = record.get("image", {})
+          staging = record.get("staging", {})
+          infra = record.get("infra", {})
+          qualifier = record.get("qualifier", {})
+
+          values = {
+              "source_commit": source.get("commit", ""),
+              "source_workflow_run_id": source.get("workflow_run_id", ""),
+              "image_repository": image.get("repository", ""),
+              "image_digest": image.get("digest", ""),
+              "build_id": source.get("build_id", ""),
+              "staging_deployment_id": staging.get("deployment_id", ""),
+              "config_generation": infra.get("config_generation", ""),
+              "qualification_run_id": qualifier.get("run_id", ""),
+          }
+          patterns = {
+              "source_commit": r"^[0-9a-f]{40}$",
+              "source_workflow_run_id": r"^[1-9][0-9]{0,19}$",
+              "image_repository": r"^ghcr\.io/ramideltoro/nutsnews$",
+              "image_digest": r"^sha256:[0-9a-f]{64}$",
+              "build_id": r"^[1-9][0-9]{0,19}-[1-9][0-9]{0,5}$",
+              "staging_deployment_id": r"^stg-[0-9a-f]{24}$",
+              "config_generation": r"^staging-stg-[0-9a-f]{24}-[0-9a-f]{12}$",
+              "qualification_run_id": r"^[1-9][0-9]{0,19}$",
+          }
+          for key, pattern in patterns.items():
+              if not re.fullmatch(pattern, str(values[key])):
+                  raise SystemExit(f"Qualification record has invalid {key}.")
+          if values["qualification_run_id"] != qualification_run_id:
+              raise SystemExit("Qualification artifact run ID does not match the selected workflow run.")
+          if expected_staging_deployment_id and values["staging_deployment_id"] != expected_staging_deployment_id:
+              raise SystemExit("Qualification staging deployment ID does not match manual input.")
+          if values["build_id"].split("-", 1)[0] != values["source_workflow_run_id"]:
+              raise SystemExit("Qualified build ID does not belong to the source workflow run.")
+
+          with open(output_path, "a", encoding="utf-8") as output:
+              for key, value in values.items():
+                  output.write(f"{key}={value}\n")
+              output.write(f"record_path={sys.argv[1]}\n")
+          PY
+
+      - name: Verify qualified source commit remains reachable from NutsNews main
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_COMMIT: ${{ steps.qualified.outputs.source_commit }}
         run: |
           set -euo pipefail
 
@@ -97,14 +189,328 @@ jobs:
           )
           with urlopen(request, timeout=20) as response:  # noqa: S310 - fixed GitHub API origin
               comparison = json.load(response)
-          if comparison.get("status") not in {"behind", "identical"}:
-              raise SystemExit("Requested source commit is not reachable from NutsNews main.")
+          if comparison.get("status") not in {"ahead", "identical"}:
+              raise SystemExit("Qualified source commit is no longer reachable from NutsNews main.")
           PY
+
+      - name: Checkout exact app source for release contract
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+        with:
+          repository: ramideltoro/nutsnews
+          ref: ${{ steps.qualified.outputs.source_commit }}
+          path: nutsnews-source
+          persist-credentials: false
+
+      - name: Resolve migration head and schema version from exact source
+        id: release_contract
+        shell: bash
+        env:
+          SOURCE_COMMIT: ${{ steps.qualified.outputs.source_commit }}
+        run: |
+          set -euo pipefail
+
+          node --input-type=module <<'NODE'
+          import { appendFileSync } from "node:fs";
+          import { resolve } from "node:path";
+          import { getMigrationContract, readApplicationMigrationContract } from "./nutsnews-source/scripts/migration_contract.mjs";
+
+          const sourceCommit = process.env.SOURCE_COMMIT ?? "";
+          const sourceRoot = resolve("nutsnews-source");
+          if (!/^[0-9a-f]{40}$/.test(sourceCommit)) {
+            throw new Error("Release contract resolution requires a trusted source commit.");
+          }
+          const [migrationContract, applicationContract] = await Promise.all([
+            getMigrationContract(sourceRoot),
+            readApplicationMigrationContract(sourceRoot),
+          ]);
+          if (migrationContract.head !== applicationContract.migrationHead) {
+            throw new Error("Release source has mismatched repository and application migration heads.");
+          }
+          appendFileSync(
+            process.env.GITHUB_OUTPUT,
+            [
+              `migration_head=${migrationContract.head}`,
+              `schema_version=${applicationContract.legacyVersion}`,
+              "",
+            ].join("\n"),
+            "utf8",
+          );
+          console.log(`Resolved release schema contract for ${sourceCommit}.`);
+          NODE
+
+      - name: Verify Vercel Production deployed the same source commit
+        id: vercel
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_COMMIT: ${{ steps.qualified.outputs.source_commit }}
+        run: |
+          set -euo pipefail
+
+          node --input-type=module <<'NODE'
+          import { appendFileSync } from "node:fs";
+
+          const repository = "ramideltoro/nutsnews";
+          const sourceCommit = process.env.SOURCE_COMMIT ?? "";
+          const token = process.env.GH_TOKEN ?? "";
+          const deadline = Date.now() + 30 * 60 * 1000;
+          const delay = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
+
+          if (!/^[0-9a-f]{40}$/.test(sourceCommit) || !token) {
+            throw new Error("Vercel verification is missing trusted source or GitHub token context.");
+          }
+
+          async function github(path) {
+            const response = await fetch(`https://api.github.com${path}`, {
+              headers: {
+                Accept: "application/vnd.github+json",
+                Authorization: `Bearer ${token}`,
+                "X-GitHub-Api-Version": "2026-03-10",
+              },
+            });
+            if (!response.ok) {
+              throw new Error(`GitHub API ${path} returned ${response.status}.`);
+            }
+            return response.json();
+          }
+
+          async function verifyHealth(deploymentUrl) {
+            const url = new URL("/healthz", deploymentUrl);
+            url.searchParams.set("release", sourceCommit);
+            const response = await fetch(url, { headers: { "Cache-Control": "no-cache" } });
+            const payload = await response.json();
+            if (
+              !response.ok ||
+              payload?.ok !== true ||
+              payload?.sourceCommit !== sourceCommit ||
+              response.headers.get("x-nutsnews-source-commit") !== sourceCommit
+            ) {
+              throw new Error(`Vercel health identity did not match ${sourceCommit}.`);
+            }
+          }
+
+          while (Date.now() < deadline) {
+            const deployments = [];
+            for (const environment of ["Production", "production"]) {
+              const page = await github(
+                `/repos/${repository}/deployments?sha=${sourceCommit}&environment=${encodeURIComponent(environment)}&per_page=100`,
+              );
+              deployments.push(
+                ...page.filter(
+                  (deployment) =>
+                    deployment?.creator?.login === "vercel[bot]" &&
+                    ["Production", "production"].includes(deployment?.environment),
+                ),
+              );
+            }
+
+            const uniqueDeployments = [...new Map(deployments.map((deployment) => [deployment.id, deployment])).values()];
+            let pending = uniqueDeployments.length === 0;
+            const failures = [];
+
+            for (const deployment of uniqueDeployments) {
+              const statuses = await github(`/repos/${repository}/deployments/${deployment.id}/statuses?per_page=20`);
+              const latest = [...statuses].sort(
+                (left, right) => Date.parse(right.created_at) - Date.parse(left.created_at),
+              )[0];
+              if (!latest) {
+                pending = true;
+                continue;
+              }
+              if (latest.state === "success") {
+                const deploymentUrl = latest.environment_url || latest.target_url || "";
+                const parsed = new URL(deploymentUrl);
+                const approvedHost =
+                  parsed.protocol === "https:" &&
+                  (parsed.hostname === "nutsnews.com" ||
+                    parsed.hostname === "www.nutsnews.com" ||
+                    parsed.hostname.endsWith(".vercel.app"));
+                if (!approvedHost) {
+                  throw new Error("The successful Vercel production deployment did not provide an approved HTTPS URL.");
+                }
+                await verifyHealth(deploymentUrl);
+                appendFileSync(process.env.GITHUB_OUTPUT, `deployment_url=${deploymentUrl}\n`, "utf8");
+                console.log(`Verified Vercel production deployment ${deployment.id} for ${sourceCommit}.`);
+                process.exit(0);
+              }
+              if (["failure", "error", "inactive"].includes(latest.state)) {
+                failures.push(`${deployment.id}:${latest.state}`);
+              } else {
+                pending = true;
+              }
+            }
+
+            if (!pending && failures.length > 0) {
+              throw new Error(`Vercel production deployment failed for ${sourceCommit}: ${failures.join(", ")}.`);
+            }
+            await delay(15_000);
+          }
+
+          throw new Error(`Timed out waiting for Vercel Production to deploy ${sourceCommit}.`);
+          NODE
+
+      - name: Verify production Supabase schema contract
+        id: production_schema
+        shell: bash
+        env:
+          SOURCE_COMMIT: ${{ steps.qualified.outputs.source_commit }}
+          VERCEL_DEPLOYMENT_URL: ${{ steps.vercel.outputs.deployment_url }}
+          MIGRATION_HEAD: ${{ steps.release_contract.outputs.migration_head }}
+          SCHEMA_VERSION: ${{ steps.release_contract.outputs.schema_version }}
+        run: |
+          set -euo pipefail
+
+          node --input-type=module <<'NODE'
+          import { appendFileSync } from "node:fs";
+
+          const sourceCommit = process.env.SOURCE_COMMIT ?? "";
+          const deploymentUrl = process.env.VERCEL_DEPLOYMENT_URL ?? "";
+          const migrationHead = process.env.MIGRATION_HEAD ?? "";
+          const schemaVersion = process.env.SCHEMA_VERSION ?? "";
+          const migrationWorkflow =
+            "https://github.com/ramideltoro/nutsnews/actions/workflows/production-supabase-migration.yml";
+
+          function migrationRequired(message) {
+            throw new Error(
+              `${message} Run ${migrationWorkflow} for source ${sourceCommit} and migration head ${migrationHead}, then rerun this promotion.`,
+            );
+          }
+
+          if (
+            !/^[0-9a-f]{40}$/.test(sourceCommit) ||
+            !/^https:\/\//.test(deploymentUrl) ||
+            !/^[0-9]{14}$/.test(migrationHead) ||
+            !/^[0-9]{14}$/.test(schemaVersion)
+          ) {
+            throw new Error("Production schema verification received invalid release identity.");
+          }
+
+          const configUrl = new URL("/api/runtime-config", deploymentUrl);
+          const configResponse = await fetch(configUrl, { headers: { "Cache-Control": "no-cache" } });
+          if (!configResponse.ok) {
+            throw new Error(`Vercel runtime config returned HTTP ${configResponse.status}.`);
+          }
+          const config = await configResponse.json();
+          if (
+            config?.runtimeEnv !== "production" ||
+            config?.sideEffectsMode !== "live" ||
+            config?.sourceCommit !== sourceCommit ||
+            typeof config?.supabaseUrl !== "string" ||
+            typeof config?.supabaseAnonKey !== "string"
+          ) {
+            throw new Error("Vercel Production runtime config did not expose the expected production identity.");
+          }
+
+          const supabaseUrl = new URL(config.supabaseUrl);
+          const refMatch = supabaseUrl.hostname.match(/^([a-z0-9]{20})\.supabase\.co$/);
+          if (!refMatch) {
+            throw new Error("Vercel Production Supabase URL does not identify an approved Supabase project ref.");
+          }
+          const supabaseProjectRef = refMatch[1];
+
+          const rpcUrl = new URL("/rest/v1/rpc/nutsnews_migration_schema_contract", supabaseUrl);
+          const rpcResponse = await fetch(rpcUrl, {
+            method: "POST",
+            headers: {
+              Accept: "application/json",
+              apikey: config.supabaseAnonKey,
+              Authorization: `Bearer ${config.supabaseAnonKey}`,
+              "Content-Type": "application/json",
+            },
+            body: "{}",
+          });
+          if (!rpcResponse.ok) {
+            migrationRequired(`Production Supabase schema contract RPC returned HTTP ${rpcResponse.status}.`);
+          }
+          const payload = await rpcResponse.json();
+          const row = Array.isArray(payload) ? payload[0] : payload;
+          if (!row || typeof row !== "object") {
+            migrationRequired("Production Supabase schema contract RPC returned no contract row.");
+          }
+          if (
+            row.migration_head !== migrationHead ||
+            row.legacy_schema_version !== schemaVersion ||
+            !/^[a-f0-9]{32}$/.test(row.expected_schema_fingerprint ?? "") ||
+            row.expected_schema_fingerprint !== row.actual_schema_fingerprint
+          ) {
+            migrationRequired(
+              `Production Supabase is not compatible with this release: expected migration_head=${migrationHead} and schema_version=${schemaVersion}.`,
+            );
+          }
+
+          appendFileSync(process.env.GITHUB_OUTPUT, `supabase_project_ref=${supabaseProjectRef}\n`, "utf8");
+          console.log(`Verified production Supabase schema contract for ${sourceCommit}.`);
+          NODE
+
+      - name: Verify staging qualification attestation is current
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_COMMIT: ${{ steps.qualified.outputs.source_commit }}
+          IMAGE_REPOSITORY: ${{ steps.qualified.outputs.image_repository }}
+          IMAGE_DIGEST: ${{ steps.qualified.outputs.image_digest }}
+          BUILD_ID: ${{ steps.qualified.outputs.build_id }}
+          SOURCE_WORKFLOW_RUN_ID: ${{ steps.qualified.outputs.source_workflow_run_id }}
+          MIGRATION_HEAD: ${{ steps.release_contract.outputs.migration_head }}
+          SCHEMA_VERSION: ${{ steps.release_contract.outputs.schema_version }}
+          SUPABASE_PROJECT_REF: ${{ steps.production_schema.outputs.supabase_project_ref }}
+        run: |
+          set -euo pipefail
+          umask 077
+
+          candidate_manifest="$RUNNER_TEMP/candidate-vps-release.yml"
+          git fetch origin main --prune
+          git show "origin/main:ansible/inventories/production/host_vars/vps.nutsnews.com.yml" \
+            > "$candidate_manifest"
+          python3 ansible/scripts/promote_nutsnews_release.py \
+            --write \
+            --manifest "$candidate_manifest" \
+            --image-repository "$IMAGE_REPOSITORY" \
+            --image-digest "$IMAGE_DIGEST" \
+            --source-commit "$SOURCE_COMMIT" \
+            --build-id "$BUILD_ID" \
+            --migration-head "$MIGRATION_HEAD" \
+            --schema-version "$SCHEMA_VERSION" \
+            --supabase-project-ref "$SUPABASE_PROJECT_REF" > /dev/null
+
+          gh attestation verify "oci://${IMAGE_REPOSITORY}@${IMAGE_DIGEST}" \
+            --repo "$GITHUB_REPOSITORY" \
+            --predicate-type https://nutsnews.com/attestations/staging-qualification/v1 \
+            --format json > "$RUNNER_TEMP/verified-staging-attestation.json"
+          python3 ansible/scripts/verify_production_eligibility.py verify \
+            --manifest "$candidate_manifest" \
+            --verified-attestation "$RUNNER_TEMP/verified-staging-attestation.json" \
+            --source-commit "$SOURCE_COMMIT" \
+            --image-digest "$IMAGE_DIGEST" \
+            --build-id "$BUILD_ID" \
+            --source-workflow-run-id "$SOURCE_WORKFLOW_RUN_ID" \
+            --migration-head "$MIGRATION_HEAD" \
+            --schema-version "$SCHEMA_VERSION" \
+            --supabase-project-ref "$SUPABASE_PROJECT_REF" \
+            --output "$RUNNER_TEMP/staging-qualification.json"
 
       - name: Create or reuse the checked release promotion pull request
         id: promotion
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.NUTSNEWS_INFRA_RELEASE_TOKEN }}
+          SOURCE_COMMIT: ${{ steps.qualified.outputs.source_commit }}
+          IMAGE_REPOSITORY: ${{ steps.qualified.outputs.image_repository }}
+          IMAGE_DIGEST: ${{ steps.qualified.outputs.image_digest }}
+          BUILD_ID: ${{ steps.qualified.outputs.build_id }}
+          SOURCE_WORKFLOW_RUN_ID: ${{ steps.qualified.outputs.source_workflow_run_id }}
+          STAGING_DEPLOYMENT_ID: ${{ steps.qualified.outputs.staging_deployment_id }}
+          QUALIFICATION_RUN_ID: ${{ steps.qualified.outputs.qualification_run_id }}
+          MIGRATION_HEAD: ${{ steps.release_contract.outputs.migration_head }}
+          SCHEMA_VERSION: ${{ steps.release_contract.outputs.schema_version }}
+          SUPABASE_PROJECT_REF: ${{ steps.production_schema.outputs.supabase_project_ref }}
+          VERCEL_DEPLOYMENT_URL: ${{ steps.vercel.outputs.deployment_url }}
         run: |
           set -euo pipefail
+          if [[ -z "$GH_TOKEN" ]]; then
+            echo "NUTSNEWS_INFRA_RELEASE_TOKEN is required for release GitOps automation." >&2
+            exit 1
+          fi
 
           release_branch="release/vps-${SOURCE_COMMIT}"
           current_manifest="$RUNNER_TEMP/current-vps-release.yml"
@@ -170,16 +576,19 @@ jobs:
           printf '%s\n' \
             '## Automated NutsNews VPS release promotion' \
             '' \
-            "This checked PR promotes the immutable image built from \`${SOURCE_COMMIT}\`." \
+            "This checked PR promotes the immutable staging-qualified image built from \`${SOURCE_COMMIT}\`." \
             '' \
             "- Image: \`${IMAGE_REPOSITORY}@${IMAGE_DIGEST}\`" \
             "- Build ID: \`${BUILD_ID}\`" \
+            "- Source workflow run: https://github.com/ramideltoro/nutsnews/actions/runs/${SOURCE_WORKFLOW_RUN_ID}" \
+            "- Staging deployment: \`${STAGING_DEPLOYMENT_ID}\`" \
+            "- Staging qualification run: https://github.com/${GITHUB_REPOSITORY}/actions/runs/${QUALIFICATION_RUN_ID}" \
             "- Migration head: \`${MIGRATION_HEAD}\`" \
             "- Rollback-compatible schema: \`${SCHEMA_VERSION}\`" \
             "- Supabase project reference: \`${SUPABASE_PROJECT_REF}\`" \
             "- Verified Vercel deployment: ${VERCEL_DEPLOYMENT_URL}" \
             '' \
-            'The workflow waits for all required checks before merging and then starts the protected Ansible apply.' \
+            'The workflow waits for required checks before merging, then starts Protected Ansible Apply with the complete release identity bundle.' \
             > "$RUNNER_TEMP/nutsnews-release-pr.md"
 
           pr_url="$(gh pr create \
@@ -193,7 +602,9 @@ jobs:
 
       - name: Wait for promotion checks to pass and merge
         if: steps.promotion.outputs.pr_url != ''
+        shell: bash
         env:
+          GH_TOKEN: ${{ secrets.NUTSNEWS_INFRA_RELEASE_TOKEN }}
           PR_URL: ${{ steps.promotion.outputs.pr_url }}
         run: |
           set -euo pipefail
@@ -261,6 +672,15 @@ jobs:
           gh pr merge "$PR_URL" --merge --delete-branch
 
       - name: Verify merged manifest matches the release request
+        shell: bash
+        env:
+          SOURCE_COMMIT: ${{ steps.qualified.outputs.source_commit }}
+          IMAGE_REPOSITORY: ${{ steps.qualified.outputs.image_repository }}
+          IMAGE_DIGEST: ${{ steps.qualified.outputs.image_digest }}
+          BUILD_ID: ${{ steps.qualified.outputs.build_id }}
+          MIGRATION_HEAD: ${{ steps.release_contract.outputs.migration_head }}
+          SCHEMA_VERSION: ${{ steps.release_contract.outputs.schema_version }}
+          SUPABASE_PROJECT_REF: ${{ steps.production_schema.outputs.supabase_project_ref }}
         run: |
           set -euo pipefail
           git fetch origin main --prune
@@ -279,8 +699,22 @@ jobs:
 
       - name: Start and wait for protected VPS apply
         id: apply
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.NUTSNEWS_INFRA_RELEASE_TOKEN }}
+          SOURCE_COMMIT: ${{ steps.qualified.outputs.source_commit }}
+          IMAGE_DIGEST: ${{ steps.qualified.outputs.image_digest }}
+          BUILD_ID: ${{ steps.qualified.outputs.build_id }}
+          SOURCE_WORKFLOW_RUN_ID: ${{ steps.qualified.outputs.source_workflow_run_id }}
+          MIGRATION_HEAD: ${{ steps.release_contract.outputs.migration_head }}
+          SCHEMA_VERSION: ${{ steps.release_contract.outputs.schema_version }}
+          SUPABASE_PROJECT_REF: ${{ steps.production_schema.outputs.supabase_project_ref }}
         run: |
           set -euo pipefail
+          if [[ -z "$GH_TOKEN" ]]; then
+            echo "NUTSNEWS_INFRA_RELEASE_TOKEN is required to dispatch Protected Ansible Apply." >&2
+            exit 1
+          fi
 
           dispatch_started_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           gh workflow run protected-ansible-apply.yml \
@@ -288,8 +722,10 @@ jobs:
             --ref main \
             --field run_mode=apply \
             --field confirm_apply=vps.nutsnews.com \
+            --field sync_vercel_production=true \
             --field enable_cloudflare_ddns=false \
             --field enable_grafana_alloy=false \
+            --field enable_staging_access=false \
             --field release_source_commit="$SOURCE_COMMIT" \
             --field release_image_digest="$IMAGE_DIGEST" \
             --field release_build_id="$BUILD_ID" \
@@ -326,7 +762,18 @@ jobs:
           echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
 
       - name: Summarize completed GitOps release
+        shell: bash
         env:
+          SOURCE_COMMIT: ${{ steps.qualified.outputs.source_commit }}
+          IMAGE_REPOSITORY: ${{ steps.qualified.outputs.image_repository }}
+          IMAGE_DIGEST: ${{ steps.qualified.outputs.image_digest }}
+          BUILD_ID: ${{ steps.qualified.outputs.build_id }}
+          STAGING_DEPLOYMENT_ID: ${{ steps.qualified.outputs.staging_deployment_id }}
+          QUALIFICATION_RUN_ID: ${{ steps.qualified.outputs.qualification_run_id }}
+          MIGRATION_HEAD: ${{ steps.release_contract.outputs.migration_head }}
+          SCHEMA_VERSION: ${{ steps.release_contract.outputs.schema_version }}
+          SUPABASE_PROJECT_REF: ${{ steps.production_schema.outputs.supabase_project_ref }}
+          VERCEL_DEPLOYMENT_URL: ${{ steps.vercel.outputs.deployment_url }}
           PR_URL: ${{ steps.promotion.outputs.pr_url }}
           APPLY_RUN_ID: ${{ steps.apply.outputs.run_id }}
         run: |
@@ -336,8 +783,12 @@ jobs:
             echo "- Source commit: \`${SOURCE_COMMIT}\`"
             echo "- Image: \`${IMAGE_REPOSITORY}@${IMAGE_DIGEST}\`"
             echo "- Build ID: \`${BUILD_ID}\`"
+            echo "- Staging deployment: \`${STAGING_DEPLOYMENT_ID}\`"
+            echo "- Staging qualification run: ${QUALIFICATION_RUN_ID}"
             echo "- Migration head: \`${MIGRATION_HEAD}\`"
             echo "- Rollback-compatible schema: \`${SCHEMA_VERSION}\`"
+            echo "- Supabase project reference: \`${SUPABASE_PROJECT_REF}\`"
+            echo "- Verified Vercel deployment: ${VERCEL_DEPLOYMENT_URL}"
             if [[ -n "$PR_URL" ]]; then
               echo "- GitOps promotion PR: ${PR_URL}"
             else
