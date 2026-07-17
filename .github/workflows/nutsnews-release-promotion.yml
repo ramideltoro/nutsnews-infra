@@ -654,15 +654,8 @@ jobs:
           GH_TOKEN: ${{ secrets.NUTSNEWS_APP_RELEASE_TOKEN }}
           NUTSNEWS_APP_RELEASE_TOKEN: ${{ secrets.NUTSNEWS_APP_RELEASE_TOKEN }}
           SOURCE_COMMIT: ${{ steps.qualified.outputs.source_commit }}
-          IMAGE_REPOSITORY: ${{ steps.qualified.outputs.image_repository }}
           IMAGE_DIGEST: ${{ steps.qualified.outputs.image_digest }}
           BUILD_ID: ${{ steps.qualified.outputs.build_id }}
-          SOURCE_WORKFLOW_RUN_ID: ${{ steps.qualified.outputs.source_workflow_run_id }}
-          STAGING_DEPLOYMENT_ID: ${{ steps.qualified.outputs.staging_deployment_id }}
-          QUALIFICATION_RUN_ID: ${{ steps.qualified.outputs.qualification_run_id }}
-          MIGRATION_HEAD: ${{ steps.release_contract.outputs.migration_head }}
-          SCHEMA_VERSION: ${{ steps.release_contract.outputs.schema_version }}
-          SUPABASE_PROJECT_REF: ${{ steps.production_schema.outputs.supabase_project_ref }}
           VPS_APPLY_RUN_ID: ${{ steps.apply.outputs.run_id }}
         run: |
           set -euo pipefail
@@ -677,15 +670,8 @@ jobs:
           const payload = {
             source_repository: "ramideltoro/nutsnews",
             source_commit: process.env.SOURCE_COMMIT ?? "",
-            image_repository: process.env.IMAGE_REPOSITORY ?? "",
             image_digest: process.env.IMAGE_DIGEST ?? "",
             build_id: process.env.BUILD_ID ?? "",
-            source_workflow_run_id: process.env.SOURCE_WORKFLOW_RUN_ID ?? "",
-            migration_head: process.env.MIGRATION_HEAD ?? "",
-            schema_version: process.env.SCHEMA_VERSION ?? "",
-            supabase_project_ref: process.env.SUPABASE_PROJECT_REF ?? "",
-            staging_deployment_id: process.env.STAGING_DEPLOYMENT_ID ?? "",
-            qualification_run_id: process.env.QUALIFICATION_RUN_ID ?? "",
             vps_apply_run_id: process.env.VPS_APPLY_RUN_ID ?? "",
           };
           const response = await fetch("https://api.github.com/repos/ramideltoro/nutsnews/dispatches", {
