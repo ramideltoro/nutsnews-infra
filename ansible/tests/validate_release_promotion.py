@@ -234,6 +234,7 @@ for required in (
     "release_supabase_project_ref:",
     "Validate requested automated release identity",
     "RELEASE_IMAGE_DEPLOYMENT_TARGET",
+    "RELEASE_HEALTH_DEPLOYMENT_TARGET",
     "Verify released Docker image over SSH",
     "Verify released public health identity",
     "Checkout exact app post-production smoke suite",
@@ -243,11 +244,11 @@ for required in (
     assert required in protected_workflow, f"Protected apply is missing required release verification: {required}"
 
 assert 'release_deployment_target" != "production-vps"' in protected_workflow
-assert 'imageDeploymentTarget !== "production-vps"' in protected_workflow
-assert 'payload?.deploymentTarget === imageDeploymentTarget' in protected_workflow
-assert 'response.headers.get("x-nutsnews-deployment-target") === imageDeploymentTarget' in protected_workflow
+assert 'healthDeploymentTarget !== "vps"' in protected_workflow
+assert 'payload?.deploymentTarget === healthDeploymentTarget' in protected_workflow
+assert 'response.headers.get("x-nutsnews-deployment-target") === healthDeploymentTarget' in protected_workflow
 assert "--expected-deployment-target production-vps" in protected_workflow
-assert "--expected-health-deployment-target production-vps" in protected_workflow
+assert "--expected-health-deployment-target vps" in protected_workflow
 
 assert "NUTSNEWS_APP_IMAGE_TAG" not in promotion_workflow
 assert "repository_dispatch:" not in promotion_workflow

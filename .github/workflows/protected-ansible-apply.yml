@@ -341,6 +341,7 @@ jobs:
             exit 1
           fi
           printf 'RELEASE_IMAGE_DEPLOYMENT_TARGET=production-vps\n' >> "$GITHUB_ENV"
+          printf 'RELEASE_HEALTH_DEPLOYMENT_TARGET=vps\n' >> "$GITHUB_ENV"
           echo "Verified reviewed infrastructure target and public app identity target."
 
       - name: Validate dispatch inputs
@@ -1009,20 +1010,20 @@ jobs:
         env:
           RELEASE_SOURCE_COMMIT: ${{ inputs.release_source_commit }}
           RELEASE_BUILD_ID: ${{ inputs.release_build_id }}
-          RELEASE_IMAGE_DEPLOYMENT_TARGET: ${{ env.RELEASE_IMAGE_DEPLOYMENT_TARGET }}
+          RELEASE_HEALTH_DEPLOYMENT_TARGET: ${{ env.RELEASE_HEALTH_DEPLOYMENT_TARGET }}
         run: |
           set -euo pipefail
 
           node --input-type=module <<'NODE'
           const sourceCommit = process.env.RELEASE_SOURCE_COMMIT ?? "";
           const buildId = process.env.RELEASE_BUILD_ID ?? "";
-          const imageDeploymentTarget = process.env.RELEASE_IMAGE_DEPLOYMENT_TARGET ?? "";
+          const healthDeploymentTarget = process.env.RELEASE_HEALTH_DEPLOYMENT_TARGET ?? "";
           const delay = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 
           if (
             !/^[0-9a-f]{40}$/.test(sourceCommit) ||
             !/^\d+-\d+$/.test(buildId) ||
-            imageDeploymentTarget !== "production-vps"
+            healthDeploymentTarget !== "vps"
           ) {
             throw new Error("Automated release health verification received invalid expected identity values.");
           }
@@ -1042,10 +1043,10 @@ jobs:
                 payload?.service === "nutsnews-web" &&
                 payload?.sourceCommit === sourceCommit &&
                 payload?.buildId === buildId &&
-                payload?.deploymentTarget === imageDeploymentTarget &&
+                payload?.deploymentTarget === healthDeploymentTarget &&
                 response.headers.get("x-nutsnews-source-commit") === sourceCommit &&
                 response.headers.get("x-nutsnews-build-id") === buildId &&
-                response.headers.get("x-nutsnews-deployment-target") === imageDeploymentTarget;
+                response.headers.get("x-nutsnews-deployment-target") === healthDeploymentTarget;
               if (valid) {
                 console.log(`Verified public VPS health identity for ${sourceCommit}.`);
                 process.exit(0);
@@ -1084,7 +1085,7 @@ jobs:
             --expected-source-commit "$RELEASE_SOURCE_COMMIT" \
             --expected-build-id "$RELEASE_BUILD_ID" \
             --expected-deployment-target production-vps \
-            --expected-health-deployment-target production-vps \
+            --expected-health-deployment-target vps \
             --expected-runtime-env production \
             --expected-image-digest "$RELEASE_IMAGE_DIGEST" \
             --expected-config-generation "production-${RELEASE_BUILD_ID}-${RELEASE_MIGRATION_HEAD}" \

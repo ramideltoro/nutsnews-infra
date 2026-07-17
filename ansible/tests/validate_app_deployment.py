@@ -73,7 +73,8 @@ assert "no-new-privileges=true" in app_compose
 assert "no-new-privileges:true" not in app_compose
 assert "NUTSNEWS_APP_IMAGE_TAG" not in protected_apply
 assert "RELEASE_IMAGE_DEPLOYMENT_TARGET" in protected_apply
-assert "payload?.deploymentTarget === imageDeploymentTarget" in protected_apply
+assert "RELEASE_HEALTH_DEPLOYMENT_TARGET" in protected_apply
+assert "payload?.deploymentTarget === healthDeploymentTarget" in protected_apply
 assert "vps_service_foundation_nutsnews_environment_names:" in defaults
 assert "  - production\n  - staging" in defaults
 assert "vps_service_foundation_nutsnews_environments:" in defaults
