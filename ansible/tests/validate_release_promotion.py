@@ -158,6 +158,8 @@ for required in (
     "getMigrationContract",
     "readApplicationMigrationContract",
     "Verify Vercel Production deployed the same source commit",
+    "returned non-JSON HTTP",
+    "Check Vercel deployment protection, alias routing",
     'deployment?.creator?.login === "vercel[bot]"',
     "Verify production Supabase schema contract",
     "api/runtime-config",
