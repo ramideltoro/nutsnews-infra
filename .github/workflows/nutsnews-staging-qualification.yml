@@ -202,10 +202,9 @@ jobs:
             --expected-staging-deployment-id "$STAGING_DEPLOYMENT_ID" \
             --verified-attestation "$RUNNER_TEMP/qualification/verified-attestation.json"
 
-      - name: Request coupled VPS and Vercel production release
+      - name: Record coupled VPS and Vercel production release request
         shell: bash
         env:
-          GH_TOKEN: ${{ github.token }}
           SOURCE_COMMIT: ${{ steps.deployment.outputs.source_commit }}
           IMAGE_REPOSITORY: ${{ steps.deployment.outputs.image_repository }}
           IMAGE_DIGEST: ${{ steps.deployment.outputs.image_digest }}
@@ -215,10 +214,10 @@ jobs:
           SCHEMA_VERSION: ${{ steps.deployment.outputs.schema_version }}
           SUPABASE_PROJECT_REF: ${{ steps.deployment.outputs.supabase_project_ref }}
           STAGING_DEPLOYMENT_ID: ${{ steps.deployment.outputs.staging_deployment_id }}
+          QUALIFICATION_RUN_ID: ${{ github.run_id }}
         run: |
           set -euo pipefail
           node --input-type=module <<'NODE'
-          const token = process.env.GH_TOKEN ?? "";
           const payload = {
             source_repository: "ramideltoro/nutsnews",
             source_commit: process.env.SOURCE_COMMIT ?? "",
@@ -230,7 +229,7 @@ jobs:
             schema_version: process.env.SCHEMA_VERSION ?? "",
             supabase_project_ref: process.env.SUPABASE_PROJECT_REF ?? "",
             staging_deployment_id: process.env.STAGING_DEPLOYMENT_ID ?? "",
-            qualification_run_id: process.env.GITHUB_RUN_ID ?? "",
+            qualification_run_id: process.env.QUALIFICATION_RUN_ID ?? "",
           };
           const checks = [
             /^[0-9a-f]{40}$/.test(payload.source_commit),
@@ -244,33 +243,19 @@ jobs:
             /^stg-[0-9a-f]{24}$/.test(payload.staging_deployment_id),
             /^[1-9][0-9]{0,19}$/.test(payload.qualification_run_id),
           ];
-          if (!token || checks.includes(false)) {
+          if (checks.includes(false)) {
             throw new Error("Refusing to request production release with an incomplete qualification payload.");
-          }
-          const response = await fetch("https://api.github.com/repos/ramideltoro/nutsnews-infra/dispatches", {
-            method: "POST",
-            headers: {
-              Accept: "application/vnd.github+json",
-              Authorization: `Bearer ${token}`,
-              "Content-Type": "application/json",
-              "X-GitHub-Api-Version": "2026-03-10",
-            },
-            body: JSON.stringify({
-              event_type: "nutsnews-production-release",
-              client_payload: payload,
-            }),
-          });
-          if (response.status !== 204) {
-            throw new Error(`Production release dispatch returned ${response.status}.`);
           }
           NODE
           {
             echo
-            echo "## Coupled production release requested"
+            echo "## Coupled production release queued"
             echo
             echo "- Source commit: \`${SOURCE_COMMIT}\`"
             echo "- Image: \`${IMAGE_REPOSITORY}@${IMAGE_DIGEST}\`"
+            echo "- Qualification run: \`${QUALIFICATION_RUN_ID}\`"
             echo "- Production promotion workflow: https://github.com/ramideltoro/nutsnews-infra/actions/workflows/nutsnews-release-promotion.yml"
+            echo "- Promotion workflow will start from this successful qualification run."
             echo "- Vercel production will be dispatched only after protected VPS apply succeeds."
           } >> "$GITHUB_STEP_SUMMARY"
 

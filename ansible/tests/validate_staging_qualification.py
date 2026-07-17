@@ -304,12 +304,16 @@ for required in (
     "Check staging identity after tests",
     "persist-credentials: false",
     "overwrite: false",
-    "nutsnews-production-release",
-    "Request coupled VPS and Vercel production release",
+    "Record coupled VPS and Vercel production release request",
+    "Coupled production release queued",
+    "Promotion workflow will start from this successful qualification run.",
 ):
     assert required in workflow, f"Qualification workflow missing guardrail: {required}"
 
 for forbidden in (
+    "repository_dispatch:",
+    "repos/ramideltoro/nutsnews-infra/dispatches",
+    "nutsnews-production-release",
     "production-vps",
     "NUTSNEWS_STAGING_VPS_SSH_PRIVATE_KEY",
     "NUTSNEWS_INFRA_RELEASE_TOKEN",
