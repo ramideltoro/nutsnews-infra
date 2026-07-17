@@ -296,7 +296,10 @@ jobs:
               );
             }
             if (!response.ok) {
-              throw new Error(`Vercel health endpoint ${url.origin}/healthz returned HTTP ${response.status}.`);
+              throw new Error(
+                `Vercel health endpoint ${url.origin}/healthz returned HTTP ${response.status}. ` +
+                  "Check Vercel deployment protection, alias routing, or automation bypass before rerunning promotion.",
+              );
             }
             if (
               payload?.ok !== true ||
