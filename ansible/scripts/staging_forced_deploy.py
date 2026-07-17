@@ -31,6 +31,8 @@ ERROR_CLASSES = (
     ("conflicting_action", ("conflicting action statements",)),
     ("callback_error", ("callback", "failed to load")),
     ("controller_exception", ("unexpected exception", "traceback (most recent call last)")),
+    ("host_unreachable", ("unreachable! =>",)),
+    ("task_failed", ("failed! =>",)),
 )
 
 
@@ -56,6 +58,28 @@ def classify_controller_output(output: str) -> str:
     if "error!" in lowered:
         return "unclassified_controller_error"
     return "unclassified_controller_failure"
+
+
+def reviewed_failed_task(output: str) -> str:
+    current = ""
+    failed = ""
+    for line in output.splitlines():
+        task_match = TASK_LINE.search(line)
+        if task_match:
+            current = task_match.group(1)
+            continue
+        lowered = line.lower()
+        if current and (
+            lowered.startswith("fatal: [")
+            or lowered.startswith("failed: [")
+            or "failed! =>" in lowered
+            or "unreachable! =>" in lowered
+        ):
+            failed = current
+    if failed:
+        return failed
+    tasks = TASK_LINE.findall(output)
+    return tasks[-1] if tasks else ""
 
 
 def docker_inspect(container: str) -> dict[str, object]:
@@ -208,12 +232,11 @@ def run_deploy(request: dict[str, object], operation: str) -> None:
         )
         if result.returncode:
             # Ansible output can contain rendered diffs and must never cross
-            # the forced-command boundary. Return only the last reviewed task
+            # the forced-command boundary. Return only the failed reviewed task
             # label so an operator can diagnose a failure without secrets.
-            tasks = TASK_LINE.findall(result.stdout)
             fail(
                 f"staging_{operation}_failed",
-                task=tasks[-1] if tasks else "",
+                task=reviewed_failed_task(result.stdout),
                 diagnostic=classify_controller_output(result.stdout),
                 controller=controller,
             )

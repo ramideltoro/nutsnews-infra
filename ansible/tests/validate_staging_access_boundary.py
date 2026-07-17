@@ -162,7 +162,7 @@ assert 'operation == "production"' not in forced_command
 assert 'operation in {"production"' not in forced_command
 assert "stdout=subprocess.PIPE" in forced_command
 assert "stderr=subprocess.STDOUT" in forced_command
-assert "TASK_LINE.findall(result.stdout)" in forced_command
+assert "reviewed_failed_task(result.stdout)" in forced_command
 assert '"ANSIBLE_NOCOLOR": "1"' in forced_command
 assert '"ANSIBLE_ROLES_PATH": str(BUNDLE / "ansible/roles")' in forced_command
 assert '"ANSIBLE_STDOUT_CALLBACK": "default"' in forced_command
@@ -191,6 +191,7 @@ assert '"production": production_observation' in forced_command
 assert 'production = result.get("production")' in workflow
 assert "Production container health was recorded as sanitized observation only" in workflow
 assert '"production_healthy"' not in workflow
+assert '"host_unreachable"' in forced_command and '"task_failed"' in forced_command
 assert '"uri /verify?" in caddy_text' in forced_command
 assert '"request>uri delete" in caddy_text' in forced_command
 assert '"request>headers>Cf-Access-Jwt-Assertion delete" in caddy_text' in forced_command
@@ -243,6 +244,28 @@ assert staging_tls_assertion["when"] == expected_tls_when
 assert "vps_service_foundation_staging_caddy_tls_before.rc" in caddy_recreate["when"], (
     "A failed direct staging TLS probe must force only the existing Caddy reconciliation path."
 )
+
+forced_spec = importlib.util.spec_from_file_location("staging_forced_deploy", FORCED_COMMAND)
+assert forced_spec and forced_spec.loader
+forced = importlib.util.module_from_spec(forced_spec)
+forced_spec.loader.exec_module(forced)
+failed_then_cleanup = """
+TASK [Render and validate only the staging runtime] ***************************
+ok: [staging-vps]
+
+TASK [Verify only the staging container state] ********************************
+fatal: [staging-vps]: FAILED! => {"censored": "the real output must stay server-side"}
+
+TASK [Release the staging host mutation lock] *********************************
+changed: [staging-vps]
+"""
+assert forced.reviewed_failed_task(failed_then_cleanup) == "Verify only the staging container state"
+cleanup_failure = """
+TASK [Release the staging host mutation lock] *********************************
+fatal: [staging-vps]: FAILED! => {"msg": "cleanup failed"}
+"""
+assert forced.reviewed_failed_task(cleanup_failure) == "Release the staging host mutation lock"
+assert forced.classify_controller_output(failed_then_cleanup) == "task_failed"
 
 # Exercise both authenticated and unauthenticated verifier paths with a local RSA fixture.
 os.environ["NUTSNEWS_STAGING_ACCESS_TEAM_DOMAIN"] = "fixture.cloudflareaccess.com"

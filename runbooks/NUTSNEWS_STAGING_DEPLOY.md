@@ -32,7 +32,10 @@ If the server-side fixed command rejects the apply, the workflow reports only
 the sanitized gateway code, reviewed Ansible task label, diagnostic class, and
 controller version. It must not print Ansible output, rendered diffs, request
 JSON, environment values, or secrets. Fix the underlying reviewed automation or
-host bundle through GitOps and rerun the same immutable candidate.
+host bundle through GitOps and rerun the same immutable candidate. When an
+Ansible `always` cleanup task runs after a failure, the reported task label is
+the reviewed task that emitted the failure, not the cleanup task that happened
+to run last.
 
 The server-side staging verifier still inspects production container identity,
 network separation, and root-only production env-file permissions as part of
