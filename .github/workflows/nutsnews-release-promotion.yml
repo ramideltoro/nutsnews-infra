@@ -277,10 +277,28 @@ jobs:
           async function verifyHealth(deploymentUrl) {
             const url = new URL("/healthz", deploymentUrl);
             url.searchParams.set("release", sourceCommit);
-            const response = await fetch(url, { headers: { "Cache-Control": "no-cache" } });
-            const payload = await response.json();
+            const response = await fetch(url, {
+              headers: {
+                Accept: "application/json",
+                "Cache-Control": "no-cache",
+              },
+            });
+            const contentType = response.headers.get("content-type") ?? "";
+            const body = await response.text();
+            let payload;
+            try {
+              payload = JSON.parse(body);
+            } catch {
+              throw new Error(
+                `Vercel health endpoint ${url.origin}/healthz returned non-JSON HTTP ${response.status} ` +
+                  `(${contentType || "unknown content-type"}). Check Vercel deployment protection, alias routing, ` +
+                  "or automation bypass before rerunning promotion.",
+              );
+            }
+            if (!response.ok) {
+              throw new Error(`Vercel health endpoint ${url.origin}/healthz returned HTTP ${response.status}.`);
+            }
             if (
-              !response.ok ||
               payload?.ok !== true ||
               payload?.sourceCommit !== sourceCommit ||
               response.headers.get("x-nutsnews-source-commit") !== sourceCommit
