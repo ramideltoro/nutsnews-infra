@@ -319,6 +319,19 @@ for required in (
 ):
     assert required in workflow, f"Staging workflow is missing required guardrail: {required}"
 
+apply_step = workflow.split("- name: Apply through the server-side fixed staging command", 1)[1].split(
+    "- name: Wait for staging readiness and verify Docker digest",
+    1,
+)[0]
+for required in (
+    'gateway_status="$?"',
+    'status == 0 and result == {"ok": True, "operation": "apply"}',
+    "Staging gateway returned an invalid failure response.",
+    "Staging gateway failed with",
+):
+    assert required in apply_step, f"Staging apply step must report sanitized gateway failures: {required}"
+assert "python3 -c 'import json,sys; assert json.load" not in apply_step
+
 assert "environment: staging-vps" not in workflow.split("jobs:", 1)[1].split("deploy:", 1)[0]
 assert "production-vps" not in workflow
 assert "nutsnews-production-release" not in workflow
