@@ -42,7 +42,7 @@ jobs:
     permissions:
       actions: read
       attestations: write
-      contents: read
+      contents: write
       deployments: read
       id-token: write
 
@@ -201,6 +201,78 @@ jobs:
             --expected-image-digest "$IMAGE_DIGEST" \
             --expected-staging-deployment-id "$STAGING_DEPLOYMENT_ID" \
             --verified-attestation "$RUNNER_TEMP/qualification/verified-attestation.json"
+
+      - name: Request coupled VPS and Vercel production release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_COMMIT: ${{ steps.deployment.outputs.source_commit }}
+          IMAGE_REPOSITORY: ${{ steps.deployment.outputs.image_repository }}
+          IMAGE_DIGEST: ${{ steps.deployment.outputs.image_digest }}
+          BUILD_ID: ${{ steps.deployment.outputs.build_id }}
+          SOURCE_WORKFLOW_RUN_ID: ${{ steps.deployment.outputs.source_workflow_run_id }}
+          MIGRATION_HEAD: ${{ steps.deployment.outputs.migration_head }}
+          SCHEMA_VERSION: ${{ steps.deployment.outputs.schema_version }}
+          SUPABASE_PROJECT_REF: ${{ steps.deployment.outputs.supabase_project_ref }}
+          STAGING_DEPLOYMENT_ID: ${{ steps.deployment.outputs.staging_deployment_id }}
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          const token = process.env.GH_TOKEN ?? "";
+          const payload = {
+            source_repository: "ramideltoro/nutsnews",
+            source_commit: process.env.SOURCE_COMMIT ?? "",
+            image_repository: process.env.IMAGE_REPOSITORY ?? "",
+            image_digest: process.env.IMAGE_DIGEST ?? "",
+            build_id: process.env.BUILD_ID ?? "",
+            source_workflow_run_id: process.env.SOURCE_WORKFLOW_RUN_ID ?? "",
+            migration_head: process.env.MIGRATION_HEAD ?? "",
+            schema_version: process.env.SCHEMA_VERSION ?? "",
+            supabase_project_ref: process.env.SUPABASE_PROJECT_REF ?? "",
+            staging_deployment_id: process.env.STAGING_DEPLOYMENT_ID ?? "",
+            qualification_run_id: process.env.GITHUB_RUN_ID ?? "",
+          };
+          const checks = [
+            /^[0-9a-f]{40}$/.test(payload.source_commit),
+            payload.image_repository === "ghcr.io/ramideltoro/nutsnews",
+            /^sha256:[0-9a-f]{64}$/.test(payload.image_digest),
+            /^[1-9][0-9]{0,19}-[1-9][0-9]{0,5}$/.test(payload.build_id),
+            /^[1-9][0-9]{0,19}$/.test(payload.source_workflow_run_id),
+            /^[0-9]{14}$/.test(payload.migration_head),
+            /^[0-9]{14}$/.test(payload.schema_version),
+            /^[a-z0-9]{20}$/.test(payload.supabase_project_ref),
+            /^stg-[0-9a-f]{24}$/.test(payload.staging_deployment_id),
+            /^[1-9][0-9]{0,19}$/.test(payload.qualification_run_id),
+          ];
+          if (!token || checks.includes(false)) {
+            throw new Error("Refusing to request production release with an incomplete qualification payload.");
+          }
+          const response = await fetch("https://api.github.com/repos/ramideltoro/nutsnews-infra/dispatches", {
+            method: "POST",
+            headers: {
+              Accept: "application/vnd.github+json",
+              Authorization: `Bearer ${token}`,
+              "Content-Type": "application/json",
+              "X-GitHub-Api-Version": "2026-03-10",
+            },
+            body: JSON.stringify({
+              event_type: "nutsnews-production-release",
+              client_payload: payload,
+            }),
+          });
+          if (response.status !== 204) {
+            throw new Error(`Production release dispatch returned ${response.status}.`);
+          }
+          NODE
+          {
+            echo
+            echo "## Coupled production release requested"
+            echo
+            echo "- Source commit: \`${SOURCE_COMMIT}\`"
+            echo "- Image: \`${IMAGE_REPOSITORY}@${IMAGE_DIGEST}\`"
+            echo "- Production promotion workflow: https://github.com/ramideltoro/nutsnews-infra/actions/workflows/nutsnews-release-promotion.yml"
+            echo "- Vercel production will be dispatched only after protected VPS apply succeeds."
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Retain sanitized qualification evidence
         if: ${{ always() }}

@@ -126,6 +126,8 @@ valid = module.validate_candidate(fixture("valid.json"))
 assert valid.deployment_id == module.validate_candidate(fixture("valid.json")).deployment_id
 assert valid.deployment_id.startswith("stg-")
 assert len(valid.deployment_id) == len("stg-") + 24
+assert valid.migration_head == "20260713000000"
+assert valid.supabase_project_ref == "mpqfulvvagyzqneiaqky"
 
 for name in ("mutable-tag.json", "invalid-digest.json", "wrong-repository.json", "partial.json"):
     try:
@@ -307,6 +309,8 @@ for required in (
     "environment: staging-vps",
     "NUTSNEWS_STAGING_AUTH_GOOGLE_ID",
     "NUTSNEWS_STAGING_AUTH_GOOGLE_SECRET",
+    "STAGING_MIGRATION_HEAD",
+    "STAGING_SUPABASE_PROJECT_REF",
     "Verify trusted source commit and OCI provenance",
     "ansible-playbook",
     "for operation in check apply",
@@ -378,6 +382,8 @@ for required in (
     "STAGING_TARGET_HOSTNAME",
     "\"target_hostname\": STAGING_TARGET_HOSTNAME",
     "\"image_repository\": candidate.image_repository",
+    "\"migration_head\": candidate.migration_head",
+    "\"supabase_project_ref\": candidate.supabase_project_ref",
     "\"environment_url\": f\"https://{STAGING_TARGET_HOSTNAME}\"",
 ):
     assert required in audit, f"Staging deployment audit record is missing qualifier evidence: {required}"

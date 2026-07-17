@@ -30,6 +30,9 @@ SOURCE_COMMIT = "c" * 40
 INFRA_COMMIT = "d" * 40
 BUILD_ID = "29454959927-1"
 SOURCE_RUN_ID = "29454959927"
+MIGRATION_HEAD = "20260713000000"
+SCHEMA_VERSION = "20260712170000"
+SUPABASE_PROJECT_REF = "mpqfulvvagyzqneiaqky"
 DEPLOYMENT_ID = "stg-" + "e" * 24
 CONFIG_GENERATION = f"staging-{DEPLOYMENT_ID}-{INFRA_COMMIT[:12]}"
 NOW = datetime(2026, 7, 15, 12, 0, tzinfo=timezone.utc)
@@ -45,10 +48,10 @@ def manifest(digest: str = DIGEST, source_commit: str = SOURCE_COMMIT, build_id:
             f'vps_service_foundation_nutsnews_app_image_digest: "{digest}"',
             f'vps_service_foundation_nutsnews_app_source_commit: "{source_commit}"',
             f'vps_service_foundation_nutsnews_app_build_id: "{build_id}"',
-            f'vps_service_foundation_nutsnews_app_config_generation: "production-{build_id}-20260713000000"',
-            'vps_service_foundation_nutsnews_app_migration_head: "20260713000000"',
-            'vps_service_foundation_nutsnews_app_schema_version: "20260712170000"',
-            'vps_service_foundation_nutsnews_app_supabase_project_ref: "mpqfulvvagyzqneiaqky"',
+            f'vps_service_foundation_nutsnews_app_config_generation: "production-{build_id}-{MIGRATION_HEAD}"',
+            f'vps_service_foundation_nutsnews_app_migration_head: "{MIGRATION_HEAD}"',
+            f'vps_service_foundation_nutsnews_app_schema_version: "{SCHEMA_VERSION}"',
+            f'vps_service_foundation_nutsnews_app_supabase_project_ref: "{SUPABASE_PROJECT_REF}"',
             "vps_service_foundation_nutsnews_app_deployment_target: production-vps",
             'vps_service_foundation_nutsnews_app_last_known_good_digest: ""',
             "vps_service_foundation_nutsnews_app_secret_env_keys: []",
@@ -70,6 +73,9 @@ def record(**overrides: object) -> dict[str, object]:
             "build_id": BUILD_ID,
             "workflow_run_id": SOURCE_RUN_ID,
             "workflow_run_url": f"https://github.com/ramideltoro/nutsnews/actions/runs/{SOURCE_RUN_ID}",
+            "migration_head": MIGRATION_HEAD,
+            "schema_version": SCHEMA_VERSION,
+            "supabase_project_ref": SUPABASE_PROJECT_REF,
         },
         "infra": {
             "repository": "ramideltoro/nutsnews-infra",
@@ -192,6 +198,9 @@ def deployments(*, digest: str = DIGEST, deployment_id: str = DEPLOYMENT_ID, new
             "source_commit": SOURCE_COMMIT,
             "build_id": BUILD_ID,
             "source_workflow_run_id": SOURCE_RUN_ID,
+            "migration_head": MIGRATION_HEAD,
+            "schema_version": SCHEMA_VERSION,
+            "supabase_project_ref": SUPABASE_PROJECT_REF,
             "infra_commit": INFRA_COMMIT,
             "config_generation": CONFIG_GENERATION,
             "github_run_id": "123456789",
@@ -225,6 +234,9 @@ expected = {
     "image_digest": DIGEST,
     "build_id": BUILD_ID,
     "source_workflow_run_id": SOURCE_RUN_ID,
+    "migration_head": MIGRATION_HEAD,
+    "schema_version": SCHEMA_VERSION,
+    "supabase_project_ref": SUPABASE_PROJECT_REF,
 }
 
 selected = module.select_record(verified(), expected, deployments(), lambda deployment: deployment["statuses"], now=NOW)
@@ -235,6 +247,9 @@ expect_reject("wrong digest", lambda: module.select_record(verified(), {**expect
 expect_reject("wrong source", lambda: module.select_record(verified(), {**expected, "source_commit": "1" * 40}, deployments(), lambda deployment: deployment["statuses"], now=NOW))
 expect_reject("wrong build", lambda: module.select_record(verified(), {**expected, "build_id": "1-2"}, deployments(), lambda deployment: deployment["statuses"], now=NOW))
 expect_reject("wrong source workflow", lambda: module.select_record(verified(), {**expected, "source_workflow_run_id": "1"}, deployments(), lambda deployment: deployment["statuses"], now=NOW))
+expect_reject("wrong migration head", lambda: module.select_record(verified(), {**expected, "migration_head": "20260714000000"}, deployments(), lambda deployment: deployment["statuses"], now=NOW))
+expect_reject("wrong schema version", lambda: module.select_record(verified(), {**expected, "schema_version": "20260714000000"}, deployments(), lambda deployment: deployment["statuses"], now=NOW))
+expect_reject("wrong Supabase project ref", lambda: module.select_record(verified(), {**expected, "supabase_project_ref": "aaaaaaaaaaaaaaaaaaaa"}, deployments(), lambda deployment: deployment["statuses"], now=NOW))
 expect_reject("wrong issuer", lambda: module.select_record(verified(cert={"sourceRepositoryURI": "https://github.com/ramideltoro/nutsnews"}), expected, deployments(), lambda deployment: deployment["statuses"], now=NOW))
 expect_reject("wrong ref", lambda: module.select_record(verified(cert={"sourceRepositoryRef": "refs/heads/feature"}), expected, deployments(), lambda deployment: deployment["statuses"], now=NOW))
 expect_reject("expired", lambda: module.select_record(verified(), expected, deployments(), lambda deployment: deployment["statuses"], now=NOW + timedelta(hours=25)))
@@ -280,22 +295,26 @@ for required in (
     "Verify staging qualification attestation is current",
     "gh attestation verify",
     "verify_production_eligibility.py verify",
-    "Verify Vercel Production deployed the same source commit",
-    'const productionHealthOrigins = ["https://www.nutsnews.com"]',
-    "const verifiedProductionUrl = await verifyProductionAlias();",
     "Verify production Supabase schema contract",
     "production-supabase-migration.yml",
     "NUTSNEWS_INFRA_RELEASE_TOKEN",
+    "Request and wait for Vercel production deploy",
+    "nutsnews-vercel-production-release",
+    "NUTSNEWS_APP_RELEASE_TOKEN",
 ):
     assert required in promotion_workflow, f"Promotion workflow missing staging-first guardrail: {required}"
 
 assert "repository_dispatch:" not in promotion_workflow
 assert "nutsnews-production-release" not in promotion_workflow
 assert "Pause direct production release dispatch" not in promotion_workflow
+assert "nutsnews-production-release is paused" not in promotion_workflow
 assert "environment: production-vps" not in promotion_workflow
 assert "await verifyHealth(deploymentUrl)" not in promotion_workflow
 assert promotion_workflow.index("Verify staging qualification attestation is current") < promotion_workflow.index(
     "NUTSNEWS_INFRA_RELEASE_TOKEN"
+)
+assert promotion_workflow.index("gh workflow run protected-ansible-apply.yml") < promotion_workflow.index(
+    "nutsnews-vercel-production-release"
 )
 
 print("Production eligibility gate guardrails passed.")

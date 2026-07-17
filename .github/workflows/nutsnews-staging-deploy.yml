@@ -35,6 +35,8 @@ jobs:
       build_id: ${{ steps.candidate.outputs.build_id }}
       source_workflow_run_id: ${{ steps.candidate.outputs.source_workflow_run_id }}
       schema_version: ${{ steps.candidate.outputs.schema_version }}
+      migration_head: ${{ steps.candidate.outputs.migration_head }}
+      supabase_project_ref: ${{ steps.candidate.outputs.supabase_project_ref }}
 
     steps:
       - name: Checkout reviewed staging automation
@@ -123,6 +125,8 @@ jobs:
           STAGING_IMAGE_DIGEST: ${{ needs.preflight.outputs.image_digest }}
           STAGING_BUILD_ID: ${{ needs.preflight.outputs.build_id }}
           STAGING_SOURCE_WORKFLOW_RUN_ID: ${{ needs.preflight.outputs.source_workflow_run_id }}
+          STAGING_MIGRATION_HEAD: ${{ needs.preflight.outputs.migration_head }}
+          STAGING_SUPABASE_PROJECT_REF: ${{ needs.preflight.outputs.supabase_project_ref }}
         run: |
           set -euo pipefail
           umask 077

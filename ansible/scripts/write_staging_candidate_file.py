@@ -13,6 +13,8 @@ from validate_staging_candidate import CandidateError, validate_candidate
 
 ENVIRONMENT_FIELDS = {
     "schema_version": "STAGING_SCHEMA_VERSION",
+    "migration_head": "STAGING_MIGRATION_HEAD",
+    "supabase_project_ref": "STAGING_SUPABASE_PROJECT_REF",
     "source_repository": "STAGING_SOURCE_REPOSITORY",
     "source_commit": "STAGING_SOURCE_COMMIT",
     "image_repository": "STAGING_IMAGE_REPOSITORY",

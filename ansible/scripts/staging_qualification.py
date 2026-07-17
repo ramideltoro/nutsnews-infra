@@ -46,6 +46,8 @@ class QualificationError(ValueError):
 @dataclass(frozen=True)
 class DeploymentEvidence:
     schema_version: str
+    migration_head: str
+    supabase_project_ref: str
     source_repository: str
     source_commit: str
     image_repository: str
@@ -179,6 +181,8 @@ def deployment_from_payload(deployment: dict[str, Any], status: dict[str, Any]) 
 
     evidence = DeploymentEvidence(
         schema_version=require_string(payload, "schema_version", SCHEMA_VERSION_PATTERN),
+        migration_head=require_string(payload, "migration_head", SCHEMA_VERSION_PATTERN),
+        supabase_project_ref=require_string(payload, "supabase_project_ref", re.compile(r"^[a-z0-9]{20}$")),
         source_repository=require_string(payload, "source_repository"),
         source_commit=require_string(payload, "source_commit", COMMIT_PATTERN),
         image_repository=require_string(payload, "image_repository"),
@@ -470,6 +474,9 @@ def build_record(
                 f"https://github.com/{deployment.source_repository}/actions/runs/"
                 f"{deployment.source_workflow_run_id}"
             ),
+            "migration_head": deployment.migration_head,
+            "schema_version": deployment.schema_version,
+            "supabase_project_ref": deployment.supabase_project_ref,
         },
         "infra": {
             "repository": INFRA_REPOSITORY,
@@ -541,6 +548,7 @@ def validate_record(
     if record.get("result") != "pass":
         raise QualificationError("Qualification result is not pass.")
     image = record.get("image")
+    source = record.get("source")
     staging = record.get("staging")
     timing = record.get("timing")
     suites = record.get("required_suites")
@@ -552,6 +560,14 @@ def validate_record(
         raise QualificationError("Qualification image digest is invalid.")
     if expected_image_digest and digest != expected_image_digest:
         raise QualificationError("Qualification digest does not match the expected candidate.")
+    if not isinstance(source, dict):
+        raise QualificationError("Qualification source section is missing.")
+    if not SCHEMA_VERSION_PATTERN.fullmatch(str(source.get("schema_version") or "")):
+        raise QualificationError("Qualification source schema version is invalid.")
+    if not SCHEMA_VERSION_PATTERN.fullmatch(str(source.get("migration_head") or "")):
+        raise QualificationError("Qualification source migration head is invalid.")
+    if not re.fullmatch(r"^[a-z0-9]{20}$", str(source.get("supabase_project_ref") or "")):
+        raise QualificationError("Qualification source Supabase project ref is invalid.")
     if not isinstance(staging, dict):
         raise QualificationError("Qualification staging section is missing.")
     deployment_id = str(staging.get("deployment_id") or "")
@@ -642,6 +658,9 @@ def command_resolve(arguments: argparse.Namespace) -> None:
             "image_digest": evidence.image_digest,
             "build_id": evidence.build_id,
             "source_workflow_run_id": evidence.source_workflow_run_id,
+            "schema_version": evidence.schema_version,
+            "migration_head": evidence.migration_head,
+            "supabase_project_ref": evidence.supabase_project_ref,
             "infra_commit": evidence.infra_commit,
             "config_generation": evidence.config_generation,
             "target_hostname": evidence.target_hostname,

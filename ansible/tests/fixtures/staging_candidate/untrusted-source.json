@@ -1,5 +1,7 @@
 {
   "schema_version": "20260712170000",
+  "migration_head": "20260713000000",
+  "supabase_project_ref": "mpqfulvvagyzqneiaqky",
   "source_repository": "ramideltoro/nutsnews",
   "source_commit": "cccccccccccccccccccccccccccccccccccccccc",
   "image_repository": "ghcr.io/ramideltoro/nutsnews",

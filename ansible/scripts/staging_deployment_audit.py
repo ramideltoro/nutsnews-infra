@@ -76,6 +76,8 @@ def main() -> None:
                 "build_id": candidate.build_id,
                 "source_workflow_run_id": candidate.source_workflow_run_id,
                 "schema_version": candidate.schema_version,
+                "migration_head": candidate.migration_head,
+                "supabase_project_ref": candidate.supabase_project_ref,
                 "infra_commit": arguments.infra_commit,
                 "config_generation": arguments.config_generation,
                 "requested_at": timestamp,

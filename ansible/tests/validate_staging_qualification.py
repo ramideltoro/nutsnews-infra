@@ -47,6 +47,8 @@ def deployment_payload() -> dict[str, object]:
         "task": "nutsnews-staging-deploy",
         "payload": {
             "schema_version": "20260715000100",
+            "migration_head": "20260713000000",
+            "supabase_project_ref": "mpqfulvvagyzqneiaqky",
             "source_repository": "ramideltoro/nutsnews",
             "source_commit": COMMIT,
             "image_repository": "ghcr.io/ramideltoro/nutsnews",
@@ -168,8 +170,13 @@ resolved = evidence()
 assert resolved.image_repository == "ghcr.io/ramideltoro/nutsnews"
 assert resolved.image_digest == DIGEST
 assert resolved.staging_deployment_id == DEPLOYMENT_ID
+assert resolved.migration_head == "20260713000000"
+assert resolved.supabase_project_ref == "mpqfulvvagyzqneiaqky"
 
 passing_record = record()
+assert passing_record["source"]["migration_head"] == "20260713000000"
+assert passing_record["source"]["schema_version"] == "20260715000100"
+assert passing_record["source"]["supabase_project_ref"] == "mpqfulvvagyzqneiaqky"
 module.validate_record(
     passing_record,
     now=NOW,
@@ -297,6 +304,8 @@ for required in (
     "Check staging identity after tests",
     "persist-credentials: false",
     "overwrite: false",
+    "nutsnews-production-release",
+    "Request coupled VPS and Vercel production release",
 ):
     assert required in workflow, f"Qualification workflow missing guardrail: {required}"
 
@@ -312,6 +321,8 @@ for forbidden in (
 
 assert "target_hostname" in deploy_audit
 assert "image_repository" in deploy_audit
+assert "migration_head" in deploy_audit
+assert "supabase_project_ref" in deploy_audit
 assert "environment_url" in deploy_audit
 
 print("Off-VPS staging qualification guardrails passed.")
