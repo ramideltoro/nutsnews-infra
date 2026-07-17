@@ -157,23 +157,15 @@ for required in (
     "Checkout exact app source for release contract",
     "getMigrationContract",
     "readApplicationMigrationContract",
-    "Verify Vercel Production deployed the same source commit",
-    'const productionHealthOrigins = ["https://www.nutsnews.com"]',
-    "Vercel production alias",
-    "Production health verification must use an approved NutsNews HTTPS alias.",
-    "const verifiedProductionUrl = await verifyProductionAlias();",
-    "`deployment_url=${verifiedProductionUrl}\\n`",
-    "returned non-JSON HTTP",
-    "returned HTTP ${response.status}",
-    "Check Vercel deployment protection, alias routing",
-    'deployment?.creator?.login === "vercel[bot]"',
     "Verify production Supabase schema contract",
     "api/runtime-config",
+    "Production runtime config",
     "nutsnews_migration_schema_contract",
     "production-supabase-migration.yml",
     "Verify staging qualification attestation is current",
     "gh attestation verify",
     "verify_production_eligibility.py verify",
+    "timeout-minutes: 180",
     "git fetch origin main --prune",
     "current-vps-release.yml",
     'git switch -c "$release_branch" origin/main',
@@ -189,6 +181,11 @@ for required in (
     "gh workflow run protected-ansible-apply.yml",
     "gh run watch \"$run_id\"",
     "--exit-status",
+    "Request and wait for Vercel production deploy",
+    "NUTSNEWS_APP_RELEASE_TOKEN",
+    "nutsnews-vercel-production-release",
+    "--workflow vercel-production-release.yml",
+    "--repo ramideltoro/nutsnews",
     "ansible/scripts/promote_nutsnews_release.py",
     "MIGRATION_HEAD",
     "SCHEMA_VERSION",
@@ -209,10 +206,9 @@ assert (
     < promotion_workflow.index("gh pr list")
 ), "A rerun must verify staging qualification before it reuses or creates a release pull request."
 assert (
-    promotion_workflow.index("Verify Vercel Production deployed the same source commit")
-    < promotion_workflow.index("Verify production Supabase schema contract")
+    promotion_workflow.index("Verify production Supabase schema contract")
     < promotion_workflow.index("Verify staging qualification attestation is current")
-), "Vercel and production Supabase gates must pass before promotion PR creation."
+), "Production Supabase gate must pass before promotion PR creation."
 assert (
     promotion_workflow.index("Verify staging qualification attestation is current")
     < promotion_workflow.index("NUTSNEWS_INFRA_RELEASE_TOKEN")
@@ -221,6 +217,10 @@ assert (
     promotion_workflow.index("current-vps-release.yml")
     < promotion_workflow.index("gh pr list")
 ), "A rerun must verify current main before it reuses or creates a release pull request."
+assert (
+    promotion_workflow.index("gh workflow run protected-ansible-apply.yml")
+    < promotion_workflow.index("nutsnews-vercel-production-release")
+), "Vercel production must deploy only after the protected VPS apply is started and watched."
 assert "run.get(\"createdAt\", \"\") >= sys.argv[3]" in promotion_workflow, (
     "The release workflow must select only a protected apply started by its own dispatch."
 )
@@ -252,6 +252,8 @@ assert "--expected-health-deployment-target production-vps" in protected_workflo
 assert "NUTSNEWS_APP_IMAGE_TAG" not in promotion_workflow
 assert "repository_dispatch:" not in promotion_workflow
 assert "nutsnews-production-release" not in promotion_workflow
+assert "VERCEL_DEPLOYMENT_URL" not in promotion_workflow
+assert "nutsnews-production-release is paused" not in promotion_workflow
 assert ":latest" not in promotion_workflow.lower()
 assert "gh pr checks \"$PR_URL\" --required" not in promotion_workflow
 assert "environment: production-vps" not in promotion_workflow

@@ -31,8 +31,11 @@ COMMIT_PATTERN = re.compile(r"^[0-9a-f]{40}$")
 DIGEST_PATTERN = re.compile(r"^sha256:[0-9a-f]{64}$")
 BUILD_ID_PATTERN = re.compile(r"^([1-9][0-9]{0,19})-([1-9][0-9]{0,5})$")
 RUN_ID_PATTERN = re.compile(r"^[1-9][0-9]{0,19}$")
+SUPABASE_PROJECT_REF_PATTERN = re.compile(r"^[a-z0-9]{20}$")
 EXPECTED_KEYS = {
     "schema_version",
+    "migration_head",
+    "supabase_project_ref",
     "source_repository",
     "source_commit",
     "image_repository",
@@ -53,6 +56,8 @@ class CandidateError(ValueError):
 @dataclass(frozen=True)
 class Candidate:
     schema_version: str
+    migration_head: str
+    supabase_project_ref: str
     source_repository: str
     source_commit: str
     image_repository: str
@@ -103,6 +108,10 @@ def validate_candidate(payload: Any) -> Candidate:
     candidate = Candidate(**{name: _require_string(payload, name) for name in EXPECTED_KEYS})
     if not SCHEMA_VERSION_PATTERN.fullmatch(candidate.schema_version):
         raise CandidateError("schema_version must be the expected 14-digit migration schema version.")
+    if not SCHEMA_VERSION_PATTERN.fullmatch(candidate.migration_head):
+        raise CandidateError("migration_head must be the expected 14-digit repository migration head.")
+    if not SUPABASE_PROJECT_REF_PATTERN.fullmatch(candidate.supabase_project_ref):
+        raise CandidateError("supabase_project_ref must be the 20-character production Supabase project reference.")
     if candidate.source_repository != SOURCE_REPOSITORY:
         raise CandidateError("Only ramideltoro/nutsnews may request a staging deployment.")
     if not COMMIT_PATTERN.fullmatch(candidate.source_commit):
@@ -335,6 +344,8 @@ def write_candidate(candidate: Candidate, output: Path, github_output: Path | No
             f"build_id={candidate.build_id}",
             f"source_workflow_run_id={candidate.source_workflow_run_id}",
             f"schema_version={candidate.schema_version}",
+            f"migration_head={candidate.migration_head}",
+            f"supabase_project_ref={candidate.supabase_project_ref}",
         ]
         with github_output.open("a", encoding="utf-8") as handle:
             handle.write("\n".join(lines) + "\n")

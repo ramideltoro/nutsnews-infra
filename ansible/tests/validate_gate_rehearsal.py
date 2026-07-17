@@ -49,6 +49,9 @@ for label in (
     "wrong source",
     "wrong build",
     "wrong source workflow",
+    "wrong migration head",
+    "wrong schema version",
+    "wrong Supabase project ref",
     "wrong issuer",
     "wrong ref",
     "expired",
@@ -98,11 +101,14 @@ for required in (
     "workflow_dispatch:",
     "qualification_run_id:",
     "promote-qualified-staging-release",
-    "Verify Vercel Production deployed the same source commit",
     "Verify production Supabase schema contract",
+    "api/runtime-config",
     "production-supabase-migration.yml",
     "Verify staging qualification attestation is current",
     "verify_production_eligibility.py verify",
+    "Request and wait for Vercel production deploy",
+    "NUTSNEWS_APP_RELEASE_TOKEN",
+    "nutsnews-vercel-production-release",
 ):
     require(required in PROMOTION, f"Promotion workflow missing staging-qualified production gate: {required}.")
 require("repository_dispatch:" not in PROMOTION, "Promotion workflow must not accept direct production repository dispatch.")
@@ -114,16 +120,20 @@ require(
     "Promotion workflow must not expose the release token before staging qualification is reverified.",
 )
 require(
-    PROMOTION.index("Verify Vercel Production deployed the same source commit")
-    < PROMOTION.index("Verify production Supabase schema contract")
+    PROMOTION.index("Verify production Supabase schema contract")
     < PROMOTION.index("Verify staging qualification attestation is current")
     < PROMOTION.index("Create or reuse the checked release promotion pull request"),
-    "Promotion workflow must pass Vercel, Supabase, and attestation gates before the GitOps PR.",
+    "Promotion workflow must pass Supabase and attestation gates before the GitOps PR.",
 )
 require(
     PROMOTION.index("Verify staging qualification attestation is current")
     < PROMOTION.index("gh workflow run protected-ansible-apply.yml"),
     "Promotion workflow must reverify staging qualification before protected apply dispatch.",
+)
+require(
+    PROMOTION.index("gh workflow run protected-ansible-apply.yml")
+    < PROMOTION.index("nutsnews-vercel-production-release"),
+    "Promotion workflow must wait for protected VPS apply before dispatching Vercel production.",
 )
 
 for required in (

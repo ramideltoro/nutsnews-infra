@@ -133,6 +133,12 @@ def matches_release(record: dict[str, Any], expected: dict[str, str]) -> None:
         raise EligibilityError("Qualification build ID does not match the release build.")
     if source.get("workflow_run_id") != expected["source_workflow_run_id"]:
         raise EligibilityError("Qualification source workflow run does not match the release build run.")
+    if source.get("migration_head") != expected["migration_head"]:
+        raise EligibilityError("Qualification migration head does not match the release.")
+    if source.get("schema_version") != expected["schema_version"]:
+        raise EligibilityError("Qualification schema version does not match the release.")
+    if source.get("supabase_project_ref") != expected["supabase_project_ref"]:
+        raise EligibilityError("Qualification Supabase project reference does not match the release.")
     if test_suite.get("repository") != "ramideltoro/nutsnews" or test_suite.get("commit") != expected["source_commit"]:
         raise EligibilityError("Qualification test-suite revision does not match the release source.")
 
@@ -178,6 +184,9 @@ def validate_current_staging(record: dict[str, Any], deployments: list[dict[str,
         "build_id": source.get("build_id"),
         "infra_commit": infra.get("commit"),
         "config_generation": infra.get("config_generation"),
+        "migration_head": source.get("migration_head"),
+        "schema_version": source.get("schema_version"),
+        "supabase_project_ref": source.get("supabase_project_ref"),
     }
     for key, expected in checks.items():
         if payload.get(key) != expected:
@@ -242,6 +251,9 @@ def command_verify(arguments: argparse.Namespace) -> None:
         "image_digest": arguments.image_digest,
         "build_id": arguments.build_id,
         "source_workflow_run_id": arguments.source_workflow_run_id,
+        "migration_head": arguments.migration_head,
+        "schema_version": arguments.schema_version,
+        "supabase_project_ref": arguments.supabase_project_ref,
     }
     promote_nutsnews_release.verify_manifest(
         arguments.manifest,
