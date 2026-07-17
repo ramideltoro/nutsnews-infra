@@ -225,6 +225,18 @@ assert "run.get(\"createdAt\", \"\") >= sys.argv[3]" in promotion_workflow, (
     "The release workflow must select only a protected apply started by its own dispatch."
 )
 
+payload_match = re.search(r"const payload = \{\n(?P<body>.*?)\n\s+\};", promotion_workflow, re.DOTALL)
+assert payload_match, "The Vercel production dispatch payload must be explicit."
+dispatch_payload_keys = re.findall(r"^\s+([a-z_]+):", payload_match.group("body"), re.MULTILINE)
+assert dispatch_payload_keys == [
+    "source_repository",
+    "source_commit",
+    "image_digest",
+    "build_id",
+    "vps_apply_run_id",
+], "The Vercel dispatch payload should contain only fields consumed by the app workflow."
+assert len(dispatch_payload_keys) <= 10, "GitHub repository dispatch rejects more than 10 client_payload keys."
+
 for required in (
     "release_source_commit:",
     "release_image_digest:",
