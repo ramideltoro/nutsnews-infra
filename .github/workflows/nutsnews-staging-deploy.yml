@@ -313,6 +313,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          set +e
           ssh \
             -i "$HOME/.ssh/nutsnews_staging_vps" \
             -o "UserKnownHostsFile=$HOME/.ssh/known_hosts" \
@@ -321,8 +322,37 @@ jobs:
             nutsnews_staging_deploy@65.75.202.112 \
             < "$RUNNER_TEMP/nutsnews-staging-apply.json" \
             > "$RUNNER_TEMP/nutsnews-staging-apply-result.json"
-          python3 -c 'import json,sys; assert json.load(open(sys.argv[1])) == {"ok": True, "operation": "apply"}' \
-            "$RUNNER_TEMP/nutsnews-staging-apply-result.json"
+          gateway_status="$?"
+          set -e
+          python3 - "$RUNNER_TEMP/nutsnews-staging-apply-result.json" "$gateway_status" <<'PY'
+          import json
+          from pathlib import Path
+          import re
+          import sys
+
+          result = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+          status = int(sys.argv[2])
+          if status == 0 and result == {"ok": True, "operation": "apply"}:
+              raise SystemExit(0)
+          code = result.get("code")
+          task = result.get("task", "")
+          diagnostic = result.get("diagnostic", "")
+          controller = result.get("controller", "")
+          if not isinstance(code, str) or not re.fullmatch(r"[a-z_]{1,80}", code):
+              raise SystemExit("Staging gateway returned an invalid failure response.")
+          if not isinstance(task, str) or (task and not re.fullmatch(r"[A-Za-z0-9 _./:()'=-]{1,200}", task)):
+              raise SystemExit("Staging gateway returned an invalid task label.")
+          if not isinstance(diagnostic, str) or (diagnostic and not re.fullmatch(r"[a-z_]{1,80}", diagnostic)):
+              raise SystemExit("Staging gateway returned an invalid diagnostic class.")
+          if not isinstance(controller, str) or (controller not in {"", "unknown"} and not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", controller)):
+              raise SystemExit("Staging gateway returned an invalid controller version.")
+          task_suffix = f" at reviewed task: {task}" if task else ""
+          diagnostic_suffix = f"; diagnostic={diagnostic}" if diagnostic else ""
+          controller_suffix = f"; controller={controller}" if controller else ""
+          raise SystemExit(
+              f"Staging gateway failed with {code}{task_suffix}{diagnostic_suffix}{controller_suffix}"
+          )
+          PY
 
       - name: Wait for staging readiness and verify Docker digest
         shell: bash
