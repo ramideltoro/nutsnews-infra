@@ -253,6 +253,7 @@ jobs:
           const repository = "ramideltoro/nutsnews";
           const sourceCommit = process.env.SOURCE_COMMIT ?? "";
           const token = process.env.GH_TOKEN ?? "";
+          const productionHealthOrigins = ["https://www.nutsnews.com"];
           const deadline = Date.now() + 30 * 60 * 1000;
           const delay = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 
@@ -274,8 +275,8 @@ jobs:
             return response.json();
           }
 
-          async function verifyHealth(deploymentUrl) {
-            const url = new URL("/healthz", deploymentUrl);
+          async function probeProductionAlias(healthOrigin) {
+            const url = new URL("/healthz", healthOrigin);
             url.searchParams.set("release", sourceCommit);
             const response = await fetch(url, {
               headers: {
@@ -289,27 +290,55 @@ jobs:
             try {
               payload = JSON.parse(body);
             } catch {
-              throw new Error(
-                `Vercel health endpoint ${url.origin}/healthz returned non-JSON HTTP ${response.status} ` +
+              return {
+                ok: false,
+                reason:
+                  `Vercel production alias ${url.origin}/healthz returned non-JSON HTTP ${response.status} ` +
                   `(${contentType || "unknown content-type"}). Check Vercel deployment protection, alias routing, ` +
                   "or automation bypass before rerunning promotion.",
-              );
+              };
             }
             if (!response.ok) {
-              throw new Error(
-                `Vercel health endpoint ${url.origin}/healthz returned HTTP ${response.status}. ` +
+              return {
+                ok: false,
+                reason:
+                  `Vercel production alias ${url.origin}/healthz returned HTTP ${response.status}. ` +
                   "Check Vercel deployment protection, alias routing, or automation bypass before rerunning promotion.",
-              );
+              };
             }
             if (
               payload?.ok !== true ||
               payload?.sourceCommit !== sourceCommit ||
               response.headers.get("x-nutsnews-source-commit") !== sourceCommit
             ) {
-              throw new Error(`Vercel health identity did not match ${sourceCommit}.`);
+              return {
+                ok: false,
+                reason: `Vercel production alias ${url.origin}/healthz identity did not match ${sourceCommit}.`,
+              };
             }
+            return { ok: true, url: url.origin };
           }
 
+          async function verifyProductionAlias() {
+            const failures = [];
+            for (const healthOrigin of productionHealthOrigins) {
+              const parsed = new URL(healthOrigin);
+              if (
+                parsed.protocol !== "https:" ||
+                !["nutsnews.com", "www.nutsnews.com"].includes(parsed.hostname)
+              ) {
+                throw new Error("Production health verification must use an approved NutsNews HTTPS alias.");
+              }
+              const result = await probeProductionAlias(healthOrigin);
+              if (result.ok) {
+                return result.url;
+              }
+              failures.push(result.reason);
+            }
+            throw new Error(failures.join(" "));
+          }
+
+          let lastHealthFailure = "";
           while (Date.now() < deadline) {
             const deployments = [];
             for (const environment of ["Production", "production"]) {
@@ -349,10 +378,18 @@ jobs:
                 if (!approvedHost) {
                   throw new Error("The successful Vercel production deployment did not provide an approved HTTPS URL.");
                 }
-                await verifyHealth(deploymentUrl);
-                appendFileSync(process.env.GITHUB_OUTPUT, `deployment_url=${deploymentUrl}\n`, "utf8");
-                console.log(`Verified Vercel production deployment ${deployment.id} for ${sourceCommit}.`);
-                process.exit(0);
+                try {
+                  const verifiedProductionUrl = await verifyProductionAlias();
+                  appendFileSync(process.env.GITHUB_OUTPUT, `deployment_url=${verifiedProductionUrl}\n`, "utf8");
+                  console.log(
+                    `Verified Vercel production deployment ${deployment.id} for ${sourceCommit} ` +
+                      `through ${verifiedProductionUrl}; deployment evidence URL ${deploymentUrl}.`,
+                  );
+                  process.exit(0);
+                } catch (error) {
+                  lastHealthFailure = error instanceof Error ? error.message : String(error);
+                  pending = true;
+                }
               }
               if (["failure", "error", "inactive"].includes(latest.state)) {
                 failures.push(`${deployment.id}:${latest.state}`);
@@ -367,7 +404,8 @@ jobs:
             await delay(15_000);
           }
 
-          throw new Error(`Timed out waiting for Vercel Production to deploy ${sourceCommit}.`);
+          const healthDetail = lastHealthFailure ? ` Last production alias health check: ${lastHealthFailure}` : "";
+          throw new Error(`Timed out waiting for Vercel Production to deploy ${sourceCommit}.${healthDetail}`);
           NODE
 
       - name: Verify production Supabase schema contract

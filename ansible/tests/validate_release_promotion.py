@@ -158,6 +158,11 @@ for required in (
     "getMigrationContract",
     "readApplicationMigrationContract",
     "Verify Vercel Production deployed the same source commit",
+    'const productionHealthOrigins = ["https://www.nutsnews.com"]',
+    "Vercel production alias",
+    "Production health verification must use an approved NutsNews HTTPS alias.",
+    "const verifiedProductionUrl = await verifyProductionAlias();",
+    "`deployment_url=${verifiedProductionUrl}\\n`",
     "returned non-JSON HTTP",
     "returned HTTP ${response.status}",
     "Check Vercel deployment protection, alias routing",
@@ -193,6 +198,10 @@ for required in (
     "--supabase-project-ref",
 ):
     assert required in promotion_workflow, f"Promotion workflow is missing required guardrail: {required}"
+
+assert "await verifyHealth(deploymentUrl)" not in promotion_workflow, (
+    "Promotion must not probe the protected Vercel deployment URL for health; use the public production alias."
+)
 
 assert (
     promotion_workflow.index("Verify staging qualification attestation is current")
