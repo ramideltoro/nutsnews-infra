@@ -4,6 +4,16 @@ Use this runbook for the manual GitHub Actions workflow that applies the Ansible
 
 The workflow is manual-only for now. It does not run on merge, does not use root SSH, and does not store secrets in the repository.
 
+Production app releases normally enter this workflow through
+`nutsnews-release-promotion.yml` after a successful staging qualification. The
+promotion workflow verifies the signed staging qualification, confirms the
+candidate is still the current successful staging deployment, waits for Vercel
+Production to expose the same source commit, verifies the production Supabase
+schema contract, creates or reuses the GitOps manifest PR, waits for checks,
+merges it, and then dispatches this protected apply with the complete release
+identity bundle. The old direct `nutsnews-production-release` dispatch is not a
+valid entry point.
+
 Before any job can enter the `production-vps` Environment, the workflow runs a
 no-secret production eligibility check. Baseline-only changes may proceed when
 the reviewed production release identity is unchanged. Any production app
@@ -89,6 +99,12 @@ For an app release rehearsal, include the complete release identity bundle:
 - `release_migration_head`
 - `release_schema_version`
 - `release_supabase_project_ref`
+
+Do not manually dispatch this workflow for a new app digest until
+`nutsnews-release-promotion.yml` has created and merged the reviewed production
+manifest. If the production Supabase schema contract is behind, run the
+protected `production-supabase-migration.yml` workflow in `ramideltoro/nutsnews`
+for the same source commit and migration head, then rerun promotion.
 
 The no-secret verifier rejects missing, expired, tampered, stale, superseded,
 or mismatched staging qualification evidence before SSH keys, production app
