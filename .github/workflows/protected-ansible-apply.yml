@@ -350,6 +350,8 @@ jobs:
           RUN_MODE: ${{ inputs.run_mode }}
           CONFIRM_APPLY: ${{ inputs.confirm_apply }}
           SYNC_VERCEL_PRODUCTION: ${{ inputs.sync_vercel_production }}
+          APP_RELEASE: ${{ needs.verify-production-eligibility.outputs.app_release }}
+          ROLLBACK_CONFIRMATION: ${{ inputs.rollback_confirmation }}
         run: |
           set -euo pipefail
 
@@ -365,6 +367,11 @@ jobs:
 
           if [[ "$SYNC_VERCEL_PRODUCTION" != "true" && "$SYNC_VERCEL_PRODUCTION" != "false" ]]; then
             echo "sync_vercel_production must be true or false." >&2
+            exit 1
+          fi
+
+          if [[ "$APP_RELEASE" == "true" && "$SYNC_VERCEL_PRODUCTION" == "false" && "$ROLLBACK_CONFIRMATION" != "rollback-recorded-last-known-good" ]]; then
+            echo "Production app releases must set sync_vercel_production=true unless this is a fixed rollback replay." >&2
             exit 1
           fi
 
