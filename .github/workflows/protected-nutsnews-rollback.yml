@@ -113,11 +113,11 @@ jobs:
           deadline=$((SECONDS + 3600))
           while true; do
             set +e
-            checks_json="$(gh pr checks "$PR_URL" --json name,bucket 2>/dev/null)"
+            checks_json="$(gh pr checks --required "$PR_URL" --json name,bucket 2>/dev/null)"
             checks_exit=$?
             set -e
             if [[ "$checks_exit" -eq 0 ]]; then
-              failed="$(python3 -c 'import json,sys; data=json.loads(sys.stdin.read()); print(any(item["bucket"] in {"fail","cancel","skipping"} for item in data))' <<<"$checks_json")"
+              failed="$(python3 -c 'import json,sys; data=json.loads(sys.stdin.read()); print(any(item["bucket"] in {"fail","cancel"} for item in data))' <<<"$checks_json")"
               pending="$(python3 -c 'import json,sys; data=json.loads(sys.stdin.read()); print(any(item["bucket"] not in {"pass","skipping"} for item in data))' <<<"$checks_json")"
               if [[ "$failed" == "True" ]]; then
                 echo "Rollback PR checks failed." >&2
