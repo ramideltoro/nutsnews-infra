@@ -222,6 +222,7 @@ jobs:
             image_digest: process.env.RESTORED_IMAGE_DIGEST ?? "",
             build_id: process.env.RESTORED_BUILD_ID ?? "",
             vps_apply_run_id: process.env.ROLLBACK_APPLY_RUN_ID ?? "",
+            release_kind: "rollback",
           };
           const response = await fetch("https://api.github.com/repos/ramideltoro/nutsnews/dispatches", {
             method: "POST",

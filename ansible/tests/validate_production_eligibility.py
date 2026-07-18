@@ -300,6 +300,9 @@ for required in (
     "NUTSNEWS_INFRA_RELEASE_TOKEN",
     "Request and wait for Vercel production deploy",
     "nutsnews-vercel-production-release",
+    "STAGING_DEPLOYMENT_ID",
+    "QUALIFICATION_RUN_ID",
+    'release_kind: "release"',
     "NUTSNEWS_APP_RELEASE_TOKEN",
 ):
     assert required in promotion_workflow, f"Promotion workflow missing staging-first guardrail: {required}"

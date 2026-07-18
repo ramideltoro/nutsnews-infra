@@ -212,6 +212,7 @@ for required in (
     "vercel-production-release.yml",
     "Redeploy restored release to Vercel production",
     "NUTSNEWS_APP_RELEASE_TOKEN",
+    'release_kind: "rollback"',
     "--field rollback_failed_image_digest",
     "--field rollback_reason",
     "--field rollback_confirmation=rollback-recorded-last-known-good",
