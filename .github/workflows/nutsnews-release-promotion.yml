@@ -59,6 +59,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          # shellcheck disable=SC2027,SC2086,SC2129
           set -euo pipefail
           umask 077
 
@@ -170,6 +171,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           SOURCE_COMMIT: ${{ steps.qualified.outputs.source_commit }}
         run: |
+          # shellcheck disable=SC2027,SC2034,SC2086
           set -euo pipefail
 
           python3 - <<'PY'
@@ -649,6 +651,7 @@ jobs:
 
       - name: Request and wait for Vercel production deploy
         id: vercel
+        continue-on-error: true
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.NUTSNEWS_APP_RELEASE_TOKEN }}
@@ -693,18 +696,19 @@ jobs:
           NODE
 
           release_title="Deploy Vercel production ${SOURCE_COMMIT}"
-          runs_file="$RUNNER_TEMP/vercel-production-runs.json"
           run_id=""
           for _ in $(seq 1 60); do
-            gh run list \
+            # shellcheck disable=SC2027,SC2086
+            run_id="$(gh run list \
               --repo ramideltoro/nutsnews \
               --workflow vercel-production-release.yml \
               --event repository_dispatch \
               --branch main \
               --limit 50 \
-              --json databaseId,displayTitle,status,createdAt \
-              > "$runs_file"
-            run_id="$(python3 -c 'import json, sys; print(next((str(run["databaseId"]) for run in json.load(open(sys.argv[1], encoding="utf-8")) if run.get("displayTitle") == sys.argv[2] and run.get("createdAt", "") >= sys.argv[3]), ""))' "$runs_file" "$release_title" "$dispatch_started_at")"
+              --json databaseId,displayTitle,createdAt \
+              --jq ".[] | select(.displayTitle == \"${release_title}\" and .createdAt >= \"${dispatch_started_at}\") | .databaseId" \
+              | head -n 1
+            )"
             if [[ -n "$run_id" ]]; then
               break
             fi
@@ -716,10 +720,80 @@ jobs:
             exit 1
           fi
 
-          gh run watch "$run_id" --repo ramideltoro/nutsnews --exit-status
-          echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
+          if gh run watch "$run_id" --repo ramideltoro/nutsnews --exit-status; then
+            vercel_status="success"
+          else
+            vercel_status="failed"
+          fi
+          run_conclusion="$(gh run view "$run_id" --repo ramideltoro/nutsnews --json conclusion --jq '.conclusion // "unknown"')"
+          run_url="$(gh run view "$run_id" --repo ramideltoro/nutsnews --json url --jq '.url')"
+          {
+            echo "run_id=$run_id"
+            echo "run_url=$run_url"
+            echo "run_conclusion=$run_conclusion"
+            echo "deploy_failed=$([[ "$vercel_status" == "failed" ]] && echo true || echo false)"
+          } >> "$GITHUB_OUTPUT"
+          if [[ "$vercel_status" == "failed" ]]; then
+            echo "Vercel production run ${run_id} ended as ${run_conclusion}" >&2
+          fi
+
+      - name: Roll back VPS release on Vercel production failure
+        id: rollback
+        if: steps.vercel.outputs.deploy_failed == 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.NUTSNEWS_INFRA_RELEASE_TOKEN }}
+          SOURCE_COMMIT: ${{ steps.qualified.outputs.source_commit }}
+          IMAGE_DIGEST: ${{ steps.qualified.outputs.image_digest }}
+          VERCEL_RUN_ID: ${{ steps.vercel.outputs.run_id }}
+          VERCEL_RUN_CONCLUSION: ${{ steps.vercel.outputs.run_conclusion }}
+        run: |
+          # shellcheck disable=SC2027,SC2086
+          set -euo pipefail
+
+          if [[ -z "$GH_TOKEN" ]]; then
+            echo "NUTSNEWS_INFRA_RELEASE_TOKEN is required for protected rollback dispatch." >&2
+            exit 1
+          fi
+
+          dispatch_started_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          rollback_reason="vps release rollback triggered by Vercel failure for ${SOURCE_COMMIT} (Vercel ${VERCEL_RUN_ID}, ${VERCEL_RUN_CONCLUSION})"
+          gh workflow run protected-nutsnews-rollback.yml \
+            --repo "$GITHUB_REPOSITORY" \
+            --ref main \
+            --field failed_image_digest="$IMAGE_DIGEST" \
+            --field rollback_reason="$rollback_reason" \
+            --field rollback_confirmation=rollback-recorded-last-known-good
+
+
+          rollback_run_id=""
+          for _ in $(seq 1 30); do
+            # shellcheck disable=SC2027,SC2086
+            rollback_run_id="$(gh run list \
+              --repo "$GITHUB_REPOSITORY" \
+              --workflow protected-nutsnews-rollback.yml \
+              --event workflow_dispatch \
+              --limit 20 \
+              --json databaseId,createdAt \
+              --jq ".[] | select(.createdAt >= \"${dispatch_started_at}\") | .databaseId" \
+              | head -n 1
+            )"
+            if [[ -n "$rollback_run_id" ]]; then
+              break
+            fi
+            sleep 2
+          done
+
+          if [[ -z "$rollback_run_id" ]]; then
+            echo "Timed out locating the protected rollback workflow run." >&2
+            exit 1
+          fi
+
+          gh run watch "$rollback_run_id" --repo "$GITHUB_REPOSITORY" --exit-status
+          echo "run_id=$rollback_run_id" >> "$GITHUB_OUTPUT"
 
       - name: Summarize completed GitOps release
+        if: ${{ always() }}
         shell: bash
         env:
           SOURCE_COMMIT: ${{ steps.qualified.outputs.source_commit }}
@@ -734,6 +808,10 @@ jobs:
           PR_URL: ${{ steps.promotion.outputs.pr_url }}
           APPLY_RUN_ID: ${{ steps.apply.outputs.run_id }}
           VERCEL_RUN_ID: ${{ steps.vercel.outputs.run_id }}
+          VERCEL_RUN_URL: ${{ steps.vercel.outputs.run_url }}
+          VERCEL_RUN_CONCLUSION: ${{ steps.vercel.outputs.run_conclusion }}
+          VERCEL_DEPLOY_FAILED: ${{ steps.vercel.outputs.deploy_failed }}
+          ROLLBACK_RUN_ID: ${{ steps.rollback.outputs.run_id }}
         run: |
           {
             echo "## NutsNews coupled production release"
@@ -753,4 +831,10 @@ jobs:
             fi
             echo "- Protected Ansible Apply run: ${APPLY_RUN_ID}"
             echo "- Vercel production deploy run: ${VERCEL_RUN_ID}"
+            if [[ "$VERCEL_DEPLOY_FAILED" == "true" ]]; then
+              echo "- Vercel deployment result: FAILED (${VERCEL_RUN_URL}, ${VERCEL_RUN_CONCLUSION})"
+              echo "- Protected rollback run: ${ROLLBACK_RUN_ID:-(not started)}"
+            else
+              echo "- Vercel deployment result: SUCCESS"
+            fi
           } >> "$GITHUB_STEP_SUMMARY"
