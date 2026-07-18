@@ -695,8 +695,10 @@ jobs:
           }
           NODE
 
-          release_title="Deploy Vercel production ${SOURCE_COMMIT}"
           run_id=""
+          run_url=""
+          run_conclusion="unknown"
+          vercel_status="failed"
           for _ in $(seq 1 60); do
             # shellcheck disable=SC2027,SC2086
             run_id="$(gh run list \
@@ -706,7 +708,7 @@ jobs:
               --branch main \
               --limit 50 \
               --json databaseId,displayTitle,createdAt \
-              --jq ".[] | select(.displayTitle == \"${release_title}\" and .createdAt >= \"${dispatch_started_at}\") | .databaseId" \
+              --jq ".[] | select(.displayTitle == \"Deploy Vercel production ${SOURCE_COMMIT}\" and .createdAt >= \"${dispatch_started_at}\") | .databaseId" \
               | head -n 1
             )"
             if [[ -n "$run_id" ]]; then
@@ -717,16 +719,16 @@ jobs:
 
           if [[ -z "$run_id" ]]; then
             echo "Timed out locating the Vercel production workflow run." >&2
-            exit 1
+          else
+            run_url="$(gh run view "$run_id" --repo ramideltoro/nutsnews --json url --jq '.url')"
+            if gh run watch "$run_id" --repo ramideltoro/nutsnews --exit-status; then
+              vercel_status="success"
+            else
+              vercel_status="failed"
+            fi
+            run_conclusion="$(gh run view "$run_id" --repo ramideltoro/nutsnews --json conclusion --jq '.conclusion // \"unknown\"')"
           fi
 
-          if gh run watch "$run_id" --repo ramideltoro/nutsnews --exit-status; then
-            vercel_status="success"
-          else
-            vercel_status="failed"
-          fi
-          run_conclusion="$(gh run view "$run_id" --repo ramideltoro/nutsnews --json conclusion --jq '.conclusion // "unknown"')"
-          run_url="$(gh run view "$run_id" --repo ramideltoro/nutsnews --json url --jq '.url')"
           {
             echo "run_id=$run_id"
             echo "run_url=$run_url"
@@ -734,7 +736,15 @@ jobs:
             echo "deploy_failed=$([[ "$vercel_status" == "failed" ]] && echo true || echo false)"
           } >> "$GITHUB_OUTPUT"
           if [[ "$vercel_status" == "failed" ]]; then
-            echo "Vercel production run ${run_id} ended as ${run_conclusion}" >&2
+            if [[ -n "$run_id" ]]; then
+              echo "Vercel production run ${run_id} ended as ${run_conclusion}" >&2
+            else
+              echo "Vercel production run failed to start or complete." >&2
+            fi
+          fi
+
+          if [[ "$vercel_status" == "failed" && -z "$run_id" ]]; then
+            exit 1
           fi
 
       - name: Roll back VPS release on Vercel production failure

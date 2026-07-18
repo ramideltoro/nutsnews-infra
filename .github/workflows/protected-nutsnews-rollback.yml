@@ -48,11 +48,14 @@ jobs:
           ROLLBACK_REASON: ${{ inputs.rollback_reason }}
         run: |
           set -euo pipefail
+          previous_manifest="$RUNNER_TEMP/previous-vps-production-manifest.yml"
+          git show "HEAD^:ansible/inventories/production/host_vars/vps.nutsnews.com.yml" > "$previous_manifest" 2>/dev/null || rm -f "$previous_manifest"
           python3 ansible/scripts/rollback_nutsnews_release.py \
             --repo "$GITHUB_WORKSPACE" \
             --manifest ansible/inventories/production/host_vars/vps.nutsnews.com.yml \
             --failed-image-digest "$FAILED_IMAGE_DIGEST" \
             --reason "$ROLLBACK_REASON" \
+            --previous-manifest "$previous_manifest" \
             --write \
             --evidence "$RUNNER_TEMP/nutsnews-rollback.json" \
             --github-output "$GITHUB_OUTPUT"
@@ -136,6 +139,7 @@ jobs:
           gh pr merge "$PR_URL" --merge --delete-branch
 
       - name: Dispatch protected rollback apply
+        id: rollback_apply
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.NUTSNEWS_INFRA_RELEASE_TOKEN }}
@@ -181,7 +185,7 @@ jobs:
               --limit 10)"
             run_id="$(python3 -c 'import json,sys; data=json.loads(sys.stdin.read()); print(data[0]["databaseId"] if data else "")' <<<"$runs")"
             if [[ -n "$run_id" ]]; then
-              echo "protected_apply_run_id=$run_id" >> "$GITHUB_ENV"
+              echo "protected_apply_run_id=$run_id" >> "$GITHUB_OUTPUT"
               gh run watch "$run_id" --repo "$GITHUB_REPOSITORY" --exit-status
               break
             fi
@@ -191,6 +195,78 @@ jobs:
             fi
             sleep 10
           done
+
+      - name: Redeploy restored release to Vercel production
+        id: vercel_restore
+        if: ${{ steps.rollback_apply.outputs.protected_apply_run_id != '' }}
+        shell: bash
+        env:
+          NUTSNEWS_APP_RELEASE_TOKEN: ${{ secrets.NUTSNEWS_APP_RELEASE_TOKEN }}
+          RESTORED_SOURCE_COMMIT: ${{ steps.rollback.outputs.restored_source_commit }}
+          RESTORED_IMAGE_DIGEST: ${{ steps.rollback.outputs.restored_image_digest }}
+          RESTORED_BUILD_ID: ${{ steps.rollback.outputs.restored_build_id }}
+          ROLLBACK_APPLY_RUN_ID: ${{ steps.rollback_apply.outputs.protected_apply_run_id }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$NUTSNEWS_APP_RELEASE_TOKEN" ]]; then
+            echo "NUTSNEWS_APP_RELEASE_TOKEN is required to redeploy restored production Vercel release." >&2
+            exit 1
+          fi
+
+          dispatch_started_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          node --input-type=module <<'NODE'
+          const token = process.env.NUTSNEWS_APP_RELEASE_TOKEN ?? "";
+          const payload = {
+            source_repository: "ramideltoro/nutsnews",
+            source_commit: process.env.RESTORED_SOURCE_COMMIT ?? "",
+            image_digest: process.env.RESTORED_IMAGE_DIGEST ?? "",
+            build_id: process.env.RESTORED_BUILD_ID ?? "",
+            vps_apply_run_id: process.env.ROLLBACK_APPLY_RUN_ID ?? "",
+          };
+          const response = await fetch("https://api.github.com/repos/ramideltoro/nutsnews/dispatches", {
+            method: "POST",
+            headers: {
+              Accept: "application/vnd.github+json",
+              Authorization: `Bearer ${token}`,
+              "Content-Type": "application/json",
+              "X-GitHub-Api-Version": "2026-03-10",
+            },
+            body: JSON.stringify({
+              event_type: "nutsnews-vercel-production-release",
+              client_payload: payload,
+            }),
+          });
+          if (response.status !== 204) {
+            throw new Error(`Vercel production redeploy dispatch returned ${response.status}.`);
+          }
+          NODE
+
+          release_title="Deploy Vercel production ${RESTORED_SOURCE_COMMIT}"
+          run_id=""
+          for _ in $(seq 1 60); do
+            run_id="$(gh run list \
+              --repo ramideltoro/nutsnews \
+              --workflow vercel-production-release.yml \
+              --event repository_dispatch \
+              --branch main \
+              --limit 50 \
+              --json databaseId,displayTitle,createdAt \
+              --jq ".[] | select(.displayTitle == \"${release_title}\" and .createdAt >= \"${dispatch_started_at}\") | .databaseId" \
+              | head -n 1
+            )"
+            if [[ -n "$run_id" ]]; then
+              break
+            fi
+            sleep 2
+          done
+          if [[ -z "$run_id" ]]; then
+            echo "Timed out locating the restored Vercel production workflow run." >&2
+            exit 1
+          fi
+          gh run watch "$run_id" --repo ramideltoro/nutsnews --exit-status
+          run_url="$(gh run view "$run_id" --repo ramideltoro/nutsnews --json url --jq '.url')"
+          echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
+          echo "run_url=$run_url" >> "$GITHUB_OUTPUT"
 
       - name: Retain rollback evidence
         if: ${{ always() }}
@@ -209,7 +285,7 @@ jobs:
           FAILED_IMAGE_DIGEST: ${{ steps.rollback.outputs.failed_image_digest }}
           RESTORED_IMAGE_DIGEST: ${{ steps.rollback.outputs.restored_image_digest }}
           RESTORED_SOURCE_COMMIT: ${{ steps.rollback.outputs.restored_source_commit }}
-          PROTECTED_APPLY_RUN_ID: ${{ env.protected_apply_run_id }}
+          PROTECTED_APPLY_RUN_ID: ${{ steps.rollback_apply.outputs.protected_apply_run_id }}
         run: |
           {
             echo "## NutsNews rollback"

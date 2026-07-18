@@ -155,6 +155,46 @@ with tempfile.TemporaryDirectory() as temporary:
         "last-known-good absent from history",
         lambda: rollback.select_rollback(missing_manifest, new_digest, reason, cwd=missing_history_repo),
     )
+    missing_previous_manifest = missing_history_repo / "previous.yml"
+    missing_previous_manifest.write_text(manifest(old_digest, old_commit, "101-1"), encoding="utf-8")
+    evidence = rollback.select_rollback(
+        missing_manifest,
+        new_digest,
+        reason,
+        cwd=missing_history_repo,
+        previous_manifest=missing_previous_manifest,
+    )
+    assert evidence["restored"]["image_digest"] == old_digest
+    assert evidence["restored"]["source_commit"] == old_commit
+
+    missing_manifest.write_text(manifest(old_digest, old_commit, "101-1", last_known_good=new_digest), encoding="utf-8")
+    verify_previous_manifest = missing_history_repo / "previous-rollback.yml"
+    verify_previous_manifest.write_text(
+        manifest(new_digest, new_commit, "202-1", last_known_good=old_digest),
+        encoding="utf-8",
+    )
+    verify_args = type(
+        "Args",
+        (),
+        {
+            "repo": missing_history_repo,
+            "manifest": missing_manifest,
+            "previous_manifest": verify_previous_manifest,
+            "source_commit": old_commit,
+            "image_digest": old_digest,
+            "build_id": "101-1",
+            "source_workflow_run_id": "101",
+            "migration_head": "20260713000000",
+            "schema_version": "20260712170000",
+            "supabase_project_ref": "mpqfulvvagyzqneiaqky",
+            "failed_image_digest": new_digest,
+            "reason": reason,
+            "confirmation": "rollback-recorded-last-known-good",
+            "github_output": None,
+            "output": None,
+        },
+    )()
+    eligibility.command_verify_rollback(verify_args)
 
     assert old_manifest
 
@@ -169,6 +209,9 @@ for required in (
     "gh pr checks",
     "gh pr merge",
     "gh workflow run protected-ansible-apply.yml",
+    "vercel-production-release.yml",
+    "Redeploy restored release to Vercel production",
+    "NUTSNEWS_APP_RELEASE_TOKEN",
     "--field rollback_failed_image_digest",
     "--field rollback_reason",
     "--field rollback_confirmation=rollback-recorded-last-known-good",

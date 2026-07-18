@@ -342,11 +342,21 @@ def command_verify_rollback(arguments: argparse.Namespace) -> None:
         raise EligibilityError("Rollback failed digest does not match the previous production manifest.")
     if previous["last_known_good_digest"] != restored["image_digest"]:
         raise EligibilityError("Rollback target is not the previous manifest's recorded last-known-good digest.")
-    history_commit, selected = rollback_nutsnews_release.find_recorded_release(
-        arguments.manifest,
-        restored["image_digest"],
-        cwd=arguments.repo,
-    )
+    try:
+        history_commit, selected = rollback_nutsnews_release.find_recorded_release(
+            arguments.manifest,
+            restored["image_digest"],
+            cwd=arguments.repo,
+        )
+    except rollback_nutsnews_release.RollbackError:
+        selected_pair = rollback_nutsnews_release.resolve_previous_release(
+            arguments.previous_manifest,
+            restored["image_digest"],
+            restored=restored,
+        )
+        if selected_pair is None:
+            raise
+        history_commit, selected = selected_pair
     for key in ("image_digest", "source_commit", "build_id", "migration_head", "schema_version", "supabase_project_ref"):
         if selected[key] != restored[key]:
             raise EligibilityError(f"Rollback restored {key} does not match recorded history.")

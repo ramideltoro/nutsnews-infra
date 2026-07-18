@@ -64,6 +64,23 @@ def find_recorded_release(manifest_path: Path, digest: str, *, cwd: Path) -> tup
     raise RollbackError("The recorded last-known-good digest was not found in manifest history.")
 
 
+def resolve_previous_release(
+    previous_manifest: Path,
+    digest: str,
+    *,
+    restored: dict[str, str] | None = None,
+) -> tuple[str, dict[str, str]] | None:
+    try:
+        release = read_manifest(previous_manifest)
+    except (OSError, promote_nutsnews_release.PromotionError):
+        return None
+    if release.get("image_digest") == digest:
+        return "previous-manifest", release
+    if restored and release.get("last_known_good_digest") == digest:
+        return "previous-manifest", restored
+    return None
+
+
 def replace_manifest_release(text: str, release: dict[str, str], last_known_good_digest: str) -> str:
     updated = text
     for name, value in (
@@ -94,6 +111,7 @@ def select_rollback(
     failed_digest: str,
     reason: str,
     *,
+    previous_manifest: Path | None = None,
     cwd: Path,
 ) -> dict[str, Any]:
     promote_nutsnews_release.require_match(
@@ -110,7 +128,17 @@ def select_rollback(
         raise RollbackError("Current manifest has no recorded last-known-good digest.")
     if restored_digest == failed_digest:
         raise RollbackError("Recorded last-known-good digest must differ from the failed digest.")
-    source_commit, restored = find_recorded_release(manifest_path, restored_digest, cwd=cwd)
+    try:
+        source_commit, restored = find_recorded_release(manifest_path, restored_digest, cwd=cwd)
+    except RollbackError as error:
+        if previous_manifest:
+            selected = resolve_previous_release(previous_manifest, restored_digest)
+            if selected:
+                source_commit, restored = selected
+            else:
+                raise error
+        else:
+            raise
     return {
         "schema_version": "nutsnews.production_rollback.v1",
         "result": "selected",
@@ -136,6 +164,7 @@ def command_select(arguments: argparse.Namespace) -> None:
         arguments.failed_image_digest,
         arguments.reason,
         cwd=arguments.repo,
+        previous_manifest=arguments.previous_manifest,
     )
     if arguments.evidence:
         arguments.evidence.parent.mkdir(parents=True, exist_ok=True)
@@ -163,6 +192,7 @@ def command_write(arguments: argparse.Namespace) -> None:
         arguments.failed_image_digest,
         arguments.reason,
         cwd=arguments.repo,
+        previous_manifest=arguments.previous_manifest,
     )
     restored = evidence["restored"]
     original = arguments.manifest.read_text(encoding="utf-8")
@@ -195,6 +225,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--manifest", type=Path, required=True)
     parser.add_argument("--failed-image-digest", required=True)
     parser.add_argument("--reason", required=True)
+    parser.add_argument("--previous-manifest", type=Path)
     parser.add_argument("--evidence", type=Path)
     parser.add_argument("--github-output", type=Path)
     mode = parser.add_mutually_exclusive_group(required=True)
