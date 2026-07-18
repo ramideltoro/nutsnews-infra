@@ -109,6 +109,9 @@ for required in (
     "Request and wait for Vercel production deploy",
     "NUTSNEWS_APP_RELEASE_TOKEN",
     "nutsnews-vercel-production-release",
+    "STAGING_DEPLOYMENT_ID",
+    "QUALIFICATION_RUN_ID",
+    'release_kind: "release"',
 ):
     require(required in PROMOTION, f"Promotion workflow missing staging-qualified production gate: {required}.")
 require("repository_dispatch:" not in PROMOTION, "Promotion workflow must not accept direct production repository dispatch.")

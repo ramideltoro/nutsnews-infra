@@ -25,13 +25,16 @@ hours, and invalidated earlier by a staging redeploy or relevant infra/config or
 test-suite revision.
 
 A successful qualification also starts the staging-qualified production
-promotion workflow. Promotion is still blocked unless Vercel Production has a
-successful deployment record for the same source commit and the public
-`https://www.nutsnews.com` alias reports that commit, the production Supabase
+promotion workflow. Promotion is still blocked unless the production Supabase
 schema contract matches the release migration head and rollback-compatible
 schema version, the qualification remains the current successful staging
 deployment, and the reviewed GitOps manifest PR passes its checks before
-protected production apply.
+protected production apply. After the protected VPS apply succeeds, the app repo
+receives the source commit, VPS image digest, VPS apply run, staging deployment
+ID, and qualification run ID. The app workflow then creates a Vercel staged
+production deployment without assigning custom domains, smoke-tests the staged
+URL, promotes it through Vercel only after the smoke passes, and verifies the
+public production aliases.
 
 The retained evidence artifact is named with the staging deployment ID, workflow
 run ID, and attempt so reruns create separate immutable history. Evidence must

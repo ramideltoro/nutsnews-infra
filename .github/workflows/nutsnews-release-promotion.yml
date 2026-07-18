@@ -659,6 +659,8 @@ jobs:
           SOURCE_COMMIT: ${{ steps.qualified.outputs.source_commit }}
           IMAGE_DIGEST: ${{ steps.qualified.outputs.image_digest }}
           BUILD_ID: ${{ steps.qualified.outputs.build_id }}
+          STAGING_DEPLOYMENT_ID: ${{ steps.qualified.outputs.staging_deployment_id }}
+          QUALIFICATION_RUN_ID: ${{ steps.qualified.outputs.qualification_run_id }}
           VPS_APPLY_RUN_ID: ${{ steps.apply.outputs.run_id }}
         run: |
           set -euo pipefail
@@ -676,6 +678,9 @@ jobs:
             image_digest: process.env.IMAGE_DIGEST ?? "",
             build_id: process.env.BUILD_ID ?? "",
             vps_apply_run_id: process.env.VPS_APPLY_RUN_ID ?? "",
+            staging_deployment_id: process.env.STAGING_DEPLOYMENT_ID ?? "",
+            qualification_run_id: process.env.QUALIFICATION_RUN_ID ?? "",
+            release_kind: "release",
           };
           const response = await fetch("https://api.github.com/repos/ramideltoro/nutsnews/dispatches", {
             method: "POST",

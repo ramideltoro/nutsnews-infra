@@ -184,6 +184,9 @@ for required in (
     "Request and wait for Vercel production deploy",
     "NUTSNEWS_APP_RELEASE_TOKEN",
     "nutsnews-vercel-production-release",
+    "STAGING_DEPLOYMENT_ID",
+    "QUALIFICATION_RUN_ID",
+    'release_kind: "release"',
     "--workflow vercel-production-release.yml",
     "--repo ramideltoro/nutsnews",
     "ansible/scripts/promote_nutsnews_release.py",
@@ -234,6 +237,9 @@ assert dispatch_payload_keys == [
     "image_digest",
     "build_id",
     "vps_apply_run_id",
+    "staging_deployment_id",
+    "qualification_run_id",
+    "release_kind",
 ], "The Vercel dispatch payload should contain only fields consumed by the app workflow."
 assert len(dispatch_payload_keys) <= 10, "GitHub repository dispatch rejects more than 10 client_payload keys."
 
