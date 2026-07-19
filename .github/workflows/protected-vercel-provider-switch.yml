@@ -1,0 +1,221 @@
+name: Protected Vercel Provider Switch
+run-name: Vercel provider switch ${{ inputs.database_provider_mode }} for ${{ inputs.source_commit }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      operation:
+        description: Plan or apply the Vercel Production provider switch.
+        required: true
+        default: plan
+        type: choice
+        options:
+          - plan
+          - apply
+      database_provider_mode:
+        description: App database provider mode for Vercel Production.
+        required: true
+        default: supabase_primary
+        type: choice
+        options:
+          - supabase_primary
+          - backend_postgres_primary
+      production_writes_paused:
+        description: Keep app/admin production writes paused in the deployed Vercel runtime.
+        required: true
+        default: "true"
+        type: choice
+        options:
+          - "true"
+          - "false"
+      backend_api_url:
+        description: App backend DB compatibility API URL.
+        required: true
+        default: https://backend.nutsnews.com/api/app/db
+        type: string
+      provider_switch_confirmation:
+        description: Use enable-backend-postgres-primary or deploy-supabase-primary.
+        required: true
+        default: ""
+        type: string
+      source_commit:
+        description: Exact app source commit to redeploy after the env switch.
+        required: false
+        default: ""
+        type: string
+      image_digest:
+        description: Immutable VPS image digest paired with the source commit.
+        required: false
+        default: ""
+        type: string
+      build_id:
+        description: App build ID in run-attempt form.
+        required: false
+        default: ""
+        type: string
+      vps_apply_run_id:
+        description: Protected VPS apply run paired with this release.
+        required: false
+        default: ""
+        type: string
+      staging_deployment_id:
+        description: Staging deployment ID paired with this release.
+        required: false
+        default: ""
+        type: string
+      qualification_run_id:
+        description: Staging qualification run paired with this release.
+        required: false
+        default: ""
+        type: string
+      dispatch_vercel_release:
+        description: Dispatch and wait for the app Vercel production release after apply.
+        required: true
+        default: "true"
+        type: choice
+        options:
+          - "true"
+          - "false"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: protected-vercel-provider-switch
+  cancel-in-progress: false
+
+jobs:
+  switch:
+    name: Protected Vercel provider switch
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    environment: production-vps
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Validate provider switch guardrails
+        shell: bash
+        run: python3 ansible/tests/validate_vercel_provider_switch.py
+
+      - name: Plan or apply Vercel provider switch
+        id: switch
+        shell: bash
+        env:
+          VERCEL_TOKEN: ${{ secrets.NUTSNEWS_VERCEL_TOKEN }}
+          VERCEL_PROJECT_ID: ${{ secrets.NUTSNEWS_VERCEL_PROJECT_ID }}
+          VERCEL_TEAM_ID: ${{ secrets.NUTSNEWS_VERCEL_TEAM_ID }}
+        run: |
+          set -euo pipefail
+          python3 scripts/vercel_provider_switch.py \
+            --operation "${{ inputs.operation }}" \
+            --database-provider-mode "${{ inputs.database_provider_mode }}" \
+            --production-writes-paused "${{ inputs.production_writes_paused }}" \
+            --backend-api-url "${{ inputs.backend_api_url }}" \
+            --confirmation "${{ inputs.provider_switch_confirmation }}" \
+            --source-commit "${{ inputs.source_commit }}" \
+            --image-digest "${{ inputs.image_digest }}" \
+            --build-id "${{ inputs.build_id }}" \
+            --vps-apply-run-id "${{ inputs.vps_apply_run_id }}" \
+            --output "$RUNNER_TEMP/vercel-provider-switch.json"
+
+      - name: Dispatch and wait for Vercel production release
+        if: inputs.operation == 'apply' && inputs.dispatch_vercel_release == 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.NUTSNEWS_APP_RELEASE_TOKEN }}
+          NUTSNEWS_APP_RELEASE_TOKEN: ${{ secrets.NUTSNEWS_APP_RELEASE_TOKEN }}
+          SOURCE_COMMIT: ${{ inputs.source_commit }}
+          IMAGE_DIGEST: ${{ inputs.image_digest }}
+          BUILD_ID: ${{ inputs.build_id }}
+          VPS_APPLY_RUN_ID: ${{ inputs.vps_apply_run_id }}
+          STAGING_DEPLOYMENT_ID: ${{ inputs.staging_deployment_id }}
+          QUALIFICATION_RUN_ID: ${{ inputs.qualification_run_id }}
+          PRODUCTION_WRITES_PAUSED: ${{ inputs.production_writes_paused }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$NUTSNEWS_APP_RELEASE_TOKEN" ]]; then
+            echo "NUTSNEWS_APP_RELEASE_TOKEN is required to dispatch the app Vercel production release." >&2
+            exit 1
+          fi
+
+          dispatch_started_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          node --input-type=module <<'NODE'
+          const token = process.env.NUTSNEWS_APP_RELEASE_TOKEN ?? "";
+          const payload = {
+            source_repository: "ramideltoro/nutsnews",
+            source_commit: process.env.SOURCE_COMMIT ?? "",
+            image_digest: process.env.IMAGE_DIGEST ?? "",
+            build_id: process.env.BUILD_ID ?? "",
+            vps_apply_run_id: process.env.VPS_APPLY_RUN_ID ?? "",
+            staging_deployment_id: process.env.STAGING_DEPLOYMENT_ID ?? "",
+            qualification_run_id: process.env.QUALIFICATION_RUN_ID ?? "",
+            release_kind: "release",
+            production_writes_paused: process.env.PRODUCTION_WRITES_PAUSED ?? "true",
+          };
+          const response = await fetch("https://api.github.com/repos/ramideltoro/nutsnews/dispatches", {
+            method: "POST",
+            headers: {
+              Accept: "application/vnd.github+json",
+              Authorization: `Bearer ${token}`,
+              "Content-Type": "application/json",
+              "X-GitHub-Api-Version": "2026-03-10",
+            },
+            body: JSON.stringify({
+              event_type: "nutsnews-vercel-production-release",
+              client_payload: payload,
+            }),
+          });
+          if (response.status !== 204) {
+            throw new Error(`Vercel production dispatch returned ${response.status}.`);
+          }
+          NODE
+
+          run_id=""
+          for _ in $(seq 1 60); do
+            run_id="$(gh run list \
+              --repo ramideltoro/nutsnews \
+              --workflow vercel-production-release.yml \
+              --event repository_dispatch \
+              --limit 20 \
+              --json databaseId,createdAt,headSha \
+              --jq "[.[] | select(.createdAt >= \"$dispatch_started_at\" and .headSha == \"$SOURCE_COMMIT\")] | sort_by(.createdAt) | last | .databaseId")"
+            if [[ -n "$run_id" && "$run_id" != "null" ]]; then
+              break
+            fi
+            sleep 5
+          done
+          if [[ -z "$run_id" || "$run_id" == "null" ]]; then
+            echo "Timed out locating the app Vercel production release run." >&2
+            exit 1
+          fi
+          gh run watch "$run_id" --repo ramideltoro/nutsnews --exit-status
+          echo "{\"vercel_release_run_id\":\"$run_id\",\"safe_metadata_only\":true}" \
+            > "$RUNNER_TEMP/vercel-provider-switch-release.json"
+
+      - name: Summarize safe metadata
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "## Protected Vercel provider switch"
+            echo
+            echo "- Operation: \`${{ inputs.operation }}\`"
+            echo "- Provider mode: \`${{ inputs.database_provider_mode }}\`"
+            echo "- Production writes paused: \`${{ inputs.production_writes_paused }}\`"
+            echo "- Managed Vercel keys: \`NUTSNEWS_DATABASE_PROVIDER_MODE\`, \`NUTSNEWS_PRODUCTION_WRITES_PAUSED\`, \`NUTSNEWS_BACKEND_API_URL\`"
+            echo "- Values, tokens, and secrets are not printed."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload provider switch reports
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
+        with:
+          name: protected-vercel-provider-switch
+          path: |
+            ${{ runner.temp }}/vercel-provider-switch.json
+            ${{ runner.temp }}/vercel-provider-switch-release.json
+          if-no-files-found: ignore

@@ -142,4 +142,6 @@ jobs:
 
       - name: Validate Vercel-to-VPS environment sync guardrails
         shell: bash
-        run: python3 ansible/tests/validate_vercel_env_sync.py
+        run: |
+          python3 ansible/tests/validate_vercel_env_sync.py
+          python3 ansible/tests/validate_vercel_provider_switch.py
