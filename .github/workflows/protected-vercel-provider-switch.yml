@@ -105,21 +105,30 @@ jobs:
         id: switch
         shell: bash
         env:
+          OPERATION: ${{ inputs.operation }}
+          DATABASE_PROVIDER_MODE: ${{ inputs.database_provider_mode }}
+          PRODUCTION_WRITES_PAUSED: ${{ inputs.production_writes_paused }}
+          BACKEND_API_URL: ${{ inputs.backend_api_url }}
+          PROVIDER_SWITCH_CONFIRMATION: ${{ inputs.provider_switch_confirmation }}
+          SOURCE_COMMIT: ${{ inputs.source_commit }}
+          IMAGE_DIGEST: ${{ inputs.image_digest }}
+          BUILD_ID: ${{ inputs.build_id }}
+          VPS_APPLY_RUN_ID: ${{ inputs.vps_apply_run_id }}
           VERCEL_TOKEN: ${{ secrets.NUTSNEWS_VERCEL_TOKEN }}
           VERCEL_PROJECT_ID: ${{ secrets.NUTSNEWS_VERCEL_PROJECT_ID }}
           VERCEL_TEAM_ID: ${{ secrets.NUTSNEWS_VERCEL_TEAM_ID }}
         run: |
           set -euo pipefail
           python3 scripts/vercel_provider_switch.py \
-            --operation "${{ inputs.operation }}" \
-            --database-provider-mode "${{ inputs.database_provider_mode }}" \
-            --production-writes-paused "${{ inputs.production_writes_paused }}" \
-            --backend-api-url "${{ inputs.backend_api_url }}" \
-            --confirmation "${{ inputs.provider_switch_confirmation }}" \
-            --source-commit "${{ inputs.source_commit }}" \
-            --image-digest "${{ inputs.image_digest }}" \
-            --build-id "${{ inputs.build_id }}" \
-            --vps-apply-run-id "${{ inputs.vps_apply_run_id }}" \
+            --operation "$OPERATION" \
+            --database-provider-mode "$DATABASE_PROVIDER_MODE" \
+            --production-writes-paused "$PRODUCTION_WRITES_PAUSED" \
+            --backend-api-url "$BACKEND_API_URL" \
+            --confirmation "$PROVIDER_SWITCH_CONFIRMATION" \
+            --source-commit "$SOURCE_COMMIT" \
+            --image-digest "$IMAGE_DIGEST" \
+            --build-id "$BUILD_ID" \
+            --vps-apply-run-id "$VPS_APPLY_RUN_ID" \
             --output "$RUNNER_TEMP/vercel-provider-switch.json"
 
       - name: Dispatch and wait for Vercel production release
