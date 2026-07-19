@@ -598,6 +598,7 @@ jobs:
           NUTSNEWS_STAGING_ACCESS_TEAM_DOMAIN: ${{ secrets.NUTSNEWS_STAGING_ACCESS_TEAM_DOMAIN }}
           NUTSNEWS_STAGING_ACCESS_AUDIENCE: ${{ secrets.NUTSNEWS_STAGING_ACCESS_AUDIENCE }}
           NUTSNEWS_STAGING_DEPLOY_PUBLIC_KEY: ${{ secrets.NUTSNEWS_STAGING_DEPLOY_PUBLIC_KEY }}
+          PRODUCTION_WRITES_PAUSED: ${{ inputs.production_writes_paused }}
           SYNC_VERCEL_PRODUCTION: ${{ inputs.sync_vercel_production }}
           NUTSNEWS_VERCEL_SYNC_ENVS_FILE: ${{ runner.temp }}/vercel-selected.json
           RELEASE_SOURCE_WORKFLOW_RUN_ID: ${{ inputs.release_source_workflow_run_id }}
@@ -1098,6 +1099,7 @@ jobs:
           RELEASE_BUILD_ID: ${{ inputs.release_build_id }}
           RELEASE_IMAGE_DIGEST: ${{ inputs.release_image_digest }}
           RELEASE_MIGRATION_HEAD: ${{ inputs.release_migration_head }}
+          PRODUCTION_WRITES_PAUSED: ${{ inputs.production_writes_paused }}
         run: |
           set -euo pipefail
           node scripts/dual_target_web_smoke.mjs \
@@ -1109,6 +1111,7 @@ jobs:
             --expected-runtime-env production \
             --expected-image-digest "$RELEASE_IMAGE_DIGEST" \
             --expected-config-generation "production-${RELEASE_BUILD_ID}-${RELEASE_MIGRATION_HEAD}" \
+            --expected-production-writes-paused "$PRODUCTION_WRITES_PAUSED" \
             --production-safe-surfaces
 
       - name: Remove temporary credentials and sync material

@@ -41,6 +41,14 @@ require("looks_like_encrypted_envelope" in SCRIPT_PATH.read_text(encoding="utf-8
 require("validate_selected_values" in SCRIPT_PATH.read_text(encoding="utf-8"), "Vercel sync must validate semantic runtime values.")
 require("app_envs.update(vercel_envs)" in WORKFLOW, "Vercel values must be merged before passing extra vars to Ansible.")
 require(
+    WORKFLOW.count("PRODUCTION_WRITES_PAUSED: ${{ inputs.production_writes_paused }}") >= 3,
+    "The production write pause input must be validated, materialized into the VPS runtime, and smoke-tested.",
+)
+require(
+    "--expected-production-writes-paused" in WORKFLOW,
+    "The VPS smoke must assert the expected production write pause state.",
+)
+require(
     '"vps_service_foundation_nutsnews_deployment_environments": (' in WORKFLOW
     and '["production"] if truthy("SYNC_VERCEL_PRODUCTION") else []' in WORKFLOW,
     "Production runtime materialization must be disabled when the reviewed Vercel sync is disabled.",

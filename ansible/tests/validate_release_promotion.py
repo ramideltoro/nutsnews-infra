@@ -263,10 +263,15 @@ for required in (
     "Verify released public health identity",
     "Checkout exact app post-production smoke suite",
     "Run safe production app smoke surfaces",
+    "PRODUCTION_WRITES_PAUSED: ${{ inputs.production_writes_paused }}",
+    "--expected-production-writes-paused",
     "--production-safe-surfaces",
 ):
     assert required in protected_workflow, f"Protected apply is missing required release verification: {required}"
 
+assert protected_workflow.count("PRODUCTION_WRITES_PAUSED: ${{ inputs.production_writes_paused }}") >= 3, (
+    "Protected apply must validate, materialize, and smoke-test the production write pause input."
+)
 assert 'release_deployment_target" != "production-vps"' in protected_workflow
 assert 'healthDeploymentTarget !== "production-vps"' in protected_workflow
 assert 'payload?.deploymentTarget === healthDeploymentTarget' in protected_workflow
