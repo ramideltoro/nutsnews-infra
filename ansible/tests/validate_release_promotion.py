@@ -189,6 +189,8 @@ for required in (
     'release_kind: "release"',
     "--workflow vercel-production-release.yml",
     "--repo ramideltoro/nutsnews",
+    "--jq '.conclusion // \"unknown\"'",
+    "deploy_failed=$([[ \"$vercel_status\" == \"failed\" ]] && echo true || echo false)",
     "ansible/scripts/promote_nutsnews_release.py",
     "MIGRATION_HEAD",
     "SCHEMA_VERSION",

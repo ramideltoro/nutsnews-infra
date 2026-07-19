@@ -731,7 +731,7 @@ jobs:
             else
               vercel_status="failed"
             fi
-            run_conclusion="$(gh run view "$run_id" --repo ramideltoro/nutsnews --json conclusion --jq '.conclusion // \"unknown\"')"
+            run_conclusion="$(gh run view "$run_id" --repo ramideltoro/nutsnews --json conclusion --jq '.conclusion // "unknown"')"
           fi
 
           {
