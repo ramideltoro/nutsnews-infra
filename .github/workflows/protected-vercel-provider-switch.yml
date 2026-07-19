@@ -181,8 +181,8 @@ jobs:
               --workflow vercel-production-release.yml \
               --event repository_dispatch \
               --limit 20 \
-              --json databaseId,createdAt,headSha \
-              --jq "[.[] | select(.createdAt >= \"$dispatch_started_at\" and .headSha == \"$SOURCE_COMMIT\")] | sort_by(.createdAt) | last | .databaseId")"
+              --json databaseId,createdAt,displayTitle \
+              --jq "[.[] | select(.createdAt >= \"$dispatch_started_at\" and .displayTitle == \"Deploy Vercel production $SOURCE_COMMIT\")] | sort_by(.createdAt) | last | .databaseId")"
             if [[ -n "$run_id" && "$run_id" != "null" ]]; then
               break
             fi
