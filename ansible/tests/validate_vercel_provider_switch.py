@@ -23,6 +23,7 @@ for fragment in [
     "production_writes_paused:",
     "backend_api_url:",
     "provider_switch_confirmation:",
+    "provider_switch: {",
     "database_provider_mode: process.env.DATABASE_PROVIDER_MODE",
     "backend_api_url: process.env.BACKEND_API_URL",
     "provider_switch_confirmation: process.env.PROVIDER_SWITCH_CONFIRMATION",
