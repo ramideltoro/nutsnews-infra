@@ -143,6 +143,9 @@ jobs:
           VPS_APPLY_RUN_ID: ${{ inputs.vps_apply_run_id }}
           STAGING_DEPLOYMENT_ID: ${{ inputs.staging_deployment_id }}
           QUALIFICATION_RUN_ID: ${{ inputs.qualification_run_id }}
+          DATABASE_PROVIDER_MODE: ${{ inputs.database_provider_mode }}
+          BACKEND_API_URL: ${{ inputs.backend_api_url }}
+          PROVIDER_SWITCH_CONFIRMATION: ${{ inputs.provider_switch_confirmation }}
           PRODUCTION_WRITES_PAUSED: ${{ inputs.production_writes_paused }}
         run: |
           set -euo pipefail

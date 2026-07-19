@@ -16,6 +16,14 @@ def require(condition: bool, message: str) -> None:
         raise SystemExit(message)
 
 
+def workflow_step(name: str) -> str:
+    marker = f"      - name: {name}\n"
+    start = WORKFLOW.find(marker)
+    require(start != -1, f"Provider switch workflow missing step: {name}")
+    next_start = WORKFLOW.find("\n      - name:", start + len(marker))
+    return WORKFLOW[start:] if next_start == -1 else WORKFLOW[start:next_start]
+
+
 for fragment in [
     "workflow_dispatch:",
     "operation:",
@@ -47,6 +55,17 @@ for fragment in [
     "protected-vercel-provider-switch",
 ]:
     require(fragment in WORKFLOW, f"Provider switch workflow missing guardrail: {fragment}")
+
+dispatch_step = workflow_step("Dispatch and wait for Vercel production release")
+for fragment in [
+    "DATABASE_PROVIDER_MODE: ${{ inputs.database_provider_mode }}",
+    "BACKEND_API_URL: ${{ inputs.backend_api_url }}",
+    "PROVIDER_SWITCH_CONFIRMATION: ${{ inputs.provider_switch_confirmation }}",
+    "database_provider_mode: process.env.DATABASE_PROVIDER_MODE",
+    "backend_api_url: process.env.BACKEND_API_URL",
+    "provider_switch_confirmation: process.env.PROVIDER_SWITCH_CONFIRMATION",
+]:
+    require(fragment in dispatch_step, f"Vercel release dispatch step missing provider payload guardrail: {fragment}")
 
 for fragment in [
     "backend_postgres_primary",
