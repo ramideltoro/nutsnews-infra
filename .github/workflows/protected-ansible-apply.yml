@@ -29,6 +29,14 @@ on:
         options:
           - "true"
           - "false"
+      production_writes_paused:
+        description: Render the production app runtime with writer-pause enforcement enabled.
+        required: true
+        default: "false"
+        type: choice
+        options:
+          - "false"
+          - "true"
       enable_cloudflare_ddns:
         description: Enable the Cloudflare DDNS timer for vps.nutsnews.com.
         required: true
@@ -405,6 +413,7 @@ jobs:
           ENABLE_CLOUDFLARE_DDNS: ${{ inputs.enable_cloudflare_ddns }}
           ENABLE_GRAFANA_ALLOY: ${{ inputs.enable_grafana_alloy }}
           ENABLE_STAGING_ACCESS: ${{ inputs.enable_staging_access }}
+          PRODUCTION_WRITES_PAUSED: ${{ inputs.production_writes_paused }}
           NUTSNEWS_STAGING_ACCESS_TEAM_DOMAIN: ${{ secrets.NUTSNEWS_STAGING_ACCESS_TEAM_DOMAIN }}
           NUTSNEWS_STAGING_ACCESS_AUDIENCE: ${{ secrets.NUTSNEWS_STAGING_ACCESS_AUDIENCE }}
           NUTSNEWS_STAGING_DEPLOY_PUBLIC_KEY: ${{ secrets.NUTSNEWS_STAGING_DEPLOY_PUBLIC_KEY }}
@@ -695,6 +704,10 @@ jobs:
           # environment map that the role templates.
           if vercel_envs:
               app_envs.update(vercel_envs)
+          production_writes_paused = os.environ.get("PRODUCTION_WRITES_PAUSED", "false").strip().lower() or "false"
+          if production_writes_paused not in {"true", "false"}:
+              raise SystemExit("production_writes_paused must be true or false.")
+          app_envs["NUTSNEWS_PRODUCTION_WRITES_PAUSED"] = production_writes_paused
           free_tier_usage_json = parse_json_object("NUTSNEWS_FREE_TIER_USAGE_JSON")
           ops_portal_domain = os.environ.get("NUTSNEWS_OPS_PORTAL_DOMAIN", "ops.nutsnews.com").strip() or "ops.nutsnews.com"
           ops_portal_callback_path = "/api/auth/callback/google"

@@ -156,6 +156,12 @@
       "destination": "NUTSNEWS_PRODUCTION_SUPABASE_PROJECT_REF",
       "reason": "Known non-secret production project identity used to reject staging mismatches."
     },
+    "NUTSNEWS_PRODUCTION_WRITES_PAUSED": {
+      "category": "safe_to_synchronize",
+      "sync": true,
+      "destination": "NUTSNEWS_PRODUCTION_WRITES_PAUSED",
+      "reason": "Reviewed production cutover switch used to pause app/admin writes while preserving public reads."
+    },
     "NUTSNEWS_RUNTIME_ENV": {
       "category": "safe_to_synchronize",
       "sync": true,
