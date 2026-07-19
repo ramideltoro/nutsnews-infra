@@ -366,7 +366,6 @@ jobs:
           IMAGE_DIGEST: ${{ steps.qualified.outputs.image_digest }}
           BUILD_ID: ${{ steps.qualified.outputs.build_id }}
           SOURCE_WORKFLOW_RUN_ID: ${{ steps.qualified.outputs.source_workflow_run_id }}
-          SMOKE_HELPER_REF: ${{ steps.app_main.outputs.smoke_helper_ref }}
           MIGRATION_HEAD: ${{ steps.release_contract.outputs.migration_head }}
           SCHEMA_VERSION: ${{ steps.release_contract.outputs.schema_version }}
           SUPABASE_PROJECT_REF: ${{ steps.production_schema.outputs.supabase_project_ref }}
@@ -622,6 +621,7 @@ jobs:
           IMAGE_DIGEST: ${{ steps.qualified.outputs.image_digest }}
           BUILD_ID: ${{ steps.qualified.outputs.build_id }}
           SOURCE_WORKFLOW_RUN_ID: ${{ steps.qualified.outputs.source_workflow_run_id }}
+          SMOKE_HELPER_REF: ${{ steps.app_main.outputs.smoke_helper_ref }}
           MIGRATION_HEAD: ${{ steps.release_contract.outputs.migration_head }}
           SCHEMA_VERSION: ${{ steps.release_contract.outputs.schema_version }}
           SUPABASE_PROJECT_REF: ${{ steps.production_schema.outputs.supabase_project_ref }}

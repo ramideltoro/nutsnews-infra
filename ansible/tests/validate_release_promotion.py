@@ -251,6 +251,19 @@ assert dispatch_payload_keys == [
 ], "The Vercel dispatch payload should contain only fields consumed by the app workflow."
 assert len(dispatch_payload_keys) <= 10, "GitHub repository dispatch rejects more than 10 client_payload keys."
 
+protected_apply_match = re.search(
+    r"(?ms)^\s+- name:\s+Start and wait for protected VPS apply\n(?P<body>.*?)(?=^\s+- name:)",
+    promotion_workflow,
+)
+assert protected_apply_match, "Promotion workflow must contain the protected VPS apply dispatch step."
+protected_apply_body = protected_apply_match.group("body")
+assert "SMOKE_HELPER_REF: ${{ steps.app_main.outputs.smoke_helper_ref }}" in protected_apply_body, (
+    "Protected VPS apply dispatch must export the pinned current app smoke helper ref."
+)
+assert "--field release_smoke_helper_ref=\"$SMOKE_HELPER_REF\"" in protected_apply_body, (
+    "Protected VPS apply dispatch must pass the pinned smoke helper ref."
+)
+
 for required in (
     "release_source_commit:",
     "release_image_digest:",
