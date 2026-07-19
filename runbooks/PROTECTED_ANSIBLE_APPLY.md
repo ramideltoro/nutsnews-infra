@@ -138,9 +138,10 @@ config, homepage, public API shape, a static asset, cache/security headers,
 contact validation failure, and auth session reachability without printing
 secrets or submitting a real contact message.
 
-The public `/healthz` route is a static image identity check and should report
-the OCI build target `vps`. Runtime readiness and public config remain the
-production VPS deployment identity and should report `production-vps`.
+The public app `/healthz` route is a static identity check for the deployed web
+image and should report the production VPS deployment identity,
+`production-vps`. Runtime readiness and public config should report the same
+production VPS identity.
 
 The Ops Portal reads only the reviewed manifest, sanitized Docker identity, and
 last app apply marker for release-gate status. Treat `unknown`, `not configured`,
