@@ -179,11 +179,13 @@ for required in (
     "NUTSNEWS_INFRA_RELEASE_TOKEN is required for release GitOps automation.",
     "NUTSNEWS_INFRA_RELEASE_TOKEN is required to dispatch Protected Ansible Apply.",
     "gh workflow run protected-ansible-apply.yml",
+    "--field production_writes_paused",
     "gh run watch \"$run_id\"",
     "--exit-status",
     "Request and wait for Vercel production deploy",
     "NUTSNEWS_APP_RELEASE_TOKEN",
     "nutsnews-vercel-production-release",
+    "PRODUCTION_WRITES_PAUSED",
     "STAGING_DEPLOYMENT_ID",
     "QUALIFICATION_RUN_ID",
     'release_kind: "release"',
@@ -242,6 +244,7 @@ assert dispatch_payload_keys == [
     "staging_deployment_id",
     "qualification_run_id",
     "release_kind",
+    "production_writes_paused",
 ], "The Vercel dispatch payload should contain only fields consumed by the app workflow."
 assert len(dispatch_payload_keys) <= 10, "GitHub repository dispatch rejects more than 10 client_payload keys."
 
@@ -249,6 +252,7 @@ for required in (
     "release_source_commit:",
     "release_image_digest:",
     "release_build_id:",
+    "production_writes_paused:",
     "release_migration_head:",
     "release_schema_version:",
     "release_supabase_project_ref:",
@@ -281,9 +285,10 @@ assert "environment: production-vps" not in promotion_workflow
 assert "contents: write" not in promotion_workflow
 assert "actions: write" not in promotion_workflow
 
+promotion_pause_scan = promotion_workflow.replace("production_writes_paused", "production_writes_state")
 pause_step = re.search(
     r"(?ms)^\s+- name:\s+.*pause.*?\n(?:(?!^\s+- name:).)*^\s+run:\s*\|\n(?:(?!^\s+- name:).)*^\s+exit\s+1\s*$",
-    promotion_workflow,
+    promotion_pause_scan,
 )
 permanent_pause_markers = (
     "Pause direct production release dispatch",
