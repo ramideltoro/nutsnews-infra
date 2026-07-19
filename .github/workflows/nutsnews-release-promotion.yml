@@ -179,6 +179,7 @@ jobs:
           PY
 
       - name: Verify qualified source commit remains reachable from NutsNews main
+        id: app_main
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -190,22 +191,35 @@ jobs:
           python3 - <<'PY'
           import json
           import os
+          import re
           from urllib.request import Request, urlopen
 
           source_commit = os.environ["SOURCE_COMMIT"]
           token = os.environ["GH_TOKEN"]
-          request = Request(
+          headers = {
+              "Accept": "application/vnd.github+json",
+              "Authorization": f"Bearer {token}",
+              "X-GitHub-Api-Version": "2026-03-10",
+          }
+          compare_request = Request(
               f"https://api.github.com/repos/ramideltoro/nutsnews/compare/{source_commit}...main",
-              headers={
-                  "Accept": "application/vnd.github+json",
-                  "Authorization": f"Bearer {token}",
-                  "X-GitHub-Api-Version": "2026-03-10",
-              },
+              headers=headers,
           )
-          with urlopen(request, timeout=20) as response:  # noqa: S310 - fixed GitHub API origin
+          with urlopen(compare_request, timeout=20) as response:  # noqa: S310 - fixed GitHub API origin
               comparison = json.load(response)
           if comparison.get("status") not in {"ahead", "identical"}:
               raise SystemExit("Qualified source commit is no longer reachable from NutsNews main.")
+          main_request = Request(
+              "https://api.github.com/repos/ramideltoro/nutsnews/commits/main",
+              headers=headers,
+          )
+          with urlopen(main_request, timeout=20) as response:  # noqa: S310 - fixed GitHub API origin
+              main_commit = json.load(response)
+          main_sha = str(main_commit.get("sha", ""))
+          if not re.fullmatch(r"[0-9a-f]{40}", main_sha):
+              raise SystemExit("NutsNews main did not resolve to a full commit SHA.")
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              output.write(f"smoke_helper_ref={main_sha}\n")
           PY
 
       - name: Checkout exact app source for release contract
@@ -352,6 +366,7 @@ jobs:
           IMAGE_DIGEST: ${{ steps.qualified.outputs.image_digest }}
           BUILD_ID: ${{ steps.qualified.outputs.build_id }}
           SOURCE_WORKFLOW_RUN_ID: ${{ steps.qualified.outputs.source_workflow_run_id }}
+          SMOKE_HELPER_REF: ${{ steps.app_main.outputs.smoke_helper_ref }}
           MIGRATION_HEAD: ${{ steps.release_contract.outputs.migration_head }}
           SCHEMA_VERSION: ${{ steps.release_contract.outputs.schema_version }}
           SUPABASE_PROJECT_REF: ${{ steps.production_schema.outputs.supabase_project_ref }}
@@ -632,6 +647,7 @@ jobs:
             --field release_image_digest="$IMAGE_DIGEST" \
             --field release_build_id="$BUILD_ID" \
             --field release_source_workflow_run_id="$SOURCE_WORKFLOW_RUN_ID" \
+            --field release_smoke_helper_ref="$SMOKE_HELPER_REF" \
             --field release_migration_head="$MIGRATION_HEAD" \
             --field release_schema_version="$SCHEMA_VERSION" \
             --field release_supabase_project_ref="$SUPABASE_PROJECT_REF"

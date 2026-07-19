@@ -180,6 +180,9 @@ for required in (
     "NUTSNEWS_INFRA_RELEASE_TOKEN is required to dispatch Protected Ansible Apply.",
     "gh workflow run protected-ansible-apply.yml",
     "--field production_writes_paused",
+    "--field release_smoke_helper_ref",
+    "smoke_helper_ref=",
+    "steps.app_main.outputs.smoke_helper_ref",
     "gh run watch \"$run_id\"",
     "--exit-status",
     "Request and wait for Vercel production deploy",
@@ -252,6 +255,7 @@ for required in (
     "release_source_commit:",
     "release_image_digest:",
     "release_build_id:",
+    "release_smoke_helper_ref:",
     "production_writes_paused:",
     "release_migration_head:",
     "release_schema_version:",
@@ -262,6 +266,8 @@ for required in (
     "Verify released Docker image over SSH",
     "Verify released public health identity",
     "Checkout exact app post-production smoke suite",
+    "Checkout current app smoke helper",
+    "Install current app smoke helper",
     "Run safe production app smoke surfaces",
     "PRODUCTION_WRITES_PAUSED: ${{ inputs.production_writes_paused }}",
     "--expected-production-writes-paused",
@@ -272,6 +278,8 @@ for required in (
 assert protected_workflow.count("PRODUCTION_WRITES_PAUSED: ${{ inputs.production_writes_paused }}") >= 3, (
     "Protected apply must validate, materialize, and smoke-test the production write pause input."
 )
+assert "release_smoke_helper_ref must be a full lowercase SHA when set." in protected_workflow
+assert "nutsnews-current-smoke/scripts/dual_target_web_smoke.mjs" in protected_workflow
 assert 'release_deployment_target" != "production-vps"' in protected_workflow
 assert 'healthDeploymentTarget !== "production-vps"' in protected_workflow
 assert 'payload?.deploymentTarget === healthDeploymentTarget' in protected_workflow
