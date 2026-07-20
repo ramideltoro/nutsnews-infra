@@ -27,6 +27,7 @@ BOOT_ID_FILE = Path("/proc/sys/kernel/random/boot_id")
 
 REQUIRED_CONTAINERS = ("nutsnews-caddy", "nutsnews-ops-auth")
 APP_CONTAINERS = ("nutsnews-app",)
+APP_READYZ_URL = "http://127.0.0.1:3000/readyz"
 LOCAL_HEALTH_URL = "http://127.0.0.1:8080/healthz"
 PUBLIC_HEALTH_URL = "https://vps.nutsnews.com/health"
 OPS_PORTAL_URL = "https://ops.nutsnews.com/"
@@ -215,6 +216,43 @@ def docker_container_summary(name: str) -> dict[str, Any]:
     }
 
 
+def docker_container_http_probe(name: str, url: str) -> dict[str, Any]:
+    node_script = (
+        "const http=require('http');"
+        "const target=process.argv[1];"
+        "const req=http.get(target,(res)=>{"
+        "let body='';"
+        "res.setEncoding('utf8');"
+        "res.on('data',(chunk)=>{if(body.length<6000) body+=chunk;});"
+        "res.on('end',()=>{"
+        "console.log(JSON.stringify({status_code:res.statusCode,body:body.slice(0,6000)}));"
+        "});"
+        "});"
+        "req.setTimeout(5000,()=>req.destroy(new Error('timeout')));"
+        "req.on('error',(err)=>{console.log(JSON.stringify({error:err.message||String(err)}));});"
+    )
+    result = run(["docker", "exec", name, "node", "-e", node_script, url], timeout=10)
+    probe: dict[str, Any] = {
+        "url": url,
+        "returncode": result["returncode"],
+        "command_ok": result["ok"],
+    }
+    stdout = result["stdout"].strip()
+    if stdout:
+        last_line = stdout.splitlines()[-1]
+        try:
+            data = json.loads(last_line)
+        except json.JSONDecodeError:
+            probe["stdout"] = sanitize_text(stdout, limit=3000)
+        else:
+            if "body" in data:
+                data["body"] = sanitize_text(str(data["body"]), limit=3000)
+            probe.update(data)
+    if result["stderr"].strip():
+        probe["stderr"] = sanitize_text(result["stderr"], limit=3000)
+    return probe
+
+
 def docker_container_diagnostics(name: str) -> dict[str, Any]:
     summary = docker_container_summary(name)
 
@@ -240,6 +278,15 @@ def docker_container_diagnostics(name: str) -> dict[str, Any]:
             ]
     else:
         summary["inspect_error"] = sanitize_text(state["stderr"] or state["stdout"], limit=1200)
+
+    healthcheck = run(["docker", "inspect", "--format", "{{json .Config.Healthcheck}}", name], timeout=10)
+    if healthcheck["ok"] and healthcheck["stdout"].strip():
+        try:
+            summary["healthcheck"] = json.loads(healthcheck["stdout"])
+        except json.JSONDecodeError:
+            summary["healthcheck"] = sanitize_text(healthcheck["stdout"], limit=1200)
+
+    summary["readyz_probe"] = docker_container_http_probe(name, APP_READYZ_URL)
 
     logs = run(["docker", "logs", "--tail", "120", "--since", "20m", name], timeout=15)
     log_text = sanitize_text((logs["stdout"] or "") + (logs["stderr"] or ""), limit=6000)
