@@ -61,6 +61,9 @@ require("needs.changes.outputs.run_supply_chain == 'true'" in supply_chain, "Sup
 require("needs.changes.outputs" not in workflow_safety, "Workflow Safety must remain ungated.")
 require("needs.changes.outputs" not in secrets_scan, "Secrets Scan must remain ungated.")
 require("pull_request:" in secrets_scan and "schedule:" in secrets_scan, "Secrets Scan must keep PR and scheduled coverage.")
+require("continue-on-error: true" in secrets_scan, "Secrets Scan must tolerate transient hosted-action failures.")
+require("github.com/gitleaks/gitleaks/v8@${GITLEAKS_VERSION}" in secrets_scan, "Secrets Scan must keep a pinned OSS CLI fallback.")
+require('gitleaks git --no-banner --redact --log-opts="${BASE_SHA}..${HEAD_SHA}"' in secrets_scan, "Secrets Scan fallback must stay PR scoped.")
 require("schedule:" in nightly and "OSV-Scanner" in nightly and "Trivy filesystem" in nightly, "Nightly audit must keep deep scans.")
 require("validate_ci_cost_controls.py" in workflow_safety, "Workflow Safety must validate CI cost controls.")
 
