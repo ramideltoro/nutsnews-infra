@@ -69,7 +69,8 @@
         docker logs --tail 160 --since 20m {{ nutsnews_environment.container_name | quote }} 2>&1 \
           | sed -E \
               -e 's#(postgres(ql)?://)[^[:space:]@/]+(:[^[:space:]@/]*)?@#\1<redacted>@#Ig' \
-              -e 's#((DATABASE|POSTGRES|SUPABASE|NUTSNEWS|AUTH|JWT|API|ACCESS|REFRESH)_[A-Z0-9_]*(TOKEN|KEY|SECRET|PASSWORD|URL)=)[^[:space:],;]+#\1<redacted>#Ig' \
+              -e 's#((DATABASE|POSTGRES|SUPABASE|NUTSNEWS)_[A-Z0-9_]*(TOKEN|KEY|SECRET|PASSWORD|URL)=)[^[:space:],;]+#\1<redacted>#Ig' \
+              -e 's#((AUTH|JWT|API|ACCESS|REFRESH)_[A-Z0-9_]*(TOKEN|KEY|SECRET|PASSWORD|URL)=)[^[:space:],;]+#\1<redacted>#Ig' \
               -e 's#(Bearer[[:space:]]+)[A-Za-z0-9._~+/-]+=*#\1<redacted>#Ig'
       args:
         executable: /bin/bash
