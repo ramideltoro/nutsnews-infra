@@ -19,7 +19,9 @@ import os
 from pathlib import Path
 import re
 import sys
+import time
 from typing import Any, Callable
+from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode, urlparse
 from urllib.request import Request, urlopen
 
@@ -47,6 +49,8 @@ OCI_INDEX_MEDIA_TYPE = "application/vnd.oci.image.index.v1+json"
 OCI_MANIFEST_MEDIA_TYPE = "application/vnd.oci.image.manifest.v1+json"
 IN_TOTO_MEDIA_TYPE = "application/vnd.in-toto+json"
 SLSA_PREDICATE_TYPE = "https://slsa.dev/provenance/v1"
+TRANSIENT_LOOKUP_STATUS_CODES = {408, 409, 425, 429, 500, 502, 503, 504}
+TRUSTED_LOOKUP_ATTEMPTS = 4
 
 
 class CandidateError(ValueError):
@@ -141,11 +145,30 @@ def _request_json(url: str, headers: dict[str, str] | None = None) -> Any:
     if headers:
         request_headers.update(headers)
     request = Request(url, headers=request_headers)
-    try:
-        with urlopen(request, timeout=20) as response:  # noqa: S310 - fixed GitHub/GHCR hosts only
-            return json.load(response)
-    except Exception as error:  # pragma: no cover - exact urllib errors vary by runner image
-        raise CandidateError(f"Trusted source/provenance lookup failed: {error}") from error
+    for attempt in range(1, TRUSTED_LOOKUP_ATTEMPTS + 1):
+        try:
+            with urlopen(request, timeout=20) as response:  # noqa: S310 - fixed GitHub/GHCR hosts only
+                return json.load(response)
+        except Exception as error:  # pragma: no cover - exact urllib errors vary by runner image
+            if isinstance(error, HTTPError):
+                is_transient = error.code in TRANSIENT_LOOKUP_STATUS_CODES
+            else:
+                is_transient = isinstance(error, (TimeoutError, URLError))
+            if not is_transient:
+                raise CandidateError(f"Trusted source/provenance lookup failed: {error}") from error
+            if attempt == TRUSTED_LOOKUP_ATTEMPTS:
+                raise CandidateError(
+                    f"Trusted source/provenance lookup failed after {attempt} attempts: {error}"
+                ) from error
+            delay_seconds = 2 ** (attempt - 1)
+            print(
+                "Transient trusted source/provenance lookup failure "
+                f"on attempt {attempt}/{TRUSTED_LOOKUP_ATTEMPTS}: {error}; "
+                f"retrying in {delay_seconds}s.",
+                file=sys.stderr,
+            )
+            time.sleep(delay_seconds)
+    raise CandidateError("Trusted source/provenance lookup failed unexpectedly.")
 
 
 def verify_source(candidate: Candidate, fetch_json: Callable[[str], Any] = _request_json) -> None:
