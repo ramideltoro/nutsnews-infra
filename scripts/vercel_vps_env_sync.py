@@ -200,8 +200,11 @@ def validate_selected_values(selected: dict[str, str]) -> None:
             or parsed_backend_url.path.rstrip("/") != "/api/app/db"
         ):
             invalid.add("NUTSNEWS_BACKEND_API_URL")
+    backend_api_token = selected.get("NUTSNEWS_BACKEND_API_TOKEN", "")
     if database_provider_mode == "backend_postgres_primary" and not backend_api_url:
         invalid.add("NUTSNEWS_BACKEND_API_URL")
+    if database_provider_mode == "backend_postgres_primary" and not backend_api_token:
+        invalid.add("NUTSNEWS_BACKEND_API_TOKEN")
 
     if invalid:
         fail("Invalid synchronized Vercel Production values for: " + ", ".join(sorted(invalid)) + ".")

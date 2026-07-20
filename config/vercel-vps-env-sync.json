@@ -162,6 +162,12 @@
       "destination": "NUTSNEWS_BACKEND_API_URL",
       "reason": "Reviewed backend PostgreSQL provider endpoint used by the app runtime during the protected primary cutover."
     },
+    "NUTSNEWS_BACKEND_API_TOKEN": {
+      "category": "server_side_secret",
+      "sync": true,
+      "destination": "NUTSNEWS_BACKEND_API_TOKEN",
+      "reason": "Server-side backend PostgreSQL provider credential required by the app runtime when backend PostgreSQL is primary."
+    },
     "NUTSNEWS_DATABASE_PROVIDER_MODE": {
       "category": "safe_to_synchronize",
       "sync": true,
