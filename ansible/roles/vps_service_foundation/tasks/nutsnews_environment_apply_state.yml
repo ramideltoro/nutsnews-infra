@@ -1,31 +1,91 @@
 ---
 - name: Verify app container health when enabled for {{ nutsnews_environment.name }}
-  ansible.builtin.command:
-    argv:
-      - docker
-      - inspect
-      - --format
-      - "{{ '{{.State.Running}}|{{.State.Health.Status}}' }}"
-      - "{{ nutsnews_environment.container_name }}"
-  register: vps_service_foundation_nutsnews_environment_healthcheck
-  changed_when: false
   when: nutsnews_environment.enabled | bool
-  failed_when: false
-  retries: 36
-  delay: 5
-  until:
-    - vps_service_foundation_nutsnews_environment_healthcheck.rc == 0
-    - vps_service_foundation_nutsnews_environment_healthcheck.stdout is search('(?i)true\\|healthy')
+  block:
+    - name: Wait for app container health for {{ nutsnews_environment.name }}
+      ansible.builtin.command:
+        argv:
+          - docker
+          - inspect
+          - --format
+          - "{{ '{{.State.Running}}|{{.State.Health.Status}}' }}"
+          - "{{ nutsnews_environment.container_name }}"
+      register: vps_service_foundation_nutsnews_environment_healthcheck
+      changed_when: false
+      failed_when: false
+      retries: 36
+      delay: 5
+      until:
+        - vps_service_foundation_nutsnews_environment_healthcheck.rc == 0
+        - vps_service_foundation_nutsnews_environment_healthcheck.stdout is search('(?i)true\\|healthy')
 
-- name: Assert app container health for {{ nutsnews_environment.name }}
-  ansible.builtin.assert:
-    that:
-      - vps_service_foundation_nutsnews_environment_healthcheck.rc == 0
-      - vps_service_foundation_nutsnews_environment_healthcheck.stdout is search('(?i)true\|healthy')
-    fail_msg: >-
-      The enabled {{ nutsnews_environment.name }} app container must be running
-      with a healthy Docker health check before deployment is accepted.
-  when: nutsnews_environment.enabled | bool
+    - name: Assert app container health for {{ nutsnews_environment.name }}
+      ansible.builtin.assert:
+        that:
+          - vps_service_foundation_nutsnews_environment_healthcheck.rc == 0
+          - vps_service_foundation_nutsnews_environment_healthcheck.stdout is search('(?i)true\|healthy')
+        fail_msg: >-
+          The enabled {{ nutsnews_environment.name }} app container must be running
+          with a healthy Docker health check before deployment is accepted.
+
+  rescue:
+    - name: Show app container status after health failure for {{ nutsnews_environment.name }}
+      ansible.builtin.command:
+        argv:
+          - docker
+          - ps
+          - --all
+          - --filter
+          - "name={{ nutsnews_environment.container_name }}"
+          - --format
+          - "table {{ '{{.Names}}\\t{{.Image}}\\t{{.Status}}\\t{{.Ports}}' }}"
+      register: vps_service_foundation_nutsnews_environment_container_status
+      changed_when: false
+      failed_when: false
+
+    - name: Print app container status after health failure for {{ nutsnews_environment.name }}
+      ansible.builtin.debug:
+        var: vps_service_foundation_nutsnews_environment_container_status.stdout_lines
+
+    - name: Show app container state after health failure for {{ nutsnews_environment.name }}
+      ansible.builtin.command:
+        argv:
+          - docker
+          - inspect
+          - --format
+          - "{{ '{{json .State}}' }}"
+          - "{{ nutsnews_environment.container_name }}"
+      register: vps_service_foundation_nutsnews_environment_container_state
+      changed_when: false
+      failed_when: false
+
+    - name: Print app container state after health failure for {{ nutsnews_environment.name }}
+      ansible.builtin.debug:
+        var: vps_service_foundation_nutsnews_environment_container_state.stdout_lines
+
+    - name: Show redacted app container logs after health failure for {{ nutsnews_environment.name }}
+      ansible.builtin.shell: |
+        set -o pipefail
+        docker logs --tail 160 --since 20m {{ nutsnews_environment.container_name | quote }} 2>&1 \
+          | sed -E \
+              -e 's#(postgres(ql)?://)[^[:space:]@/]+(:[^[:space:]@/]*)?@#\1<redacted>@#Ig' \
+              -e 's#((DATABASE|POSTGRES|SUPABASE|NUTSNEWS|AUTH|JWT|API|ACCESS|REFRESH)_[A-Z0-9_]*(TOKEN|KEY|SECRET|PASSWORD|URL)=)[^[:space:],;]+#\1<redacted>#Ig' \
+              -e 's#(Bearer[[:space:]]+)[A-Za-z0-9._~+/-]+=*#\1<redacted>#Ig'
+      args:
+        executable: /bin/bash
+      register: vps_service_foundation_nutsnews_environment_container_logs
+      changed_when: false
+      failed_when: false
+
+    - name: Print redacted app container logs after health failure for {{ nutsnews_environment.name }}
+      ansible.builtin.debug:
+        var: vps_service_foundation_nutsnews_environment_container_logs.stdout_lines
+
+    - name: Fail app container health verification for {{ nutsnews_environment.name }}
+      ansible.builtin.fail:
+        msg: >-
+          The enabled {{ nutsnews_environment.name }} app container must be running
+          with a healthy Docker health check before deployment is accepted.
 
 - name: Define production app route health URL
   ansible.builtin.set_fact:
