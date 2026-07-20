@@ -182,6 +182,7 @@ def capture_urlopen(request: object, timeout: int = 0) -> JsonResponse:
 
 
 original_urlopen = module.urlopen
+original_sleep = module.time.sleep
 original_github_token = os.environ.get("GITHUB_TOKEN")
 try:
     module.urlopen = capture_urlopen
@@ -193,10 +194,54 @@ try:
     assert captured_requests[-1].get_header("Authorization") is None
 finally:
     module.urlopen = original_urlopen
+    module.time.sleep = original_sleep
     if original_github_token is None:
         os.environ.pop("GITHUB_TOKEN", None)
     else:
         os.environ["GITHUB_TOKEN"] = original_github_token
+
+retry_requests = []
+retry_sleeps = []
+
+
+def flaky_urlopen(request: object, timeout: int = 0) -> JsonResponse:
+    retry_requests.append(request)
+    if len(retry_requests) < 3:
+        raise module.HTTPError(request.full_url, 503, "Service Unavailable", None, None)
+    return JsonResponse({"ok": True})
+
+
+try:
+    module.urlopen = flaky_urlopen
+    module.time.sleep = lambda seconds: retry_sleeps.append(seconds)
+    assert module._request_json("https://api.github.com/repos/ramideltoro/nutsnews") == {"ok": True}
+    assert len(retry_requests) == 3
+    assert retry_sleeps == [1, 2]
+finally:
+    module.urlopen = original_urlopen
+    module.time.sleep = original_sleep
+
+permanent_requests = []
+
+
+def not_found_urlopen(request: object, timeout: int = 0) -> JsonResponse:
+    permanent_requests.append(request)
+    raise module.HTTPError(request.full_url, 404, "Not Found", None, None)
+
+
+try:
+    module.urlopen = not_found_urlopen
+    module.time.sleep = lambda seconds: (_ for _ in ()).throw(AssertionError("404 responses must not be retried."))
+    try:
+        module._request_json("https://api.github.com/repos/ramideltoro/nutsnews")
+    except module.CandidateError as error:
+        assert "404" in str(error)
+    else:
+        raise AssertionError("Permanent trusted-source lookup failures must fail closed.")
+    assert len(permanent_requests) == 1
+finally:
+    module.urlopen = original_urlopen
+    module.time.sleep = original_sleep
 
 untrusted = module.validate_candidate(fixture("untrusted-source.json"))
 
