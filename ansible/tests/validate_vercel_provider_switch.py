@@ -78,6 +78,7 @@ for fragment in [
     "NUTSNEWS_DATABASE_PROVIDER_MODE",
     "NUTSNEWS_PRODUCTION_WRITES_PAUSED",
     "NUTSNEWS_BACKEND_API_URL",
+    "NUTSNEWS_BACKEND_POSTGRES_PRIMARY_CONFIRMATION",
     "safe_metadata_only",
     "mutation_performed",
 ]:

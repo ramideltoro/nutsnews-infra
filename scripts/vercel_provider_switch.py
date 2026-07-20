@@ -50,6 +50,7 @@ def desired_variables(provider_mode: str, production_writes_paused: str, backend
         "NUTSNEWS_DATABASE_PROVIDER_MODE": provider_mode,
         "NUTSNEWS_PRODUCTION_WRITES_PAUSED": production_writes_paused,
         "NUTSNEWS_BACKEND_API_URL": backend_api_url,
+        "NUTSNEWS_BACKEND_POSTGRES_PRIMARY_CONFIRMATION": CONFIRMATIONS[provider_mode],
     }
 
 

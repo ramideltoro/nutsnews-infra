@@ -30,6 +30,11 @@ ENVELOPE_KEYS = {"encrypted", "ciphertext", "encryptedvalue", "vsmvalue", "keyid
 GOOGLE_CLIENT_ID_RE = re.compile(r"^[0-9]+-[A-Za-z0-9_-]+\.apps\.googleusercontent\.com$")
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 MAX_RUNTIME_AUTH_SECRET_LENGTH = 512
+BACKEND_POSTGRES_PRIMARY_CONFIRMATION = "enable-backend-postgres-primary"
+PROVIDER_SWITCH_CONFIRMATIONS = {
+    "deploy-supabase-primary",
+    BACKEND_POSTGRES_PRIMARY_CONFIRMATION,
+}
 
 
 def fail(message: str) -> NoReturn:
@@ -201,10 +206,18 @@ def validate_selected_values(selected: dict[str, str]) -> None:
         ):
             invalid.add("NUTSNEWS_BACKEND_API_URL")
     backend_api_token = selected.get("NUTSNEWS_BACKEND_API_TOKEN", "")
+    backend_primary_confirmation = selected.get("NUTSNEWS_BACKEND_POSTGRES_PRIMARY_CONFIRMATION", "")
+    if backend_primary_confirmation and backend_primary_confirmation not in PROVIDER_SWITCH_CONFIRMATIONS:
+        invalid.add("NUTSNEWS_BACKEND_POSTGRES_PRIMARY_CONFIRMATION")
     if database_provider_mode == "backend_postgres_primary" and not backend_api_url:
         invalid.add("NUTSNEWS_BACKEND_API_URL")
     if database_provider_mode == "backend_postgres_primary" and not backend_api_token:
         invalid.add("NUTSNEWS_BACKEND_API_TOKEN")
+    if (
+        database_provider_mode == "backend_postgres_primary"
+        and backend_primary_confirmation != BACKEND_POSTGRES_PRIMARY_CONFIRMATION
+    ):
+        invalid.add("NUTSNEWS_BACKEND_POSTGRES_PRIMARY_CONFIRMATION")
 
     if invalid:
         fail("Invalid synchronized Vercel Production values for: " + ", ".join(sorted(invalid)) + ".")

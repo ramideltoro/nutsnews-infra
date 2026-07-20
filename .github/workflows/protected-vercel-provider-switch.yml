@@ -193,13 +193,16 @@ jobs:
 
           run_id=""
           for _ in $(seq 1 60); do
+            query="[.[] | select(.createdAt >= \"$dispatch_started_at\" "
+            query+="and .displayTitle == \"Deploy Vercel production $SOURCE_COMMIT\")] "
+            query+="| sort_by(.createdAt) | last | .databaseId"
             run_id="$(gh run list \
               --repo ramideltoro/nutsnews \
               --workflow vercel-production-release.yml \
               --event repository_dispatch \
               --limit 20 \
               --json databaseId,createdAt,displayTitle \
-              --jq "[.[] | select(.createdAt >= \"$dispatch_started_at\" and .displayTitle == \"Deploy Vercel production $SOURCE_COMMIT\")] | sort_by(.createdAt) | last | .databaseId")"
+              --jq "$query")"
             if [[ -n "$run_id" && "$run_id" != "null" ]]; then
               break
             fi
@@ -223,7 +226,11 @@ jobs:
             echo "- Operation: \`${{ inputs.operation }}\`"
             echo "- Provider mode: \`${{ inputs.database_provider_mode }}\`"
             echo "- Production writes paused: \`${{ inputs.production_writes_paused }}\`"
-            echo "- Managed Vercel keys: \`NUTSNEWS_DATABASE_PROVIDER_MODE\`, \`NUTSNEWS_PRODUCTION_WRITES_PAUSED\`, \`NUTSNEWS_BACKEND_API_URL\`"
+            echo "- Managed Vercel keys:"
+            echo "  - \`NUTSNEWS_DATABASE_PROVIDER_MODE\`"
+            echo "  - \`NUTSNEWS_PRODUCTION_WRITES_PAUSED\`"
+            echo "  - \`NUTSNEWS_BACKEND_API_URL\`"
+            echo "  - \`NUTSNEWS_BACKEND_POSTGRES_PRIMARY_CONFIRMATION\`"
             echo "- Values, tokens, and secrets are not printed."
           } >> "$GITHUB_STEP_SUMMARY"
 

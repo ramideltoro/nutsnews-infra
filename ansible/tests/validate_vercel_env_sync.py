@@ -57,7 +57,10 @@ require(
 selected = [name for name, rule in mapping["variables"].items() if rule.get("sync")]
 require(selected, "Mapping must contain an explicit synchronization allowlist.")
 require("patterns" in mapping, "Mapping must contain explicit classification patterns.")
-require(all(rule.get("sync") is False for rule in mapping["variables"].values() if rule.get("category") == "manual_review"), "Manual-review rules must never sync implicitly.")
+require(
+    all(rule.get("sync") is False for rule in mapping["variables"].values() if rule.get("category") == "manual_review"),
+    "Manual-review rules must never sync implicitly.",
+)
 
 runtime_public_destinations = {
     "NEXT_PUBLIC_SENTRY_DSN": "NUTSNEWS_PUBLIC_SENTRY_DSN",
@@ -92,6 +95,7 @@ require(
 
 runtime_safety_destinations = {
     "NUTSNEWS_BACKEND_API_URL": "NUTSNEWS_BACKEND_API_URL",
+    "NUTSNEWS_BACKEND_POSTGRES_PRIMARY_CONFIRMATION": "NUTSNEWS_BACKEND_POSTGRES_PRIMARY_CONFIRMATION",
     "NUTSNEWS_DATABASE_PROVIDER_MODE": "NUTSNEWS_DATABASE_PROVIDER_MODE",
     "NUTSNEWS_DATA_ENVIRONMENT": "NUTSNEWS_DATA_ENVIRONMENT",
     "NUTSNEWS_PRODUCTION_SUPABASE_PROJECT_REF": "NUTSNEWS_PRODUCTION_SUPABASE_PROJECT_REF",
@@ -114,13 +118,16 @@ valid_runtime_values = {
     "NUTSNEWS_DATABASE_PROVIDER_MODE": "backend_postgres_primary",
     "NUTSNEWS_BACKEND_API_URL": "https://backend.nutsnews.com/api/app/db",
     "NUTSNEWS_BACKEND_API_TOKEN": "backend-token-fixture",
+    "NUTSNEWS_BACKEND_POSTGRES_PRIMARY_CONFIRMATION": "enable-backend-postgres-primary",
 }
 sync.validate_selected_values(valid_runtime_values)
 for invalid_values in (
     {**valid_runtime_values, "NUTSNEWS_DATABASE_PROVIDER_MODE": "unknown"},
     {**valid_runtime_values, "NUTSNEWS_BACKEND_API_URL": "https://example.com/api/app/db"},
+    {**valid_runtime_values, "NUTSNEWS_BACKEND_POSTGRES_PRIMARY_CONFIRMATION": "deploy-supabase-primary"},
     {key: value for key, value in valid_runtime_values.items() if key != "NUTSNEWS_BACKEND_API_URL"},
     {key: value for key, value in valid_runtime_values.items() if key != "NUTSNEWS_BACKEND_API_TOKEN"},
+    {key: value for key, value in valid_runtime_values.items() if key != "NUTSNEWS_BACKEND_POSTGRES_PRIMARY_CONFIRMATION"},
 ):
     try:
         sync.validate_selected_values(invalid_values)
