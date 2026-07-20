@@ -231,6 +231,13 @@ assert (
     promotion_workflow.index("gh workflow run protected-ansible-apply.yml")
     < promotion_workflow.index("nutsnews-vercel-production-release")
 ), "Vercel production must deploy only after the protected VPS apply is started and watched."
+protected_apply_dispatch_step = promotion_workflow.split(
+    "- name: Start and wait for protected VPS apply",
+    1,
+)[1].split("- name: Request and wait for Vercel production deploy", 1)[0]
+assert "SMOKE_HELPER_REF: ${{ steps.app_main.outputs.smoke_helper_ref }}" in protected_apply_dispatch_step, (
+    "Protected apply dispatch must export the smoke helper ref before using it under set -u."
+)
 assert "run.get(\"createdAt\", \"\") >= sys.argv[3]" in promotion_workflow, (
     "The release workflow must select only a protected apply started by its own dispatch."
 )
