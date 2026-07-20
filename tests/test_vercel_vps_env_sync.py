@@ -54,6 +54,7 @@ CURRENT_VERCEL_PRODUCTION_NAMES = {
     "NUTSNEWS_EDGE_FEED_SNAPSHOT_URL",
     "NUTSNEWS_BACKEND_API_URL",
     "NUTSNEWS_BACKEND_API_TOKEN",
+    "NUTSNEWS_BACKEND_POSTGRES_PRIMARY_CONFIRMATION",
     "NUTSNEWS_DATABASE_PROVIDER_MODE",
     "NUTSNEWS_DATA_ENV",
     "NUTSNEWS_DATA_ENVIRONMENT",
@@ -330,6 +331,19 @@ class VercelVpsEnvSyncTests(unittest.TestCase):
                     "AUTH_SECRET": "s" * 64,
                     "NUTSNEWS_DATABASE_PROVIDER_MODE": "backend_postgres_primary",
                     "NUTSNEWS_BACKEND_API_URL": "https://backend.nutsnews.com/api/app/db",
+                    "NUTSNEWS_BACKEND_POSTGRES_PRIMARY_CONFIRMATION": "enable-backend-postgres-primary",
+                }
+            )
+
+        with self.assertRaisesRegex(SystemExit, "NUTSNEWS_BACKEND_POSTGRES_PRIMARY_CONFIRMATION"):
+            sync.validate_selected_values(
+                {
+                    "AUTH_GOOGLE_ID": "1234567890-test-client.apps.googleusercontent.com",
+                    "AUTH_GOOGLE_SECRET": "valid-secret-fixture",
+                    "AUTH_SECRET": "s" * 64,
+                    "NUTSNEWS_DATABASE_PROVIDER_MODE": "backend_postgres_primary",
+                    "NUTSNEWS_BACKEND_API_URL": "https://backend.nutsnews.com/api/app/db",
+                    "NUTSNEWS_BACKEND_API_TOKEN": "backend-token-fixture",
                 }
             )
 
@@ -341,6 +355,7 @@ class VercelVpsEnvSyncTests(unittest.TestCase):
                 "NUTSNEWS_DATABASE_PROVIDER_MODE": "backend_postgres_primary",
                 "NUTSNEWS_BACKEND_API_URL": "https://backend.nutsnews.com/api/app/db",
                 "NUTSNEWS_BACKEND_API_TOKEN": "backend-token-fixture",
+                "NUTSNEWS_BACKEND_POSTGRES_PRIMARY_CONFIRMATION": "enable-backend-postgres-primary",
             }
         )
 

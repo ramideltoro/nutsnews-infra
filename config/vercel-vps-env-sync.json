@@ -168,6 +168,12 @@
       "destination": "NUTSNEWS_BACKEND_API_TOKEN",
       "reason": "Server-side backend PostgreSQL provider credential required by the app runtime when backend PostgreSQL is primary."
     },
+    "NUTSNEWS_BACKEND_POSTGRES_PRIMARY_CONFIRMATION": {
+      "category": "safe_to_synchronize",
+      "sync": true,
+      "destination": "NUTSNEWS_BACKEND_POSTGRES_PRIMARY_CONFIRMATION",
+      "reason": "Reviewed provider-switch confirmation required by the app runtime before backend PostgreSQL primary is accepted."
+    },
     "NUTSNEWS_DATABASE_PROVIDER_MODE": {
       "category": "safe_to_synchronize",
       "sync": true,
