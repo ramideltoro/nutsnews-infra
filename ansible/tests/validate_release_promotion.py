@@ -192,6 +192,12 @@ for required in (
     "STAGING_DEPLOYMENT_ID",
     "QUALIFICATION_RUN_ID",
     'release_kind: "release"',
+    "DATABASE_PROVIDER_MODE: backend_postgres_primary",
+    "BACKEND_API_URL: https://backend.nutsnews.com/api/app/db",
+    "PROVIDER_SWITCH_CONFIRMATION: enable-backend-postgres-primary",
+    "Backend PostgreSQL primary Vercel release requires provider switch confirmation.",
+    "provider_switch:",
+    "database_provider_mode: process.env.DATABASE_PROVIDER_MODE",
     "--workflow vercel-production-release.yml",
     "--repo ramideltoro/nutsnews",
     "--jq '.conclusion // \"unknown\"'",
@@ -244,7 +250,7 @@ assert "run.get(\"createdAt\", \"\") >= sys.argv[3]" in promotion_workflow, (
 
 payload_match = re.search(r"const payload = \{\n(?P<body>.*?)\n\s+\};", promotion_workflow, re.DOTALL)
 assert payload_match, "The Vercel production dispatch payload must be explicit."
-dispatch_payload_keys = re.findall(r"^\s+([a-z_]+):", payload_match.group("body"), re.MULTILINE)
+dispatch_payload_keys = re.findall(r"^            ([a-z_]+):", payload_match.group("body"), re.MULTILINE)
 assert dispatch_payload_keys == [
     "source_repository",
     "source_commit",
@@ -254,6 +260,7 @@ assert dispatch_payload_keys == [
     "staging_deployment_id",
     "qualification_run_id",
     "release_kind",
+    "provider_switch",
     "production_writes_paused",
 ], "The Vercel dispatch payload should contain only fields consumed by the app workflow."
 assert len(dispatch_payload_keys) <= 10, "GitHub repository dispatch rejects more than 10 client_payload keys."
