@@ -52,8 +52,12 @@ CURRENT_VERCEL_PRODUCTION_NAMES = {
     "NEXT_PUBLIC_VERCEL_ENV",
     "NEXT_PUBLIC_VERCEL_GIT_COMMIT_SHA",
     "NUTSNEWS_EDGE_FEED_SNAPSHOT_URL",
+    "NUTSNEWS_BACKEND_API_URL",
+    "NUTSNEWS_BACKEND_API_TOKEN",
+    "NUTSNEWS_DATABASE_PROVIDER_MODE",
     "NUTSNEWS_DATA_ENV",
     "NUTSNEWS_DATA_ENVIRONMENT",
+    "NUTSNEWS_PRODUCTION_WRITES_PAUSED",
     "NUTSNEWS_PRODUCTION_SUPABASE_PROJECT_REF",
     "NUTSNEWS_RUNTIME_ENV",
     "NUTSNEWS_SIDE_EFFECTS_MODE",
@@ -203,6 +207,22 @@ class VercelVpsEnvSyncTests(unittest.TestCase):
         self.assertIn("added: SUPABASE_SERVICE_ROLE_KEY", output.getvalue())
         self.assertNotIn("excluded", output.getvalue())
 
+    def test_backend_api_token_synchronizes_as_server_secret(self) -> None:
+        selected, report = sync.classify_records(
+            [
+                {
+                    "key": "NUTSNEWS_BACKEND_API_TOKEN",
+                    "target": ["production"],
+                    "type": "encrypted",
+                    "decrypted": True,
+                    "value": "backend-token-fixture",
+                }
+            ],
+            self.mapping,
+        )
+        self.assertEqual(selected, {"NUTSNEWS_BACKEND_API_TOKEN": "backend-token-fixture"})
+        self.assertEqual(report["server_side_secret"], ["NUTSNEWS_BACKEND_API_TOKEN"])
+
     def test_valid_plaintext_is_accepted(self) -> None:
         selected, _ = sync.classify_records(
             [
@@ -300,6 +320,29 @@ class VercelVpsEnvSyncTests(unittest.TestCase):
                     "ADMIN_EMAILS": "not-an-email",
                 }
             )
+
+    def test_backend_primary_requires_backend_api_token(self) -> None:
+        with self.assertRaisesRegex(SystemExit, "NUTSNEWS_BACKEND_API_TOKEN"):
+            sync.validate_selected_values(
+                {
+                    "AUTH_GOOGLE_ID": "1234567890-test-client.apps.googleusercontent.com",
+                    "AUTH_GOOGLE_SECRET": "valid-secret-fixture",
+                    "AUTH_SECRET": "s" * 64,
+                    "NUTSNEWS_DATABASE_PROVIDER_MODE": "backend_postgres_primary",
+                    "NUTSNEWS_BACKEND_API_URL": "https://backend.nutsnews.com/api/app/db",
+                }
+            )
+
+        sync.validate_selected_values(
+            {
+                "AUTH_GOOGLE_ID": "1234567890-test-client.apps.googleusercontent.com",
+                "AUTH_GOOGLE_SECRET": "valid-secret-fixture",
+                "AUTH_SECRET": "s" * 64,
+                "NUTSNEWS_DATABASE_PROVIDER_MODE": "backend_postgres_primary",
+                "NUTSNEWS_BACKEND_API_URL": "https://backend.nutsnews.com/api/app/db",
+                "NUTSNEWS_BACKEND_API_TOKEN": "backend-token-fixture",
+            }
+        )
 
     def test_fetch_uses_documented_per_variable_decrypted_endpoint(self) -> None:
         saved = {

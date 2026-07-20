@@ -82,6 +82,14 @@ require(
     "Legacy NEXT_PUBLIC_SUPABASE_URL must not be rendered into the VPS runtime environment.",
 )
 
+backend_api_token_rule = mapping["variables"].get("NUTSNEWS_BACKEND_API_TOKEN", {})
+require(
+    backend_api_token_rule.get("category") == "server_side_secret"
+    and backend_api_token_rule.get("sync") is True
+    and backend_api_token_rule.get("destination") == "NUTSNEWS_BACKEND_API_TOKEN",
+    "Backend PostgreSQL provider token must synchronize as an explicit server-side VPS runtime secret.",
+)
+
 runtime_safety_destinations = {
     "NUTSNEWS_BACKEND_API_URL": "NUTSNEWS_BACKEND_API_URL",
     "NUTSNEWS_DATABASE_PROVIDER_MODE": "NUTSNEWS_DATABASE_PROVIDER_MODE",
@@ -105,12 +113,14 @@ valid_runtime_values = {
     "AUTH_SECRET": "x" * 32,
     "NUTSNEWS_DATABASE_PROVIDER_MODE": "backend_postgres_primary",
     "NUTSNEWS_BACKEND_API_URL": "https://backend.nutsnews.com/api/app/db",
+    "NUTSNEWS_BACKEND_API_TOKEN": "backend-token-fixture",
 }
 sync.validate_selected_values(valid_runtime_values)
 for invalid_values in (
     {**valid_runtime_values, "NUTSNEWS_DATABASE_PROVIDER_MODE": "unknown"},
     {**valid_runtime_values, "NUTSNEWS_BACKEND_API_URL": "https://example.com/api/app/db"},
     {key: value for key, value in valid_runtime_values.items() if key != "NUTSNEWS_BACKEND_API_URL"},
+    {key: value for key, value in valid_runtime_values.items() if key != "NUTSNEWS_BACKEND_API_TOKEN"},
 ):
     try:
         sync.validate_selected_values(invalid_values)
