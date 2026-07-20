@@ -83,6 +83,8 @@ require(
 )
 
 runtime_safety_destinations = {
+    "NUTSNEWS_BACKEND_API_URL": "NUTSNEWS_BACKEND_API_URL",
+    "NUTSNEWS_DATABASE_PROVIDER_MODE": "NUTSNEWS_DATABASE_PROVIDER_MODE",
     "NUTSNEWS_DATA_ENVIRONMENT": "NUTSNEWS_DATA_ENVIRONMENT",
     "NUTSNEWS_PRODUCTION_SUPABASE_PROJECT_REF": "NUTSNEWS_PRODUCTION_SUPABASE_PROJECT_REF",
     "NUTSNEWS_PRODUCTION_WRITES_PAUSED": "NUTSNEWS_PRODUCTION_WRITES_PAUSED",
@@ -96,5 +98,25 @@ for source, destination in runtime_safety_destinations.items():
         mapping["variables"].get(source, {}).get("destination") == destination,
         f"{source} must remain an explicitly synchronized runtime safety identity.",
     )
+
+valid_runtime_values = {
+    "AUTH_GOOGLE_ID": "1234567890-fixture.apps.googleusercontent.com",
+    "AUTH_GOOGLE_SECRET": "google-secret-fixture",
+    "AUTH_SECRET": "x" * 32,
+    "NUTSNEWS_DATABASE_PROVIDER_MODE": "backend_postgres_primary",
+    "NUTSNEWS_BACKEND_API_URL": "https://backend.nutsnews.com/api/app/db",
+}
+sync.validate_selected_values(valid_runtime_values)
+for invalid_values in (
+    {**valid_runtime_values, "NUTSNEWS_DATABASE_PROVIDER_MODE": "unknown"},
+    {**valid_runtime_values, "NUTSNEWS_BACKEND_API_URL": "https://example.com/api/app/db"},
+    {key: value for key, value in valid_runtime_values.items() if key != "NUTSNEWS_BACKEND_API_URL"},
+):
+    try:
+        sync.validate_selected_values(invalid_values)
+    except SystemExit:
+        pass
+    else:
+        raise SystemExit("Provider switch runtime values must fail closed when invalid.")
 
 print("Vercel-to-VPS environment sync guardrails passed.")

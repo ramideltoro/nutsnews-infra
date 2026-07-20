@@ -156,6 +156,18 @@
       "destination": "NUTSNEWS_PRODUCTION_SUPABASE_PROJECT_REF",
       "reason": "Known non-secret production project identity used to reject staging mismatches."
     },
+    "NUTSNEWS_BACKEND_API_URL": {
+      "category": "safe_to_synchronize",
+      "sync": true,
+      "destination": "NUTSNEWS_BACKEND_API_URL",
+      "reason": "Reviewed backend PostgreSQL provider endpoint used by the app runtime during the protected primary cutover."
+    },
+    "NUTSNEWS_DATABASE_PROVIDER_MODE": {
+      "category": "safe_to_synchronize",
+      "sync": true,
+      "destination": "NUTSNEWS_DATABASE_PROVIDER_MODE",
+      "reason": "Reviewed production database provider mode used by runtime safety checks during the protected primary cutover."
+    },
     "NUTSNEWS_PRODUCTION_WRITES_PAUSED": {
       "category": "safe_to_synchronize",
       "sync": true,

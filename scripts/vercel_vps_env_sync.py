@@ -187,6 +187,22 @@ def validate_selected_values(selected: dict[str, str]) -> None:
     if admin_emails and not all(EMAIL_RE.fullmatch(email.strip()) for email in admin_emails.split(",")):
         invalid.add("ADMIN_EMAILS")
 
+    database_provider_mode = selected.get("NUTSNEWS_DATABASE_PROVIDER_MODE", "")
+    if database_provider_mode and database_provider_mode not in {"supabase_primary", "backend_postgres_primary"}:
+        invalid.add("NUTSNEWS_DATABASE_PROVIDER_MODE")
+
+    backend_api_url = selected.get("NUTSNEWS_BACKEND_API_URL", "")
+    if backend_api_url:
+        parsed_backend_url = urllib.parse.urlparse(backend_api_url)
+        if (
+            parsed_backend_url.scheme != "https"
+            or parsed_backend_url.netloc != "backend.nutsnews.com"
+            or parsed_backend_url.path.rstrip("/") != "/api/app/db"
+        ):
+            invalid.add("NUTSNEWS_BACKEND_API_URL")
+    if database_provider_mode == "backend_postgres_primary" and not backend_api_url:
+        invalid.add("NUTSNEWS_BACKEND_API_URL")
+
     if invalid:
         fail("Invalid synchronized Vercel Production values for: " + ", ".join(sorted(invalid)) + ".")
 
