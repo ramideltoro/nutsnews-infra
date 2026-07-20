@@ -26,9 +26,25 @@ REBOOT_REQUIRED_PACKAGES_FILE = Path("/var/run/reboot-required.pkgs")
 BOOT_ID_FILE = Path("/proc/sys/kernel/random/boot_id")
 
 REQUIRED_CONTAINERS = ("nutsnews-caddy", "nutsnews-ops-auth")
+APP_CONTAINERS = ("nutsnews-app",)
 LOCAL_HEALTH_URL = "http://127.0.0.1:8080/healthz"
 PUBLIC_HEALTH_URL = "https://vps.nutsnews.com/health"
 OPS_PORTAL_URL = "https://ops.nutsnews.com/"
+
+SENSITIVE_TEXT_PATTERNS = (
+    (
+        re.compile(r"(?i)(postgres(?:ql)?://)[^\s@/]+(?::[^\s@/]*)?@"),
+        r"\1<redacted>@",
+    ),
+    (
+        re.compile(
+            r"(?i)\b((?:DATABASE|POSTGRES|SUPABASE|NUTSNEWS|AUTH|JWT|API|ACCESS|REFRESH)"
+            r"_[A-Z0-9_]*(?:TOKEN|KEY|SECRET|PASSWORD|URL)|TOKEN|PASSWORD|SECRET)=([^\s,;]+)"
+        ),
+        r"\1=<redacted>",
+    ),
+    (re.compile(r"(?i)(Bearer\s+)[A-Za-z0-9._~+/\-]+=*"), r"\1<redacted>"),
+)
 
 
 def utc_now() -> str:
@@ -70,6 +86,15 @@ def run(argv: list[str], timeout: int = 20, env: dict[str, str] | None = None) -
         "stderr": completed.stderr,
         "duration_seconds": round(time.monotonic() - started, 3),
     }
+
+
+def sanitize_text(value: str, limit: int = 6000) -> str:
+    sanitized = value.replace("\r", "")
+    for pattern, replacement in SENSITIVE_TEXT_PATTERNS:
+        sanitized = pattern.sub(replacement, sanitized)
+    if len(sanitized) > limit:
+        return sanitized[-limit:]
+    return sanitized
 
 
 def safe_package_names(path: Path, limit: int = 12) -> list[str]:
@@ -190,6 +215,39 @@ def docker_container_summary(name: str) -> dict[str, Any]:
     }
 
 
+def docker_container_diagnostics(name: str) -> dict[str, Any]:
+    summary = docker_container_summary(name)
+
+    state = run(["docker", "inspect", "--format", "{{json .State}}", name], timeout=10)
+    if state["ok"] and state["stdout"].strip():
+        try:
+            state_data = json.loads(state["stdout"])
+        except json.JSONDecodeError:
+            state_data = {}
+        health = state_data.get("Health") if isinstance(state_data, dict) else {}
+        health_log = health.get("Log") if isinstance(health, dict) else []
+        if isinstance(health_log, list):
+            summary["health_failing_streak"] = health.get("FailingStreak")
+            summary["health_log"] = [
+                {
+                    "exit_code": entry.get("ExitCode"),
+                    "started_at": entry.get("Start"),
+                    "ended_at": entry.get("End"),
+                    "output": sanitize_text(str(entry.get("Output", "")), limit=1200),
+                }
+                for entry in health_log[-5:]
+                if isinstance(entry, dict)
+            ]
+    else:
+        summary["inspect_error"] = sanitize_text(state["stderr"] or state["stdout"], limit=1200)
+
+    logs = run(["docker", "logs", "--tail", "120", "--since", "20m", name], timeout=15)
+    log_text = sanitize_text((logs["stdout"] or "") + (logs["stderr"] or ""), limit=6000)
+    summary["recent_logs_returncode"] = logs["returncode"]
+    summary["recent_logs"] = [line for line in log_text.splitlines() if line][-120:]
+    return summary
+
+
 def system_summary() -> dict[str, Any]:
     failed = run(["systemctl", "--failed", "--plain", "--no-legend"], timeout=10)
     failed_lines = [line for line in failed["stdout"].splitlines() if line.strip()]
@@ -212,6 +270,7 @@ def collect_status() -> dict[str, Any]:
     public_health = curl_status(PUBLIC_HEALTH_URL)
     ops_portal = curl_status(OPS_PORTAL_URL)
     containers = [docker_container_summary(name) for name in REQUIRED_CONTAINERS]
+    app_containers = [docker_container_diagnostics(name) for name in APP_CONTAINERS]
     return {
         "schema_version": 1,
         "collected_at": utc_now(),
@@ -228,7 +287,7 @@ def collect_status() -> dict[str, Any]:
             "ops_portal_status": ops_portal["status_code"],
             "ops_portal_auth_redirect_ok": ops_portal["status_code"] in {"200", "302", "303"},
         },
-        "docker": {"required_containers": containers},
+        "docker": {"required_containers": containers, "app_containers": app_containers},
     }
 
 
@@ -237,6 +296,7 @@ def require_preflight(status: dict[str, Any]) -> None:
     system = status["system"]
     health = status["health"]
     containers = status["docker"]["required_containers"]
+    app_containers = status["docker"].get("app_containers", [])
     if system["system_state"] != "running":
         errors.append(f"system state is {system['system_state']}")
     if system["failed_units_count"] != 0:
@@ -256,6 +316,13 @@ def require_preflight(status: dict[str, Any]) -> None:
     ]
     if bad_containers:
         errors.append("required Docker containers unhealthy: " + ", ".join(bad_containers))
+    bad_app_containers = [
+        f"{item['name']}:{item['health']}"
+        for item in app_containers
+        if not item["running"] or item["health"] not in {"healthy", "none"}
+    ]
+    if bad_app_containers:
+        errors.append("app Docker containers unhealthy: " + ", ".join(bad_app_containers))
     if errors:
         raise SystemExit("Preflight failed: " + "; ".join(errors))
 
