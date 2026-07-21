@@ -9,6 +9,7 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import re
 import sys
 import tempfile
 
@@ -166,6 +167,14 @@ def expect_reject(label: str, operation) -> None:
     raise AssertionError(f"{label} must be rejected")
 
 
+def require_pinned_action(workflow: str, action: str, label: str) -> None:
+    pattern = rf"uses:\s+{re.escape(action)}@[0-9a-fA-F]{{40}}"
+    assert re.search(pattern, workflow), (
+        f"{label} must use {action} pinned to a full commit SHA; "
+        "the generic workflow action pin validator rejects mutable refs."
+    )
+
+
 resolved = evidence()
 assert resolved.image_repository == "ghcr.io/ramideltoro/nutsnews"
 assert resolved.image_digest == DIGEST
@@ -295,7 +304,6 @@ for required in (
     "Deploy Verified NutsNews Staging Candidate",
     "runs-on: ubuntu-latest",
     "environment: staging-tests",
-    "actions/attest@a1948c3f048ba23858d222213b7c278aabede763",
     "predicate-type: https://nutsnews.com/attestations/staging-qualification/v1",
     "push-to-registry: false",
     "gh attestation verify",
@@ -309,6 +317,8 @@ for required in (
     "Promotion workflow will start from this successful qualification run.",
 ):
     assert required in workflow, f"Qualification workflow missing guardrail: {required}"
+
+require_pinned_action(workflow, "actions/attest", "Qualification attestation step")
 
 for forbidden in (
     "repository_dispatch:",
