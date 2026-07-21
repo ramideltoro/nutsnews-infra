@@ -33,6 +33,21 @@ workflow_safety = read(".github/workflows/workflow-safety.yml")
 secrets_scan = read(".github/workflows/secrets-scan.yml")
 nightly = read(".github/workflows/nightly-audit.yml")
 
+required_validation_workflows = {
+    "Repository Hygiene": read(".github/workflows/repository-hygiene.yml"),
+    "Workflow Safety": workflow_safety,
+    "Secrets Scan": secrets_scan,
+    "Supply Chain": supply_chain,
+    "Infrastructure Checks": infrastructure,
+    "Runtime Checks": runtime,
+    "Portal Checks": portal,
+}
+
+for workflow_name, workflow in required_validation_workflows.items():
+    require("pull_request:" in workflow, f"{workflow_name} must keep required PR status checks.")
+    require("workflow_dispatch:" in workflow, f"{workflow_name} must stay manually runnable for diagnostics.")
+    require("\n  push:" not in workflow, f"{workflow_name} must not duplicate required PR checks on push to main.")
+
 for category in (
     "docs_only",
     "workflows",
