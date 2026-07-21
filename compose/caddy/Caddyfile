@@ -1,5 +1,6 @@
 {
   admin off
+  skip_install_trust
 }
 
 vps.nutsnews.com {
