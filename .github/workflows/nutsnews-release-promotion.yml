@@ -642,7 +642,7 @@ jobs:
             --field sync_vercel_production=true \
             --field enable_cloudflare_ddns=false \
             --field enable_grafana_alloy=false \
-            --field enable_staging_access=false \
+            --field enable_staging_access=true \
             --field production_writes_paused="$PRODUCTION_WRITES_PAUSED" \
             --field release_source_commit="$SOURCE_COMMIT" \
             --field release_image_digest="$IMAGE_DIGEST" \

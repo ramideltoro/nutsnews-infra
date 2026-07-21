@@ -296,12 +296,12 @@ assert "release_smoke_helper_ref must be a full lowercase SHA when set." in prot
 assert "nutsnews-current-smoke/scripts/dual_target_web_smoke.mjs" in protected_workflow
 assert 'release_deployment_target" != "production-vps"' in protected_workflow
 assert "RELEASE_IMAGE_DEPLOYMENT_TARGET=production-vps" in protected_workflow
-assert "RELEASE_HEALTH_DEPLOYMENT_TARGET=vps" in protected_workflow
-assert 'healthDeploymentTarget !== "vps"' in protected_workflow
+assert "RELEASE_HEALTH_DEPLOYMENT_TARGET=production-vps" in protected_workflow
+assert 'healthDeploymentTarget !== "production-vps"' in protected_workflow
 assert 'payload?.deploymentTarget === healthDeploymentTarget' in protected_workflow
 assert 'response.headers.get("x-nutsnews-deployment-target") === healthDeploymentTarget' in protected_workflow
 assert "--expected-deployment-target production-vps" in protected_workflow
-assert "--expected-health-deployment-target vps" in protected_workflow
+assert "--expected-health-deployment-target production-vps" in protected_workflow
 
 assert "NUTSNEWS_APP_IMAGE_TAG" not in promotion_workflow
 assert "repository_dispatch:" not in promotion_workflow
@@ -313,6 +313,8 @@ assert "gh pr checks \"$PR_URL\" --required" not in promotion_workflow
 assert "environment: production-vps" not in promotion_workflow
 assert "contents: write" not in promotion_workflow
 assert "actions: write" not in promotion_workflow
+assert "--field enable_staging_access=true" in promotion_workflow
+assert "--field enable_staging_access=false" not in promotion_workflow
 
 promotion_pause_scan = promotion_workflow.replace("production_writes_paused", "production_writes_state")
 pause_step = re.search(

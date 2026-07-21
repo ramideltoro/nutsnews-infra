@@ -148,6 +148,7 @@ for required in (
     "Validate pre-merge production candidate payload",
     "repository_dispatch client_payload must not exceed 10 top-level keys",
     "release_manifest_mode=premerge_candidate",
+    "--field enable_staging_access=true",
     "gh workflow run protected-ansible-apply.yml",
     "gh run watch \"$run_id\"",
 ):
@@ -164,6 +165,7 @@ for required in (
     "rollback-recorded-last-known-good",
     "rollback_nutsnews_release.py",
     "gh workflow run protected-ansible-apply.yml",
+    "--field enable_staging_access=true",
 ):
     require(required in ROLLBACK, f"Fixed rollback workflow missing guardrail: {required}.")
 require(

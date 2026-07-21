@@ -116,7 +116,7 @@ jobs:
             --field production_writes_paused="$PRODUCTION_WRITES_PAUSED" \
             --field enable_cloudflare_ddns=false \
             --field enable_grafana_alloy=false \
-            --field enable_staging_access=false \
+            --field enable_staging_access=true \
             --field release_source_commit="$SOURCE_COMMIT" \
             --field release_image_digest="$IMAGE_DIGEST" \
             --field release_build_id="$BUILD_ID" \
