@@ -63,6 +63,30 @@ require(
 require("cache: pip" in infrastructure, "pip tooling must use setup-python pip cache.")
 require(".github/requirements/yamllint.txt" in infrastructure, "yamllint must install from a pinned requirements file.")
 require(".github/requirements/ansible-lint.txt" in infrastructure, "ansible-lint must install from a pinned requirements file.")
+require(
+    count_pinned_action(infrastructure, "actions/cache") >= 1,
+    "ansible-lint virtual environment cache must use actions/cache pinned to a full commit SHA; "
+    "the generic workflow action pin validator rejects mutable refs.",
+)
+require(
+    'python-version: "3.13"' in infrastructure,
+    "ansible-lint virtual environment cache key assumes Python 3.13 and must use that explicit runtime.",
+)
+require(
+    "id: ansible_lint_venv" in infrastructure
+    and "path: .venv/ansible-lint" in infrastructure
+    and "steps.setup_python.outputs.python-version" in infrastructure
+    and "ansible-lint-venv-${{ runner.os }}-py${{ steps.setup_python.outputs.python-version }}-${{ hashFiles('.github/requirements/ansible-lint.txt') }}" in infrastructure,
+    "ansible-lint virtual environment cache must be keyed by runner, resolved Python version, and pinned requirements.",
+)
+require(
+    "steps.ansible_lint_venv.outputs.cache-hit != 'true'" in infrastructure,
+    "ansible-lint install must skip when the cached virtual environment is restored.",
+)
+require(
+    "$GITHUB_WORKSPACE/.venv/ansible-lint/bin" in infrastructure and "ansible-lint ." in infrastructure,
+    "ansible-lint commands must resolve through the cached virtual environment.",
+)
 
 require("needs.changes.outputs.run_runtime == 'true'" in runtime, "Runtime checks must be path-gated.")
 require("needs.changes.outputs.run_portal == 'true'" in portal, "Portal checks must be path-gated.")
