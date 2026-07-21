@@ -144,10 +144,10 @@ bundle on the VPS bound to the currently reviewed infra commit, so later staging
 deployments are not rejected by the server-side fixed command as
 `unreviewed_infra_commit`.
 
-The public app `/healthz` route is a static identity check for the deployed web
-image and should report the production VPS deployment identity,
-`production-vps`. Runtime readiness and public config should report the same
-production VPS identity.
+The public app `/healthz` route is a static identity check for the shared VPS
+web image and should report the image build target, `vps`. Runtime readiness
+and public config should report the production VPS runtime identity,
+`production-vps`.
 
 The Ops Portal reads only the reviewed manifest, sanitized Docker identity, and
 last app apply marker for release-gate status. Treat `unknown`, `not configured`,
