@@ -140,11 +140,22 @@ for identity_key in (
     assert identity_key in app_env_template
 assert "nutsnews_environment.name == 'staging'" not in app_env_template
 
-public_site = caddyfile.split("vps.nutsnews.com {", 1)[1].split("ops.nutsnews.com {", 1)[0]
-assert "handle /health" in public_site
-assert "import /etc/nutsnews/caddy/app.public.routes" in public_site
-assert public_site.index("import /etc/nutsnews/caddy/app.public.routes") < public_site.rindex("handle {")
-assert "Content-Security-Policy" not in public_site.split("handle /health", 1)[0]
+direct_site = caddyfile.split("vps.nutsnews.com {", 1)[1].split("nutsnews.com, www.nutsnews.com {", 1)[0]
+primary_site = caddyfile.split("nutsnews.com, www.nutsnews.com {", 1)[1].split(
+    "{% if vps_service_foundation_nutsnews_staging_access_enabled",
+    1,
+)[0]
+assert "handle /health" in direct_site
+assert "import /etc/nutsnews/caddy/app.public.routes" in direct_site
+assert direct_site.index("import /etc/nutsnews/caddy/app.public.routes") < direct_site.rindex("handle {")
+assert "Content-Security-Policy" not in direct_site.split("handle /health", 1)[0]
+assert "tls internal" not in direct_site
+assert "tls internal" in primary_site
+assert "@apex host nutsnews.com" in primary_site
+assert "redir https://www.nutsnews.com{uri} 308" in primary_site
+assert "import /etc/nutsnews/caddy/app.public.routes" in primary_site
+assert primary_site.index("handle @apex") < primary_site.index("import /etc/nutsnews/caddy/app.public.routes")
+assert primary_site.index("import /etc/nutsnews/caddy/app.public.routes") < primary_site.rindex("handle {")
 
 assert "Render and apply selected NutsNews runtime environments" in tasks
 assert "Verify selected NutsNews runtime environment state" in tasks
