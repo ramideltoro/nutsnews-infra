@@ -757,8 +757,8 @@ jobs:
               --event repository_dispatch \
               --branch main \
               --limit 50 \
-              --json databaseId,displayTitle,headSha,createdAt \
-              --jq ".[] | select(.headSha == \"${SOURCE_COMMIT}\" and .createdAt >= \"${dispatch_started_at}\") | .databaseId" \
+              --json databaseId,displayTitle,createdAt \
+              --jq ".[] | select((.displayTitle == \"Dispatch-only Vercel production ${SOURCE_COMMIT}\" or .displayTitle == \"Deploy Vercel production ${SOURCE_COMMIT}\") and .createdAt >= \"${dispatch_started_at}\") | .databaseId" \
               | head -n 1
             )"
             if [[ -n "$run_id" ]]; then
@@ -827,12 +827,17 @@ jobs:
 
           vercel_run_json="$(GH_TOKEN="$NUTSNEWS_APP_RELEASE_TOKEN" gh run view "$VERCEL_RUN_ID" \
             --repo ramideltoro/nutsnews \
-            --json conclusion,headSha,status)"
-          verified_head_sha="$(node -e 'const data = JSON.parse(process.argv[1]); process.stdout.write(data.headSha || "");' "$vercel_run_json")"
+            --json conclusion,displayTitle,event,status)"
+          verified_display_title="$(node -e 'const data = JSON.parse(process.argv[1]); process.stdout.write(data.displayTitle || "");' "$vercel_run_json")"
+          verified_event="$(node -e 'const data = JSON.parse(process.argv[1]); process.stdout.write(data.event || "");' "$vercel_run_json")"
           verified_status="$(node -e 'const data = JSON.parse(process.argv[1]); process.stdout.write(data.status || "");' "$vercel_run_json")"
           verified_conclusion="$(node -e 'const data = JSON.parse(process.argv[1]); process.stdout.write(data.conclusion || "unknown");' "$vercel_run_json")"
-          if [[ "$verified_head_sha" != "$SOURCE_COMMIT" ]]; then
-            echo "Refusing protected rollback because Vercel run ${VERCEL_RUN_ID} belongs to ${verified_head_sha}, not ${SOURCE_COMMIT}." >&2
+          if [[ "$verified_display_title" != "Dispatch-only Vercel production ${SOURCE_COMMIT}" && "$verified_display_title" != "Deploy Vercel production ${SOURCE_COMMIT}" ]]; then
+            echo "Refusing protected rollback because Vercel run ${VERCEL_RUN_ID} title is ${verified_display_title}, not the release title for ${SOURCE_COMMIT}." >&2
+            exit 1
+          fi
+          if [[ "$verified_event" != "repository_dispatch" ]]; then
+            echo "Refusing protected rollback because Vercel run ${VERCEL_RUN_ID} event is ${verified_event}, not repository_dispatch." >&2
             exit 1
           fi
           if [[ "$verified_status" != "completed" ]]; then
