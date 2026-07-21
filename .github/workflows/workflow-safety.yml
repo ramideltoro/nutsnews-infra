@@ -101,6 +101,12 @@ jobs:
             exit 1
           fi
 
+      - name: Validate workflow action pins
+        shell: bash
+        run: |
+          python3 ansible/tests/validate_workflow_action_pins.py --self-test
+          python3 ansible/tests/validate_workflow_action_pins.py
+
       - name: Validate manual health report workflow guardrails
         shell: bash
         run: python3 ansible/tests/validate_health_report_workflow.py
