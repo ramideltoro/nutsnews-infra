@@ -17,7 +17,7 @@ updates:
           - "*"
 
   - package-ecosystem: "terraform"
-    directory: "/terraform"
+    directory: "/terraform/grafana-cloud"
     schedule:
       interval: "weekly"
       day: "monday"
@@ -27,19 +27,30 @@ updates:
     commit-message:
       prefix: "infra"
 
-  - package-ecosystem: "npm"
-    directory: "/portal"
+  - package-ecosystem: "terraform"
+    directory: "/terraform/staging-access"
     schedule:
       interval: "weekly"
       day: "monday"
-      time: "09:30"
+      time: "09:20"
       timezone: "America/New_York"
     open-pull-requests-limit: 5
     commit-message:
-      prefix: "portal"
+      prefix: "infra"
+
+  - package-ecosystem: "terraform"
+    directory: "/terraform/grafana-state-bootstrap/cloudflare-r2"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:25"
+      timezone: "America/New_York"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "infra"
 
   - package-ecosystem: "docker"
-    directory: "/compose"
+    directory: "/compose/caddy"
     schedule:
       interval: "weekly"
       day: "monday"
