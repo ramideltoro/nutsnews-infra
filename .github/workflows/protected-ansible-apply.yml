@@ -441,17 +441,55 @@ jobs:
             exit 1
           fi
 
-      - name: Install Ansible
+      - name: Set up Python with pip cache
+        id: setup_python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6.3.0
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: .github/requirements/production-ansible.txt
+
+      - name: Cache production Ansible virtual environment
+        id: production_ansible_venv
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: .venv/production-ansible
+          key: production-ansible-venv-${{ runner.os }}-py${{ steps.setup_python.outputs.python-version }}-${{ hashFiles('.github/requirements/production-ansible.txt') }}
+
+      - name: Install production Ansible
+        if: steps.production_ansible_venv.outputs.cache-hit != 'true'
         shell: bash
         run: |
           set -euo pipefail
-          python3 -m pip install --user ansible-core
-          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          python3 -m venv .venv/production-ansible
+          .venv/production-ansible/bin/python -m pip install --upgrade pip
+          .venv/production-ansible/bin/python -m pip install -r .github/requirements/production-ansible.txt
 
-      - name: Install Ansible collections
+      - name: Add production Ansible virtual environment to PATH
         shell: bash
-        working-directory: ansible
-        run: ansible-galaxy collection install -r requirements.yml
+        run: |
+          set -euo pipefail
+          test -x .venv/production-ansible/bin/ansible-galaxy
+          test -x .venv/production-ansible/bin/ansible-playbook
+          echo "$GITHUB_WORKSPACE/.venv/production-ansible/bin" >> "$GITHUB_PATH"
+          echo "ANSIBLE_COLLECTIONS_PATH=$GITHUB_WORKSPACE/.ansible/collections" >> "$GITHUB_ENV"
+
+      - name: Cache production Ansible Galaxy collections
+        id: production_ansible_collections
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: .ansible/collections
+          key: production-ansible-collections-${{ runner.os }}-${{ hashFiles('ansible/requirements.yml') }}
+
+      - name: Install production Ansible Galaxy collections
+        if: steps.production_ansible_collections.outputs.cache-hit != 'true'
+        shell: bash
+        env:
+          ANSIBLE_COLLECTIONS_PATH: ${{ github.workspace }}/.ansible/collections
+        run: |
+          set -euo pipefail
+          cd ansible
+          ansible-galaxy collection install -r requirements.yml --collections-path "$GITHUB_WORKSPACE/.ansible/collections"
 
       - name: Validate required environment secrets
         shell: bash
