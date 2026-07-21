@@ -20,8 +20,10 @@ WRITE_VARS = ROOT / "scripts/write_staging_ansible_vars.py"
 GATEWAY = ROOT / "scripts/staging_gateway_request.py"
 GATEWAY_RESULT = ROOT / "scripts/staging_gateway_result.py"
 WORKFLOW = REPO / ".github/workflows/nutsnews-staging-deploy.yml"
+STAGING_ANSIBLE_REQUIREMENTS = REPO / ".github/requirements/staging-ansible.txt"
 PLAYBOOK = ROOT / "playbooks/deploy-staging.yml"
 INVENTORY = ROOT / "inventories/staging/hosts.yml"
+ANSIBLE_REQUIREMENTS = ROOT / "requirements.yml"
 DEFAULTS = ROOT / "roles/vps_service_foundation/defaults/main.yml"
 ENVIRONMENT_TASKS = ROOT / "roles/vps_service_foundation/tasks/nutsnews_environment.yml"
 
@@ -542,8 +544,10 @@ def provenance_fetch(url: str, _headers: dict[str, str] | None = None) -> object
 module.verify_oci_provenance(valid, provenance_fetch)
 
 workflow = WORKFLOW.read_text(encoding="utf-8")
+staging_ansible_requirements = STAGING_ANSIBLE_REQUIREMENTS.read_text(encoding="utf-8")
 playbook = PLAYBOOK.read_text(encoding="utf-8")
 inventory = INVENTORY.read_text(encoding="utf-8")
+ansible_requirements = ANSIBLE_REQUIREMENTS.read_text(encoding="utf-8")
 defaults = DEFAULTS.read_text(encoding="utf-8")
 environment_tasks = ENVIRONMENT_TASKS.read_text(encoding="utf-8")
 gateway_result = GATEWAY_RESULT.read_text(encoding="utf-8")
@@ -559,6 +563,9 @@ for required in (
     "STAGING_MIGRATION_HEAD",
     "STAGING_SUPABASE_PROJECT_REF",
     "Verify trusted source commit and OCI provenance",
+    "cache-dependency-path: .github/requirements/staging-ansible.txt",
+    "path: .venv/staging-ansible",
+    "path: .ansible/collections",
     "ansible-playbook",
     "for operation in check apply",
     "staging_gateway_request.py",
@@ -569,6 +576,50 @@ for required in (
     "always() && !cancelled()",
 ):
     assert required in workflow, f"Staging workflow is missing required guardrail: {required}"
+
+assert staging_ansible_requirements == "ansible-core==2.21.2\n"
+for required in (
+    "  - name: ansible.posix\n    version: 2.2.2",
+    "  - name: community.general\n    version: 13.2.0",
+):
+    assert required in ansible_requirements, f"Staging Ansible collection cache requires pinned collection input: {required}"
+
+staging_ansible_setup = workflow.split("- name: Set up Python with pip cache", 1)[1].split(
+    "- name: Validate required staging environment secrets",
+    1,
+)[0]
+for required in (
+    "actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1",
+    'python-version: "3.13"',
+    "cache: pip",
+    "cache-dependency-path: .github/requirements/staging-ansible.txt",
+    "actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9",
+    "id: staging_ansible_venv",
+    "steps.setup_python.outputs.python-version",
+    "hashFiles('.github/requirements/staging-ansible.txt')",
+    "steps.staging_ansible_venv.outputs.cache-hit != 'true'",
+    "id: staging_ansible_collections",
+    "hashFiles('ansible/requirements.yml')",
+    "steps.staging_ansible_collections.outputs.cache-hit != 'true'",
+    "ANSIBLE_COLLECTIONS_PATH: ${{ github.workspace }}/.ansible/collections",
+    '--collections-path "$GITHUB_WORKSPACE/.ansible/collections"',
+):
+    assert required in staging_ansible_setup, f"Staging Ansible cache setup is missing {required}"
+
+for forbidden in (
+    "$RUNNER_TEMP",
+    "$HOME/.ssh",
+    "secrets.",
+    "NUTSNEWS_STAGING_VPS_SSH_PRIVATE_KEY",
+    "NUTSNEWS_STAGING_VPS_KNOWN_HOSTS",
+    "NUTSNEWS_STAGING_APP_ENVS_JSON",
+    "NUTSNEWS_STAGING_AUTH_GOOGLE_ID",
+    "NUTSNEWS_STAGING_AUTH_GOOGLE_SECRET",
+):
+    assert forbidden not in staging_ansible_setup, f"Staging Ansible cache setup must not touch protected material: {forbidden}"
+
+assert workflow.index("Cache staging Ansible Galaxy collections") < workflow.index("Validate required staging environment secrets")
+assert "python3 -m pip install --user ansible-core" not in workflow
 
 for required in (
     "Staging gateway returned an invalid failure response.",

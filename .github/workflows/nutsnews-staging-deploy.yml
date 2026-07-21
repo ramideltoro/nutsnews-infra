@@ -140,14 +140,62 @@ jobs:
           python3 ansible/tests/validate_staging_deployment.py
           git diff --check
 
-      - name: Validate staging Ansible syntax offline
+      - name: Set up Python with pip cache
+        id: setup_python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6.3.0
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: .github/requirements/staging-ansible.txt
+
+      - name: Cache staging Ansible virtual environment
+        id: staging_ansible_venv
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: .venv/staging-ansible
+          key: staging-ansible-venv-${{ runner.os }}-py${{ steps.setup_python.outputs.python-version }}-${{ hashFiles('.github/requirements/staging-ansible.txt') }}
+
+      - name: Install staging Ansible
+        if: steps.staging_ansible_venv.outputs.cache-hit != 'true'
         shell: bash
         run: |
           set -euo pipefail
-          python3 -m pip install --user ansible-core
-          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          python3 -m venv .venv/staging-ansible
+          .venv/staging-ansible/bin/python -m pip install --upgrade pip
+          .venv/staging-ansible/bin/python -m pip install -r .github/requirements/staging-ansible.txt
+
+      - name: Add staging Ansible virtual environment to PATH
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -x .venv/staging-ansible/bin/ansible-galaxy
+          test -x .venv/staging-ansible/bin/ansible-playbook
+          echo "$GITHUB_WORKSPACE/.venv/staging-ansible/bin" >> "$GITHUB_PATH"
+
+      - name: Cache staging Ansible Galaxy collections
+        id: staging_ansible_collections
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: .ansible/collections
+          key: staging-ansible-collections-${{ runner.os }}-${{ hashFiles('ansible/requirements.yml') }}
+
+      - name: Install staging Ansible Galaxy collections
+        if: steps.staging_ansible_collections.outputs.cache-hit != 'true'
+        shell: bash
+        env:
+          ANSIBLE_COLLECTIONS_PATH: ${{ github.workspace }}/.ansible/collections
+        run: |
+          set -euo pipefail
           cd ansible
-          ansible-galaxy collection install -r requirements.yml
+          ansible-galaxy collection install -r requirements.yml --collections-path "$GITHUB_WORKSPACE/.ansible/collections"
+
+      - name: Validate staging Ansible syntax offline
+        shell: bash
+        env:
+          ANSIBLE_COLLECTIONS_PATH: ${{ github.workspace }}/.ansible/collections
+        run: |
+          set -euo pipefail
+          cd ansible
           ansible-playbook playbooks/deploy-staging.yml \
             --inventory inventories/staging/hosts.yml \
             --syntax-check
