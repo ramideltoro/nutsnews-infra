@@ -16,6 +16,7 @@ REPO = ROOT.parent
 SCRIPT = ROOT / "scripts/verify_production_eligibility.py"
 PROTECTED_WORKFLOW = REPO / ".github/workflows/protected-ansible-apply.yml"
 PROMOTION_WORKFLOW = REPO / ".github/workflows/nutsnews-release-promotion.yml"
+PREMERGE_PRODUCTION_WORKFLOW = REPO / ".github/workflows/nutsnews-premerge-production-vps-deploy.yml"
 
 spec = importlib.util.spec_from_file_location("verify_production_eligibility", SCRIPT)
 assert spec and spec.loader
@@ -269,12 +270,17 @@ with tempfile.TemporaryDirectory() as temporary:
 
 protected_workflow = PROTECTED_WORKFLOW.read_text(encoding="utf-8")
 promotion_workflow = PROMOTION_WORKFLOW.read_text(encoding="utf-8")
+premerge_production_workflow = PREMERGE_PRODUCTION_WORKFLOW.read_text(encoding="utf-8")
 
 for required in (
     "verify-production-eligibility:",
     "environment: production-vps",
     "needs: verify-production-eligibility",
     "release_source_workflow_run_id:",
+    "release_deployment_id:",
+    "release_manifest_mode:",
+    "premerge_candidate",
+    "--skip-manifest-verify",
     "gh attestation verify",
     "verify_production_eligibility.py verify",
     "verify_production_eligibility.py check-no-release",
@@ -287,6 +293,28 @@ assert protected_workflow.index("verify-production-eligibility:") < protected_wo
 assert "production-vps" not in protected_workflow.split("verify-production-eligibility:", 1)[1].split("baseline:", 1)[0]
 assert "NUTSNEWS_VPS_SSH_PRIVATE_KEY" not in protected_workflow.split("verify-production-eligibility:", 1)[1].split("baseline:", 1)[0]
 assert "NUTSNEWS_INFRA_RELEASE_TOKEN" not in protected_workflow
+
+for required in (
+    "repository_dispatch:",
+    "nutsnews-production-vps-release",
+    "repository_dispatch client_payload must not exceed 10 top-level keys",
+    "nutsnews.premerge.production_vps.v1",
+    "release_manifest_mode=premerge_candidate",
+    "release_deployment_id",
+    "gh workflow run protected-ansible-apply.yml",
+    "gh run watch \"$run_id\"",
+    "environment: production-vps",
+):
+    assert required in premerge_production_workflow or required in protected_workflow, (
+        f"Pre-merge production workflow missing guardrail: {required}"
+    )
+
+assert "environment: production-vps" not in premerge_production_workflow, (
+    "The repository_dispatch preflight must not attach production secrets directly."
+)
+assert premerge_production_workflow.index("Validate pre-merge production candidate payload") < premerge_production_workflow.index(
+    "protected-ansible-apply.yml"
+)
 
 for required in (
     "workflow_run:",

@@ -255,16 +255,27 @@ def command_verify(arguments: argparse.Namespace) -> None:
         "schema_version": arguments.schema_version,
         "supabase_project_ref": arguments.supabase_project_ref,
     }
-    promote_nutsnews_release.verify_manifest(
-        arguments.manifest,
-        promote_nutsnews_release.IMAGE_REPOSITORY,
-        arguments.image_digest,
-        arguments.source_commit,
-        arguments.build_id,
-        arguments.migration_head,
-        arguments.schema_version,
-        arguments.supabase_project_ref,
-    )
+    if arguments.skip_manifest_verify:
+        promote_nutsnews_release.validate_release(
+            promote_nutsnews_release.IMAGE_REPOSITORY,
+            arguments.image_digest,
+            arguments.source_commit,
+            arguments.build_id,
+            arguments.migration_head,
+            arguments.schema_version,
+            arguments.supabase_project_ref,
+        )
+    else:
+        promote_nutsnews_release.verify_manifest(
+            arguments.manifest,
+            promote_nutsnews_release.IMAGE_REPOSITORY,
+            arguments.image_digest,
+            arguments.source_commit,
+            arguments.build_id,
+            arguments.migration_head,
+            arguments.schema_version,
+            arguments.supabase_project_ref,
+        )
     verified = parse_json_file(arguments.verified_attestation)
     if not isinstance(verified, list) or not verified:
         raise EligibilityError("Verified attestation JSON must be a non-empty list.")
@@ -399,6 +410,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     verify = subparsers.add_parser("verify")
     verify.add_argument("--manifest", type=Path, required=True)
+    verify.add_argument(
+        "--skip-manifest-verify",
+        action="store_true",
+        help="Verify a protected pre-merge release candidate before it is written to the reviewed GitOps manifest.",
+    )
     verify.add_argument("--verified-attestation", type=Path, required=True)
     verify.add_argument("--deployments-json", type=Path)
     verify.add_argument("--source-commit", required=True)
