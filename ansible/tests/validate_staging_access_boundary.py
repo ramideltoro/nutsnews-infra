@@ -28,6 +28,7 @@ STAGING_ACCESS_COMPOSE = REPO / "compose/staging-access/compose.yml"
 ENVIRONMENT_TASKS = ROOT / "roles/vps_service_foundation/tasks/nutsnews_environment.yml"
 ACCESS_TASKS = ROOT / "roles/vps_service_foundation/tasks/staging_access.yml"
 FORCED_COMMAND = ROOT / "scripts/staging_forced_deploy.py"
+GATEWAY_RESULT = ROOT / "scripts/staging_gateway_result.py"
 WRITE_VARS = ROOT / "scripts/write_staging_ansible_vars.py"
 MAIN_TASKS = ROOT / "roles/vps_service_foundation/tasks/main.yml"
 
@@ -78,6 +79,7 @@ staging_access_compose = STAGING_ACCESS_COMPOSE.read_text(encoding="utf-8")
 environment_tasks = ENVIRONMENT_TASKS.read_text(encoding="utf-8")
 access_tasks = ACCESS_TASKS.read_text(encoding="utf-8")
 forced_command = FORCED_COMMAND.read_text(encoding="utf-8")
+gateway_result = GATEWAY_RESULT.read_text(encoding="utf-8")
 write_vars = WRITE_VARS.read_text(encoding="utf-8")
 raw_main_tasks = yaml.safe_load(MAIN_TASKS.read_text(encoding="utf-8"))
 
@@ -168,10 +170,10 @@ assert '"ANSIBLE_ROLES_PATH": str(BUNDLE / "ansible/roles")' in forced_command
 assert '"ANSIBLE_STDOUT_CALLBACK": "default"' in forced_command
 assert '"ANSIBLE_PRIVATE_ROLE_VARS": "false"' in forced_command
 assert "Ansible output can contain rendered diffs" in forced_command
-assert "Staging gateway returned an invalid task label." in workflow
-assert "Staging gateway returned an invalid diagnostic class." in workflow
-assert "Staging gateway returned an invalid controller version." in workflow
-assert "reviewed task" in workflow
+assert "Staging gateway returned an invalid task label." in gateway_result
+assert "Staging gateway returned an invalid diagnostic class." in gateway_result
+assert "Staging gateway returned an invalid controller version." in gateway_result
+assert "reviewed task" in gateway_result
 assert "staging_syntax_failed" in forced_command
 assert "classify_controller_output" in forced_command
 for boundary_check in (

@@ -7,7 +7,9 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import subprocess
 import sys
+import tempfile
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -16,6 +18,7 @@ FIXTURES = ROOT / "tests/fixtures/staging_candidate"
 VALIDATOR = ROOT / "scripts/validate_staging_candidate.py"
 WRITE_VARS = ROOT / "scripts/write_staging_ansible_vars.py"
 GATEWAY = ROOT / "scripts/staging_gateway_request.py"
+GATEWAY_RESULT = ROOT / "scripts/staging_gateway_result.py"
 WORKFLOW = REPO / ".github/workflows/nutsnews-staging-deploy.yml"
 PLAYBOOK = ROOT / "playbooks/deploy-staging.yml"
 INVENTORY = ROOT / "inventories/staging/hosts.yml"
@@ -39,6 +42,12 @@ gateway_spec = importlib.util.spec_from_file_location("staging_gateway_request",
 assert gateway_spec and gateway_spec.loader
 gateway_module = importlib.util.module_from_spec(gateway_spec)
 gateway_spec.loader.exec_module(gateway_module)
+
+gateway_result_spec = importlib.util.spec_from_file_location("staging_gateway_result", GATEWAY_RESULT)
+assert gateway_result_spec and gateway_result_spec.loader
+gateway_result_module = importlib.util.module_from_spec(gateway_result_spec)
+sys.modules[gateway_result_spec.name] = gateway_result_module
+gateway_result_spec.loader.exec_module(gateway_result_module)
 
 minimal_staging_env = {
     "AUTH_GOOGLE_ID": "staging-google-client-id-fixture",
@@ -116,6 +125,124 @@ for incomplete_oauth in (
         pass
     else:
         raise AssertionError("Incomplete protected staging OAuth credentials must fail closed.")
+
+check_success = gateway_result_module.evaluate_gateway_result({"ok": True, "operation": "check"}, 0, "check")
+assert check_success.ok
+propagation_failure = gateway_result_module.evaluate_gateway_result(
+    {
+        "code": "unreviewed_infra_commit",
+        "task": "Validate reviewed infra commit",
+        "diagnostic": "review_state_pending",
+        "controller": "1.2.3",
+    },
+    1,
+    "check",
+)
+assert not propagation_failure.ok
+assert propagation_failure.code == "unreviewed_infra_commit"
+assert "Staging gateway failed with unreviewed_infra_commit" in propagation_failure.message
+assert "Validate reviewed infra commit" in propagation_failure.message
+assert gateway_result_module.RETRY_EXIT_CODE == 75
+with tempfile.TemporaryDirectory() as tempdir:
+    result_path = Path(tempdir) / "result.json"
+    summary_path = Path(tempdir) / "summary.md"
+    result_path.write_text(
+        json.dumps({"code": "unreviewed_infra_commit", "task": "Validate reviewed infra commit"}),
+        encoding="utf-8",
+    )
+    retry_command = subprocess.run(
+        [
+            sys.executable,
+            str(GATEWAY_RESULT),
+            "--operation",
+            "check",
+            "--result",
+            str(result_path),
+            "--status",
+            "1",
+            "--retry-code",
+            "unreviewed_infra_commit",
+            "--attempt",
+            "1",
+            "--max-attempts",
+            "2",
+            "--retry-delay-seconds",
+            "15",
+            "--summary-file",
+            str(summary_path),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert retry_command.returncode == gateway_result_module.RETRY_EXIT_CODE
+    assert "retrying attempt 2/2 after 15s" in retry_command.stdout
+    assert "`unreviewed_infra_commit`" in summary_path.read_text(encoding="utf-8")
+
+    exhausted_command = subprocess.run(
+        [
+            sys.executable,
+            str(GATEWAY_RESULT),
+            "--operation",
+            "check",
+            "--result",
+            str(result_path),
+            "--status",
+            "1",
+            "--retry-code",
+            "unreviewed_infra_commit",
+            "--attempt",
+            "2",
+            "--max-attempts",
+            "2",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert exhausted_command.returncode not in {0, gateway_result_module.RETRY_EXIT_CODE}
+    assert "after 2/2 attempts" in exhausted_command.stderr
+    assert "reviewed infra commit propagation did not complete" in exhausted_command.stderr
+
+    result_path.write_text(json.dumps({"code": "staging_check_failed"}), encoding="utf-8")
+    fail_fast_command = subprocess.run(
+        [
+            sys.executable,
+            str(GATEWAY_RESULT),
+            "--operation",
+            "check",
+            "--result",
+            str(result_path),
+            "--status",
+            "1",
+            "--retry-code",
+            "unreviewed_infra_commit",
+            "--attempt",
+            "1",
+            "--max-attempts",
+            "2",
+            "--retry-delay-seconds",
+            "15",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert fail_fast_command.returncode not in {0, gateway_result_module.RETRY_EXIT_CODE}
+    assert "Staging gateway failed with staging_check_failed" in fail_fast_command.stderr
+for invalid_response in (
+    {},
+    {"code": "unreviewed-infra-commit"},
+    {"code": "unreviewed_infra_commit", "task": "${{ secrets.NOPE }}"},
+    {"code": "unreviewed_infra_commit", "diagnostic": "unsafe-diagnostic"},
+    {"code": "unreviewed_infra_commit", "controller": "latest"},
+):
+    try:
+        gateway_result_module.evaluate_gateway_result(invalid_response, 1, "check")
+    except gateway_result_module.GatewayResultError:
+        pass
+    else:
+        raise AssertionError(f"Malformed gateway response must fail closed: {invalid_response}")
 
 
 def fixture(name: str) -> dict[str, str]:
@@ -419,6 +546,7 @@ playbook = PLAYBOOK.read_text(encoding="utf-8")
 inventory = INVENTORY.read_text(encoding="utf-8")
 defaults = DEFAULTS.read_text(encoding="utf-8")
 environment_tasks = ENVIRONMENT_TASKS.read_text(encoding="utf-8")
+gateway_result = GATEWAY_RESULT.read_text(encoding="utf-8")
 
 for required in (
     "nutsnews-staging-release",
@@ -434,13 +562,37 @@ for required in (
     "ansible-playbook",
     "for operation in check apply",
     "staging_gateway_request.py",
+    "staging_gateway_result.py",
     "nutsnews_staging_deploy@65.75.202.112",
     "Prove the deployment key rejects arbitrary commands",
     "staging_deployment_audit.py",
     "always() && !cancelled()",
-    "controller not in {\"\", \"unknown\"}",
 ):
     assert required in workflow, f"Staging workflow is missing required guardrail: {required}"
+
+for required in (
+    "Staging gateway returned an invalid failure response.",
+    "Staging gateway returned an invalid task label.",
+    "Staging gateway returned an invalid diagnostic class.",
+    "Staging gateway returned an invalid controller version.",
+    "controller not in {\"\", \"unknown\"}",
+    "Staging gateway failed with",
+):
+    assert required in gateway_result, f"Gateway result parser is missing sanitized failure guardrail: {required}"
+
+check_step = workflow.split("- name: Run server-side fixed staging check mode", 1)[1].split(
+    "- name: Create auditable GitHub staging deployment record",
+    1,
+)[0]
+for required in (
+    "retry_delays=(15 30 45 60 60)",
+    "--retry-code unreviewed_infra_commit",
+    '--summary-file "$GITHUB_STEP_SUMMARY"',
+    'decision_status="$?"',
+    '[[ "$decision_status" -eq 75 ]]',
+    'sleep "$retry_delay"',
+):
+    assert required in check_step, f"Staging check step must retry only reviewed-commit propagation: {required}"
 
 apply_step = workflow.split("- name: Apply through the server-side fixed staging command", 1)[1].split(
     "- name: Wait for staging readiness and verify Docker digest",
@@ -448,11 +600,11 @@ apply_step = workflow.split("- name: Apply through the server-side fixed staging
 )[0]
 for required in (
     'gateway_status="$?"',
-    'status == 0 and result == {"ok": True, "operation": "apply"}',
-    "Staging gateway returned an invalid failure response.",
-    "Staging gateway failed with",
+    "--operation apply",
+    "staging_gateway_result.py",
 ):
     assert required in apply_step, f"Staging apply step must report sanitized gateway failures: {required}"
+assert "--retry-code" not in apply_step
 assert "python3 -c 'import json,sys; assert json.load" not in apply_step
 
 assert "environment: staging-vps" not in workflow.split("jobs:", 1)[1].split("deploy:", 1)[0]
