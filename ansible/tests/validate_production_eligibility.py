@@ -17,6 +17,8 @@ SCRIPT = ROOT / "scripts/verify_production_eligibility.py"
 PROTECTED_WORKFLOW = REPO / ".github/workflows/protected-ansible-apply.yml"
 PROMOTION_WORKFLOW = REPO / ".github/workflows/nutsnews-release-promotion.yml"
 PREMERGE_PRODUCTION_WORKFLOW = REPO / ".github/workflows/nutsnews-premerge-production-vps-deploy.yml"
+PRODUCTION_ANSIBLE_REQUIREMENTS = REPO / ".github/requirements/production-ansible.txt"
+ANSIBLE_REQUIREMENTS = REPO / "ansible/requirements.yml"
 
 spec = importlib.util.spec_from_file_location("verify_production_eligibility", SCRIPT)
 assert spec and spec.loader
@@ -271,6 +273,8 @@ with tempfile.TemporaryDirectory() as temporary:
 protected_workflow = PROTECTED_WORKFLOW.read_text(encoding="utf-8")
 promotion_workflow = PROMOTION_WORKFLOW.read_text(encoding="utf-8")
 premerge_production_workflow = PREMERGE_PRODUCTION_WORKFLOW.read_text(encoding="utf-8")
+production_ansible_requirements = PRODUCTION_ANSIBLE_REQUIREMENTS.read_text(encoding="utf-8")
+ansible_requirements = ANSIBLE_REQUIREMENTS.read_text(encoding="utf-8")
 
 for required in (
     "verify-production-eligibility:",
@@ -293,6 +297,56 @@ assert protected_workflow.index("verify-production-eligibility:") < protected_wo
 assert "production-vps" not in protected_workflow.split("verify-production-eligibility:", 1)[1].split("baseline:", 1)[0]
 assert "NUTSNEWS_VPS_SSH_PRIVATE_KEY" not in protected_workflow.split("verify-production-eligibility:", 1)[1].split("baseline:", 1)[0]
 assert "NUTSNEWS_INFRA_RELEASE_TOKEN" not in protected_workflow
+
+assert production_ansible_requirements == "ansible-core==2.21.2\n"
+for required in (
+    "  - name: ansible.posix\n    version: 2.2.2",
+    "  - name: community.general\n    version: 13.2.0",
+):
+    assert required in ansible_requirements, f"Protected apply Ansible collection cache requires pinned collection input: {required}"
+
+production_ansible_setup = protected_workflow.split("- name: Set up Python with pip cache", 1)[1].split(
+    "- name: Validate required environment secrets",
+    1,
+)[0]
+for required in (
+    "actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1",
+    'python-version: "3.13"',
+    "cache: pip",
+    "cache-dependency-path: .github/requirements/production-ansible.txt",
+    "actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9",
+    "id: production_ansible_venv",
+    "path: .venv/production-ansible",
+    "steps.setup_python.outputs.python-version",
+    "hashFiles('.github/requirements/production-ansible.txt')",
+    "steps.production_ansible_venv.outputs.cache-hit != 'true'",
+    "id: production_ansible_collections",
+    "path: .ansible/collections",
+    "hashFiles('ansible/requirements.yml')",
+    "steps.production_ansible_collections.outputs.cache-hit != 'true'",
+    "ANSIBLE_COLLECTIONS_PATH: ${{ github.workspace }}/.ansible/collections",
+    '--collections-path "$GITHUB_WORKSPACE/.ansible/collections"',
+):
+    assert required in production_ansible_setup, f"Protected apply Ansible cache setup is missing {required}"
+
+for forbidden in (
+    "$RUNNER_TEMP",
+    "$HOME/.ssh",
+    "secrets.",
+    "NUTSNEWS_VPS_SSH_PRIVATE_KEY",
+    "NUTSNEWS_VPS_KNOWN_HOSTS",
+    "NUTSNEWS_VPS_ADMIN_AUTHORIZED_KEYS_JSON",
+    "NUTSNEWS_VERCEL_TOKEN",
+    "NUTSNEWS_VERCEL_PROJECT_ID",
+    "NUTSNEWS_VERCEL_TEAM_ID",
+):
+    assert forbidden not in production_ansible_setup, f"Protected apply Ansible cache setup must not touch protected material: {forbidden}"
+
+assert protected_workflow.index("Set up Python with pip cache") < protected_workflow.index("Validate required environment secrets")
+assert protected_workflow.index("Cache production Ansible Galaxy collections") < protected_workflow.index(
+    "Validate required environment secrets"
+)
+assert "python3 -m pip install --user ansible-core" not in protected_workflow
 
 for required in (
     "repository_dispatch:",
