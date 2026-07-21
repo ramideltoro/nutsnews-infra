@@ -166,14 +166,20 @@ for required in (
     "gh attestation verify",
     "verify_production_eligibility.py verify",
     "timeout-minutes: 180",
+    "Initialize promotion timing",
+    "PROMOTION_STARTED_AT_EPOCH",
+    "PROMOTION_STARTED_AT_ISO",
     "git fetch origin main --prune",
     "current-vps-release.yml",
     'git switch -c "$release_branch" origin/main',
     'dispatch_started_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"',
+    "duration_seconds",
+    "discovery_seconds",
     "--json databaseId,displayTitle,status,createdAt",
     'Dispatch-only Vercel production ${SOURCE_COMMIT}',
     'Deploy Vercel production ${SOURCE_COMMIT}',
     "Wait for promotion checks to pass and merge",
+    "id: promotion_merge",
     "gh pr checks \"$PR_URL\" --json name,bucket",
     "Promotion checks did not pass before the timeout.",
     "gh pr merge \"$PR_URL\" --merge",
@@ -202,8 +208,12 @@ for required in (
     "database_provider_mode: process.env.DATABASE_PROVIDER_MODE",
     "--workflow vercel-production-release.yml",
     "--repo ramideltoro/nutsnews",
+    "Timed out locating the Vercel production workflow run after",
+    "Expected repository_dispatch run in ramideltoro/nutsnews on main",
+    "NUTSNEWS_APP_RELEASE_TOKEN dispatch permissions",
     "--jq '.conclusion // \"unknown\"'",
     "deploy_failed=$([[ \"$vercel_status\" == \"failed\" ]] && echo true || echo false)",
+    "run_found=$([[ -n \"$run_id\" ]] && echo true || echo false)",
     "steps.vercel.outputs.deploy_failed == 'true' && steps.vercel.outputs.run_id != ''",
     "Refusing protected rollback without a located Vercel production workflow run.",
     "verified_display_title",
@@ -212,6 +222,21 @@ for required in (
     "Refusing protected rollback because Vercel run ${VERCEL_RUN_ID} succeeded.",
     "verified_conclusion",
     "Vercel production deploy did not succeed and no protected rollback run completed.",
+    "Vercel deployment result: not reached or unavailable",
+    "Timed out locating the protected apply workflow run after",
+    "Timed out locating the protected rollback workflow run after",
+    "### Phase timing",
+    "| Promotion total |",
+    "| Release PR create/reuse |",
+    "| Protected apply |",
+    "| Vercel dispatch and deploy |",
+    "| Rollback path |",
+    "PROMOTION_PR_SECONDS",
+    "PROMOTION_MERGE_SECONDS",
+    "APPLY_DISCOVERY_SECONDS",
+    "VERCEL_RUN_FOUND",
+    "VERCEL_DISCOVERY_SECONDS",
+    "ROLLBACK_DISCOVERY_SECONDS",
     "ansible/scripts/promote_nutsnews_release.py",
     "MIGRATION_HEAD",
     "SCHEMA_VERSION",
@@ -257,6 +282,55 @@ assert "SMOKE_HELPER_REF: ${{ steps.app_main.outputs.smoke_helper_ref }}" in pro
 assert "run.get(\"createdAt\", \"\") >= sys.argv[3]" in promotion_workflow, (
     "The release workflow must select only a protected apply started by its own dispatch."
 )
+
+promotion_step = promotion_workflow.split(
+    "- name: Create or reuse the checked release promotion pull request",
+    1,
+)[1].split("- name: Wait for promotion checks to pass and merge", 1)[0]
+assert "write_duration" in promotion_step
+assert promotion_step.count("write_duration") >= 4, (
+    "Release PR creation/reuse timing must be written for every successful exit path."
+)
+
+vercel_dispatch_step = promotion_workflow.split(
+    "- name: Request and wait for Vercel production deploy",
+    1,
+)[1].split("- name: Roll back VPS release on Vercel production failure", 1)[0]
+assert "for _ in $(seq 1 60)" in vercel_dispatch_step, (
+    "Vercel workflow discovery must use a bounded two-minute polling window."
+)
+assert "for _ in $(seq 1 90)" not in vercel_dispatch_step, (
+    "Vercel workflow discovery must not keep the older three-minute polling window."
+)
+assert "--event repository_dispatch" in vercel_dispatch_step
+assert "--branch main" in vercel_dispatch_step
+assert "discovery_seconds=" in vercel_dispatch_step
+assert "duration_seconds=" in vercel_dispatch_step
+assert "run_found=" in vercel_dispatch_step
+assert "Check the app repository Actions tab" in vercel_dispatch_step
+assert "nutsnews-vercel-production-release repository_dispatch trigger" in vercel_dispatch_step
+
+rollback_step = promotion_workflow.split(
+    "- name: Roll back VPS release on Vercel production failure",
+    1,
+)[1].split("- name: Summarize completed GitOps release", 1)[0]
+assert "for _ in $(seq 1 30)" in rollback_step
+assert "discovery_seconds=" in rollback_step
+assert "duration_seconds=" in rollback_step
+
+summary_step = promotion_workflow.split(
+    "- name: Summarize completed GitOps release",
+    1,
+)[1]
+for required_timing_row in (
+    "| Promotion total |",
+    "| Release PR create/reuse |",
+    "| Release PR checks and merge |",
+    "| Protected apply |",
+    "| Vercel dispatch and deploy |",
+    "| Rollback path |",
+):
+    assert required_timing_row in summary_step, f"Release summary missing timing row: {required_timing_row}"
 
 payload_match = re.search(r"const payload = \{\n(?P<body>.*?)\n\s+\};", promotion_workflow, re.DOTALL)
 assert payload_match, "The Vercel production dispatch payload must be explicit."
