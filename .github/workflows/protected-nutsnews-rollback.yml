@@ -163,7 +163,7 @@ jobs:
             --field sync_vercel_production=false \
             --field enable_cloudflare_ddns=false \
             --field enable_grafana_alloy=false \
-            --field enable_staging_access=false \
+            --field enable_staging_access=true \
             --field release_source_commit="$RESTORED_SOURCE_COMMIT" \
             --field release_image_digest="$RESTORED_IMAGE_DIGEST" \
             --field release_build_id="$RESTORED_BUILD_ID" \

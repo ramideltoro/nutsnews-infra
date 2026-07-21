@@ -138,6 +138,12 @@ config, homepage, public API shape, a static asset, cache/security headers,
 contact validation failure, and auth session reachability without printing
 secrets or submitting a real contact message.
 
+Automated production release, pre-merge production, and fixed rollback dispatches
+also set `enable_staging_access=true`. That keeps the root-owned staging deploy
+bundle on the VPS bound to the currently reviewed infra commit, so later staging
+deployments are not rejected by the server-side fixed command as
+`unreviewed_infra_commit`.
+
 The public app `/healthz` route is a static identity check for the deployed web
 image and should report the production VPS deployment identity,
 `production-vps`. Runtime readiness and public config should report the same

@@ -300,6 +300,7 @@ for required in (
     "repository_dispatch client_payload must not exceed 10 top-level keys",
     "nutsnews.premerge.production_vps.v1",
     "release_manifest_mode=premerge_candidate",
+    "--field enable_staging_access=true",
     "release_deployment_id",
     "gh workflow run protected-ansible-apply.yml",
     "gh run watch \"$run_id\"",
