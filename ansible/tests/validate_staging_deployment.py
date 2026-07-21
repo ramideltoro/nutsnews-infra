@@ -159,6 +159,80 @@ def trusted_source_fetch(url: str) -> object:
 
 module.verify_source(valid, trusted_source_fetch)
 
+
+def trusted_pr_source_fetch(url: str) -> object:
+    if "/actions/runs/" in url:
+        return {
+            "id": 123456789,
+            "name": "Container Image",
+            "path": ".github/workflows/container-image.yml",
+            "event": "pull_request",
+            "status": "in_progress",
+            "conclusion": None,
+            "head_branch": "agent/deploy-uplift-premerge-pipeline",
+            "head_sha": valid.source_commit,
+            "head_repository": {"full_name": "ramideltoro/nutsnews"},
+            "run_attempt": 2,
+            "pull_requests": [
+                {
+                    "number": 325,
+                    "base": {
+                        "ref": "main",
+                        "repo": {"url": "https://api.github.com/repos/ramideltoro/nutsnews"},
+                        "sha": "41ff657b59491246bff2399832c0203f7ef6927b",
+                    },
+                    "head": {
+                        "ref": "agent/deploy-uplift-premerge-pipeline",
+                        "repo": {"url": "https://api.github.com/repos/ramideltoro/nutsnews"},
+                        "sha": valid.source_commit,
+                    },
+                }
+            ],
+        }
+    raise AssertionError(f"Unexpected trusted PR source URL: {url}")
+
+
+module.verify_source(valid, trusted_pr_source_fetch)
+
+
+def untrusted_fork_pr_source_fetch(url: str) -> object:
+    if "/actions/runs/" in url:
+        return {
+            "id": 123456789,
+            "name": "Container Image",
+            "path": ".github/workflows/container-image.yml",
+            "event": "pull_request",
+            "status": "in_progress",
+            "conclusion": None,
+            "head_branch": "fork/premerge",
+            "head_sha": valid.source_commit,
+            "head_repository": {"full_name": "ramideltoro/nutsnews"},
+            "run_attempt": 2,
+            "pull_requests": [
+                {
+                    "number": 326,
+                    "base": {
+                        "ref": "main",
+                        "repo": {"url": "https://api.github.com/repos/ramideltoro/nutsnews"},
+                    },
+                    "head": {
+                        "ref": "fork/premerge",
+                        "repo": {"url": "https://api.github.com/repos/untrusted/nutsnews"},
+                        "sha": valid.source_commit,
+                    },
+                }
+            ],
+        }
+    raise AssertionError(f"Unexpected untrusted fork PR source URL: {url}")
+
+
+try:
+    module.verify_source(valid, untrusted_fork_pr_source_fetch)
+except module.CandidateError:
+    pass
+else:
+    raise AssertionError("Fork pull_request source workflow runs must be rejected.")
+
 captured_requests = []
 
 
