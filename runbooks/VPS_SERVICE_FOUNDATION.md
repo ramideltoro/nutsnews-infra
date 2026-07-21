@@ -21,6 +21,7 @@ Use this runbook after the service foundation PR is merged and before applying t
 - Read-only operations portal and `/healthz` endpoint on `127.0.0.1:8080`
 - Better Stack-compatible infrastructure health endpoint at `https://vps.nutsnews.com/health`
 - Optional GitOps-controlled NutsNews app route on `https://vps.nutsnews.com` while `/health` remains the infrastructure health endpoint
+- Dormant VPS-primary origin virtual host for `nutsnews.com` and `www.nutsnews.com` so the origin can be smoked before Cloudflare routing changes
 - Small Ansible-managed zram fallback swap on `/dev/zram0` with low swappiness
 - Local portal status collector managed by `nutsnews-ops-portal-collector.timer`
 - Conservative Docker image and build-cache cleanup managed by `nutsnews-docker-cleanup.timer`
@@ -76,11 +77,33 @@ verify the app route after the approved protected apply:
 ```bash
 curl -i https://vps.nutsnews.com/
 curl -i https://vps.nutsnews.com/healthz
+curl -i 'https://vps.nutsnews.com/readyz?cache-bust='"$(date +%s)"
 curl -i 'https://vps.nutsnews.com/api/articles?page=0'
 curl -i https://vps.nutsnews.com/api/auth/signin/google
 ```
 
 `/health` must keep returning the infrastructure health response. `/healthz`
+and `/readyz` must return the app health/readiness responses with the reviewed
+source commit, build identity, and `production-vps` deployment target.
+
+For #393 origin preparation, DNS must remain unchanged. Smoke the future primary
+hostnames by resolving them to the VPS origin explicitly:
+
+```bash
+VPS_IP="$(dig +short vps.nutsnews.com A | tail -n1)"
+curl -k --resolve "www.nutsnews.com:443:${VPS_IP}" -i https://www.nutsnews.com/healthz
+curl -k --resolve "www.nutsnews.com:443:${VPS_IP}" -i 'https://www.nutsnews.com/readyz?cache-bust='"$(date +%s)"
+curl -k --resolve "nutsnews.com:443:${VPS_IP}" -I https://nutsnews.com/
+```
+
+The `-k` flag is expected before cutover because the dormant primary-host
+origin uses Caddy internal TLS while Cloudflare is in `Full` mode. Do not change
+Cloudflare DNS in this step. Move to Cloudflare Origin CA or DNS-01 public
+origin certificates before requiring `Full (strict)`.
+
+Record exact statuses, redirects, security headers, cookies, CSRF/CORS behavior,
+asset loading, cache behavior, Turnstile/contact-form origins, admin access, and
+Sentry identity before calling the origin ready for primary traffic.
 
 ## Docker Cleanup
 
@@ -117,10 +140,6 @@ sudo tail -n 20 /opt/nutsnews/logs/docker-cleanup/cleanup.jsonl
 Do not run ad hoc Docker prune commands over SSH for routine hygiene. Change the
 timer cadence, filters, or protection policy in this repository, merge it, and
 apply it through the protected workflow.
-must return the app health response with the reviewed source commit and build
-identity. Record exact statuses, redirects, security headers, cookies,
-CSRF/CORS behavior, asset loading, cache behavior, Turnstile/contact-form
-origins, and Sentry identity before calling the rollout complete.
 
 ## Rate Limiting
 
@@ -153,7 +172,7 @@ against the Caddy JSON logs and the `Retry-After` header; do not bypass the
 limiter with manual host changes. A regression test locks the separate zones,
 their paths, and their budgets in `ansible/tests/validate_caddy_rate_limits.py`.
 
-Cloudflare is currently managed here only for DDNS records and defaults to DNS-only records. If Cloudflare proxying is enabled later, add complementary Cloudflare WAF/rate-limit rules there and review Caddy client IP handling before relying on `{remote_host}`.
+Cloudflare is currently managed here only for DDNS records and defaults to DNS-only records. The `nutsnews.com` and `www.nutsnews.com` origin virtual host is present for pre-cutover direct-origin verification only; Cloudflare DNS and visitor routing stay unchanged until the separate cutover issue. If Cloudflare proxying is enabled later, add complementary Cloudflare WAF/rate-limit rules there and review Caddy client IP handling before relying on `{remote_host}`.
 
 Expected `/healthz` output:
 
@@ -223,7 +242,7 @@ Recommended regions: US East, US West, EU West
 
 ## Public Exposure
 
-Caddy publishes public ports `80` and `443` for `vps.nutsnews.com`. The public virtual host always keeps `/health` on the local `nutsnews-infra-health.service` through `host.docker.internal`, which resolves to the Docker host-gateway address `172.17.0.1`. When the reviewed app public route flag is disabled, all other `vps.nutsnews.com` paths return `404`; when it is enabled, all other paths proxy to the digest-pinned NutsNews app container.
+Caddy publishes public ports `80` and `443` for `vps.nutsnews.com` and hosts the dormant future primary origin for `nutsnews.com` and `www.nutsnews.com`. The `vps.nutsnews.com` public virtual host always keeps `/health` on the local `nutsnews-infra-health.service` through `host.docker.internal`, which resolves to the Docker host-gateway address `172.17.0.1`. When the reviewed app public route flag is disabled, all other `vps.nutsnews.com` paths return `404`; when it is enabled, all other paths proxy to the digest-pinned NutsNews app container. The future primary origin redirects apex requests from `nutsnews.com` to `https://www.nutsnews.com{uri}` and proxies `www.nutsnews.com` to the same app route.
 
 The loopback staged route is a health-only gate. It proxies
 `/app-stage/healthz` to the app, but it does not provide full authenticated

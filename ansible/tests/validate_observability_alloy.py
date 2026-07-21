@@ -167,6 +167,6 @@ for service_name, service_text in (
     )
     require("UMask=0027" in service_text, f"{service_name} service must preserve group-read logs.")
 require("User=root" not in ALLOY_DROPIN, "Alloy drop-in must not run Alloy as root.")
-require(CADDYFILE.count("format json") == 3, "Every Caddy access log block must emit JSON.")
+require(CADDYFILE.count("format json") == 4, "Every Caddy access log block must emit JSON.")
 
 print("Grafana Alloy guardrails passed.")

@@ -35,6 +35,35 @@ vps.nutsnews.com {
     respond 404
   }
 }
+
+nutsnews.com, www.nutsnews.com {
+  encode zstd gzip
+  import /etc/nutsnews/caddy/rate-limits
+  tls internal
+
+  log {
+    output stdout
+    format json
+  }
+
+  @apex host nutsnews.com
+  handle @apex {
+    redir https://www.nutsnews.com{uri} 308
+  }
+
+  import /etc/nutsnews/caddy/app.public.routes
+
+  handle {
+    header {
+      X-Content-Type-Options nosniff
+      Referrer-Policy no-referrer
+      X-Frame-Options DENY
+      Permissions-Policy "camera=(), microphone=(), geolocation=()"
+      Content-Security-Policy "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'"
+    }
+    respond 404
+  }
+}
 {% if vps_service_foundation_nutsnews_staging_access_enabled | bool %}
 
 staging.nutsnews.com {
