@@ -171,14 +171,7 @@ def _request_json(url: str, headers: dict[str, str] | None = None) -> Any:
     raise CandidateError("Trusted source/provenance lookup failed unexpectedly.")
 
 
-def verify_source(candidate: Candidate, fetch_json: Callable[[str], Any] = _request_json) -> None:
-    """Require a successful owned main build and a commit reachable from main."""
-
-    run_url = f"https://api.github.com/repos/{SOURCE_REPOSITORY}/actions/runs/{candidate.source_workflow_run_id}"
-    run = fetch_json(run_url)
-    if not isinstance(run, dict):
-        raise CandidateError("Source workflow run response was not an object.")
-
+def _require_common_source_run(candidate: Candidate, run: dict[str, Any]) -> dict[str, Any]:
     head_repository = run.get("head_repository")
     if not isinstance(head_repository, dict):
         head_repository = {}
@@ -186,10 +179,6 @@ def verify_source(candidate: Candidate, fetch_json: Callable[[str], Any] = _requ
         "id": int(candidate.source_workflow_run_id),
         "name": "Container Image",
         "path": ".github/workflows/container-image.yml",
-        "event": "push",
-        "status": "completed",
-        "conclusion": "success",
-        "head_branch": "main",
         "head_sha": candidate.source_commit,
     }
     for key, value in expected.items():
@@ -199,6 +188,19 @@ def verify_source(candidate: Candidate, fetch_json: Callable[[str], Any] = _requ
         raise CandidateError("Source workflow run was not executed from the trusted NutsNews repository.")
     if run.get("run_attempt") != candidate.workflow_attempt:
         raise CandidateError("Source workflow run attempt does not match build_id.")
+    return head_repository
+
+
+def _verify_push_source(candidate: Candidate, run: dict[str, Any], fetch_json: Callable[[str], Any]) -> None:
+    expected = {
+        "event": "push",
+        "status": "completed",
+        "conclusion": "success",
+        "head_branch": "main",
+    }
+    for key, value in expected.items():
+        if run.get(key) != value:
+            raise CandidateError(f"Source workflow run did not satisfy trusted {key}={value!r}.")
 
     comparison_url = (
         f"https://api.github.com/repos/{SOURCE_REPOSITORY}/compare/"
@@ -210,6 +212,60 @@ def verify_source(candidate: Candidate, fetch_json: Callable[[str], Any] = _requ
     # the candidate remains reachable from trusted main.
     if not isinstance(comparison, dict) or comparison.get("status") not in {"ahead", "identical"}:
         raise CandidateError("Requested source commit is not reachable from ramideltoro/nutsnews main.")
+
+
+def _verify_pull_request_source(candidate: Candidate, run: dict[str, Any]) -> None:
+    if run.get("event") != "pull_request":
+        raise CandidateError("Source workflow run did not satisfy trusted event='push' or event='pull_request'.")
+    status = run.get("status")
+    conclusion = run.get("conclusion")
+    if status == "completed":
+        if conclusion != "success":
+            raise CandidateError("Completed pull_request source workflow run did not conclude success.")
+    elif status not in {"queued", "in_progress"}:
+        raise CandidateError("Pull request source workflow run is not active or successfully completed.")
+
+    head_branch = run.get("head_branch")
+    if not isinstance(head_branch, str) or not head_branch.strip():
+        raise CandidateError("Pull request source workflow run is missing a trusted head branch.")
+
+    pull_requests = run.get("pull_requests")
+    if not isinstance(pull_requests, list) or not pull_requests:
+        raise CandidateError("Pull request source workflow run is not linked to a pull request.")
+    trusted_repo_url = f"https://api.github.com/repos/{SOURCE_REPOSITORY}"
+    for pull_request in pull_requests:
+        if not isinstance(pull_request, dict):
+            continue
+        base = pull_request.get("base")
+        head = pull_request.get("head")
+        if not isinstance(base, dict) or not isinstance(head, dict):
+            continue
+        base_repo = base.get("repo") if isinstance(base.get("repo"), dict) else {}
+        head_repo = head.get("repo") if isinstance(head.get("repo"), dict) else {}
+        if (
+            base.get("ref") == "main"
+            and base_repo.get("url") == trusted_repo_url
+            and head_repo.get("url") == trusted_repo_url
+            and head.get("ref") == head_branch
+            and head.get("sha") == candidate.source_commit
+        ):
+            return
+    raise CandidateError("Pull request source workflow run is not a same-repository PR targeting main.")
+
+
+def verify_source(candidate: Candidate, fetch_json: Callable[[str], Any] = _request_json) -> None:
+    """Require a trusted owned app workflow run for the immutable candidate."""
+
+    run_url = f"https://api.github.com/repos/{SOURCE_REPOSITORY}/actions/runs/{candidate.source_workflow_run_id}"
+    run = fetch_json(run_url)
+    if not isinstance(run, dict):
+        raise CandidateError("Source workflow run response was not an object.")
+
+    _require_common_source_run(candidate, run)
+    if run.get("event") == "push":
+        _verify_push_source(candidate, run, fetch_json)
+        return
+    _verify_pull_request_source(candidate, run)
 
 
 def _registry_token(fetch_json: Callable[[str], Any]) -> str:
