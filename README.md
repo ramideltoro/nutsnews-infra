@@ -96,6 +96,8 @@ Use [runbooks/VPS_BACKUP_SETUP.md](runbooks/VPS_BACKUP_SETUP.md), [runbooks/VPS_
 
 Use [runbooks/GRAFANA_CLOUD_OBSERVABILITY.md](runbooks/GRAFANA_CLOUD_OBSERVABILITY.md) before applying Grafana Cloud dashboards, quota guardrails, Synthetic Monitoring checks, or enabling Alloy telemetry writes on the VPS.
 
+Use [runbooks/CLOUDFLARE_DNS_FAILOVER.md](runbooks/CLOUDFLARE_DNS_FAILOVER.md) before planning or applying the Cloudflare Worker and Durable Object DNS failover controller for the production apex/www records.
+
 ## External Systems
 
 The following systems remain managed outside this repository:

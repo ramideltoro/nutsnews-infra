@@ -1,0 +1,200 @@
+name: Cloudflare DNS Failover Apply
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_mode:
+        description: Plan or apply the Cloudflare DNS failover Worker.
+        required: true
+        default: plan
+        type: choice
+        options:
+          - plan
+          - apply
+      dns_writes_enabled:
+        description: Enable automatic apex/www DNS writes after deploy.
+        required: true
+        default: "false"
+        type: choice
+        options:
+          - "false"
+          - "true"
+      confirm_apply:
+        description: For apply only, type dns-failover.nutsnews.com.
+        required: false
+        default: ""
+        type: string
+      confirm_dns_writes:
+        description: To enable DNS writes, type enable-dns-writes-for-nutsnews.com.
+        required: false
+        default: ""
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cloudflare-dns-failover
+  cancel-in-progress: false
+
+jobs:
+  failover:
+    name: Protected Cloudflare DNS failover plan/apply
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: cloudflare-admin
+
+    steps:
+      - name: Validate fixed scope and confirmation
+        shell: bash
+        env:
+          RUN_MODE: ${{ inputs.run_mode }}
+          DNS_WRITES_ENABLED: ${{ inputs.dns_writes_enabled }}
+          CONFIRM_APPLY: ${{ inputs.confirm_apply }}
+          CONFIRM_DNS_WRITES: ${{ inputs.confirm_dns_writes }}
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_REF" != "refs/heads/main" ]]; then
+            echo "Cloudflare DNS failover changes must run from main." >&2
+            exit 1
+          fi
+          if [[ "$RUN_MODE" == "apply" && "$CONFIRM_APPLY" != "dns-failover.nutsnews.com" ]]; then
+            echo "Apply requires confirm_apply to be exactly dns-failover.nutsnews.com." >&2
+            exit 1
+          fi
+          if [[ "$RUN_MODE" != "apply" && "$DNS_WRITES_ENABLED" == "true" ]]; then
+            echo "dns_writes_enabled=true is only allowed with apply mode." >&2
+            exit 1
+          fi
+          if [[ "$DNS_WRITES_ENABLED" == "true" && "$CONFIRM_DNS_WRITES" != "enable-dns-writes-for-nutsnews.com" ]]; then
+            echo "Enabling DNS writes requires confirm_dns_writes=enable-dns-writes-for-nutsnews.com." >&2
+            exit 1
+          fi
+
+      - name: Checkout reviewed Worker
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Use Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e  # v6
+        with:
+          node-version: "24"
+
+      - name: Validate Worker and protected secret names
+        shell: bash
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.NUTSNEWS_CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.NUTSNEWS_DNS_FAILOVER_DEPLOY_API_TOKEN }}
+          DNS_API_TOKEN: ${{ secrets.NUTSNEWS_DNS_FAILOVER_DNS_API_TOKEN }}
+          DNS_ZONE_ID: ${{ secrets.NUTSNEWS_DNS_FAILOVER_ZONE_ID }}
+          DNS_RECORDS_JSON: ${{ secrets.NUTSNEWS_DNS_FAILOVER_RECORDS_JSON }}
+          ADMIN_TOKEN: ${{ secrets.NUTSNEWS_DNS_FAILOVER_ADMIN_TOKEN }}
+        run: |
+          set -euo pipefail
+          missing=0
+          for name in CLOUDFLARE_ACCOUNT_ID CLOUDFLARE_API_TOKEN DNS_API_TOKEN DNS_ZONE_ID DNS_RECORDS_JSON ADMIN_TOKEN; do
+            if [[ -z "${!name}" ]]; then
+              echo "Missing required cloudflare-admin Environment secret: $name" >&2
+              missing=1
+            fi
+          done
+          if [[ "$missing" != "0" ]]; then
+            exit "$missing"
+          fi
+
+          node --check cloudflare/dns-failover/src/core.mjs
+          node --check cloudflare/dns-failover/src/index.mjs
+          node --test cloudflare/dns-failover/tests/*.test.mjs
+          python3 ansible/tests/validate_cloudflare_dns_failover.py
+
+          node --input-type=module <<'NODE'
+          const records = JSON.parse(process.env.DNS_RECORDS_JSON);
+          const required = new Set(["nutsnews.com", "www.nutsnews.com"]);
+          if (!Array.isArray(records) || records.length !== 2) {
+            throw new Error("DNS_RECORDS_JSON must contain exactly apex and www records.");
+          }
+          for (const record of records) {
+            if (!required.delete(String(record.name || "").toLowerCase())) {
+              throw new Error("DNS_RECORDS_JSON contains an unexpected or duplicate record name.");
+            }
+            if (!/^[0-9a-f]{32}$/i.test(String(record.id || ""))) {
+              throw new Error("DNS_RECORDS_JSON record ids must be 32 hex characters.");
+            }
+            if (String(record.type || "").toUpperCase() !== "CNAME") {
+              throw new Error("DNS_RECORDS_JSON must keep apex and www as CNAME records.");
+            }
+          }
+          if (required.size) {
+            throw new Error("DNS_RECORDS_JSON is missing an expected record name.");
+          }
+          if (String(process.env.ADMIN_TOKEN || "").length < 24) {
+            throw new Error("Admin token must be present and high entropy.");
+          }
+          NODE
+
+      - name: Build Worker bundle dry run
+        shell: bash
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.NUTSNEWS_CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.NUTSNEWS_DNS_FAILOVER_DEPLOY_API_TOKEN }}
+        run: |
+          set -euo pipefail
+          npx --yes wrangler@4.113.0 deploy \
+            --dry-run \
+            --outdir "$RUNNER_TEMP/dns-failover-dry-run" \
+            --config cloudflare/dns-failover/wrangler.toml
+
+      - name: Deploy Worker code
+        if: inputs.run_mode == 'apply'
+        shell: bash
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.NUTSNEWS_CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.NUTSNEWS_DNS_FAILOVER_DEPLOY_API_TOKEN }}
+        run: |
+          set -euo pipefail
+          npx --yes wrangler@4.113.0 deploy --config cloudflare/dns-failover/wrangler.toml
+
+      - name: Store Worker runtime secrets
+        if: inputs.run_mode == 'apply'
+        shell: bash
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.NUTSNEWS_CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.NUTSNEWS_DNS_FAILOVER_DEPLOY_API_TOKEN }}
+          DNS_API_TOKEN: ${{ secrets.NUTSNEWS_DNS_FAILOVER_DNS_API_TOKEN }}
+          DNS_ZONE_ID: ${{ secrets.NUTSNEWS_DNS_FAILOVER_ZONE_ID }}
+          DNS_RECORDS_JSON: ${{ secrets.NUTSNEWS_DNS_FAILOVER_RECORDS_JSON }}
+          ADMIN_TOKEN: ${{ secrets.NUTSNEWS_DNS_FAILOVER_ADMIN_TOKEN }}
+          DNS_WRITES_ENABLED: ${{ inputs.dns_writes_enabled }}
+        run: |
+          set -euo pipefail
+          put_secret() {
+            local name="$1"
+            local value="$2"
+            printf '%s' "$value" | npx --yes wrangler@4.113.0 secret put "$name" \
+              --config cloudflare/dns-failover/wrangler.toml
+          }
+
+          put_secret CLOUDFLARE_DNS_API_TOKEN "$DNS_API_TOKEN"
+          put_secret CLOUDFLARE_ZONE_ID "$DNS_ZONE_ID"
+          put_secret DNS_RECORDS_JSON "$DNS_RECORDS_JSON"
+          put_secret ADMIN_TOKEN "$ADMIN_TOKEN"
+          put_secret AUTOMATIC_DNS_WRITES_ENABLED "$DNS_WRITES_ENABLED"
+
+      - name: Summarize deployment posture
+        if: always()
+        shell: bash
+        env:
+          RUN_MODE: ${{ inputs.run_mode }}
+          DNS_WRITES_ENABLED: ${{ inputs.dns_writes_enabled }}
+        run: |
+          {
+            echo "## Cloudflare DNS failover"
+            echo
+            echo "- Worker: \`nutsnews-dns-failover\`"
+            echo "- Run mode: \`${RUN_MODE}\`"
+            echo "- Automatic DNS writes requested: \`${DNS_WRITES_ENABLED}\`"
+            echo "- Visitor apex/www routes through this Worker: \`false\`"
+            echo "- Cron watchdog: \`* * * * *\`"
+            echo "- Durable Object alarm cadence: \`15 seconds\`"
+          } >> "$GITHUB_STEP_SUMMARY"

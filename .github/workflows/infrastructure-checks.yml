@@ -397,6 +397,7 @@ jobs:
           python3 ansible/tests/validate_vps_runtime_drift_check.py
           python3 ansible/tests/validate_docker_cleanup.py
           python3 ansible/tests/validate_cloudflare_ddns.py
+          python3 ansible/tests/validate_cloudflare_dns_failover.py
           python3 ansible/tests/validate_zram_fallback.py
           python3 ansible/tests/validate_no_backup_secrets.py
           python3 ansible/tests/validate_no_app_secrets.py

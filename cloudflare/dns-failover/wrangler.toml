@@ -1,0 +1,34 @@
+name = "nutsnews-dns-failover"
+main = "src/index.mjs"
+compatibility_date = "2026-07-21"
+workers_dev = true
+
+[observability]
+enabled = true
+head_sampling_rate = 1
+
+[triggers]
+crons = ["* * * * *"]
+
+[[durable_objects.bindings]]
+name = "DNS_FAILOVER"
+class_name = "DnsFailoverController"
+
+[exports.DnsFailoverController]
+type = "durable-object"
+storage = "sqlite"
+
+[vars]
+CONTROLLER_NAME = "nutsnews-production"
+HEALTH_CHECK_URL = "https://vps.nutsnews.com/readyz"
+EXPECTED_READINESS_TARGET = "production-vps"
+HEALTH_CHECK_TIMEOUT_MS = "4000"
+CHECK_INTERVAL_SECONDS = "15"
+FAILURE_THRESHOLD = "3"
+RECOVERY_THRESHOLD = "1"
+MIN_DNS_UPDATE_INTERVAL_SECONDS = "60"
+DNS_RECORD_TYPE = "CNAME"
+DNS_TTL = "1"
+DNS_PROXIED = "true"
+PRIMARY_DNS_TARGET = "vps.nutsnews.com"
+SECONDARY_DNS_TARGET = "cname.vercel-dns.com"
