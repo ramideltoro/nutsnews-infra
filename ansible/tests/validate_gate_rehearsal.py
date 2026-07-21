@@ -14,6 +14,9 @@ ROLLBACK = (WORKFLOWS / "protected-nutsnews-rollback.yml").read_text(encoding="u
 PROMOTION = (WORKFLOWS / "nutsnews-release-promotion.yml").read_text(encoding="utf-8")
 STAGING_DEPLOY = (WORKFLOWS / "nutsnews-staging-deploy.yml").read_text(encoding="utf-8")
 QUALIFIER = (WORKFLOWS / "nutsnews-staging-qualification.yml").read_text(encoding="utf-8")
+PREMERGE_PRODUCTION = (WORKFLOWS / "nutsnews-premerge-production-vps-deploy.yml").read_text(
+    encoding="utf-8"
+)
 WORKFLOW_SAFETY = (WORKFLOWS / "workflow-safety.yml").read_text(encoding="utf-8")
 PORTAL_STATUS = (ROOT / "portal/data/status.example.json").read_text(encoding="utf-8")
 PORTAL_JS = (ROOT / "portal/assets/app.js").read_text(encoding="utf-8")
@@ -140,6 +143,23 @@ require(
 )
 
 for required in (
+    "repository_dispatch:",
+    "nutsnews-production-vps-release",
+    "Validate pre-merge production candidate payload",
+    "repository_dispatch client_payload must not exceed 10 top-level keys",
+    "release_manifest_mode=premerge_candidate",
+    "gh workflow run protected-ansible-apply.yml",
+    "gh run watch \"$run_id\"",
+):
+    require(required in PREMERGE_PRODUCTION, f"Pre-merge production workflow missing guardrail: {required}.")
+require("environment: production-vps" not in PREMERGE_PRODUCTION, "Pre-merge dispatcher must not attach production-vps directly.")
+require(
+    PREMERGE_PRODUCTION.index("Validate pre-merge production candidate payload")
+    < PREMERGE_PRODUCTION.index("gh workflow run protected-ansible-apply.yml"),
+    "Pre-merge production workflow must validate the compact payload before dispatching protected apply.",
+)
+
+for required in (
     "environment: production-vps",
     "rollback-recorded-last-known-good",
     "rollback_nutsnews_release.py",
@@ -178,6 +198,7 @@ for workflow_path in WORKFLOWS.glob("*.yml"):
         "protected-ansible-apply.yml",
         "protected-nutsnews-rollback.yml",
         "nutsnews-release-promotion.yml",
+        "nutsnews-premerge-production-vps-deploy.yml",
         "nutsnews-staging-deploy.yml",
         "nutsnews-staging-qualification.yml",
     }:

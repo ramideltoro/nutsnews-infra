@@ -1,0 +1,174 @@
+name: Deploy Pre-Merge NutsNews VPS Production Candidate
+
+run-name: Deploy pre-merge VPS production ${{ github.event.client_payload.source.commit || 'unknown' }}
+
+on:
+  repository_dispatch:
+    types:
+      - nutsnews-production-vps-release
+
+permissions:
+  actions: write
+  contents: read
+
+concurrency:
+  group: nutsnews-premerge-production-vps
+  cancel-in-progress: false
+
+jobs:
+  dispatch-protected-apply:
+    name: Validate candidate and run protected VPS apply
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+
+    steps:
+      - name: Checkout reviewed infrastructure automation
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Validate pre-merge production candidate payload
+        id: candidate
+        shell: bash
+        env:
+          EVENT_PAYLOAD_JSON: ${{ toJson(github.event.client_payload) }}
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import { appendFileSync } from "node:fs";
+
+          const payload = JSON.parse(process.env.EVENT_PAYLOAD_JSON || "{}");
+          const clean = (value) => String(value ?? "").trim();
+          const requireMatch = (value, pattern, label) => {
+            const text = clean(value);
+            if (!pattern.test(text)) throw new Error(`${label} is invalid.`);
+            return text;
+          };
+          const source = payload.source ?? {};
+          const image = payload.image ?? {};
+          const release = payload.release ?? {};
+          const deployment = payload.deployment ?? {};
+          const vercel = payload.vercel ?? {};
+          const sourceCommit = requireMatch(source.commit, /^[0-9a-f]{40}$/, "source.commit");
+          const sourceWorkflowRunId = requireMatch(source.workflow_run_id, /^[1-9][0-9]{0,19}$/, "source.workflow_run_id");
+          const prNumber = requireMatch(source.pr_number, /^[1-9][0-9]{0,9}$/, "source.pr_number");
+          const imageDigest = requireMatch(image.digest, /^sha256:[0-9a-f]{64}$/, "image.digest");
+          const buildId = requireMatch(release.build_id, /^[1-9][0-9]{0,19}-[1-9][0-9]{0,5}$/, "release.build_id");
+          const migrationHead = requireMatch(release.migration_head, /^[0-9]{14}$/, "release.migration_head");
+          const schemaVersion = requireMatch(release.schema_version, /^[0-9]{14}$/, "release.schema_version");
+          const supabaseProjectRef = requireMatch(release.supabase_project_ref, /^[a-z0-9]{20}$/, "release.supabase_project_ref");
+          const deploymentId = requireMatch(deployment.id, /^prod-[0-9a-f]{24}$/, "deployment.id");
+          const vercelProductionDeploymentId = requireMatch(vercel.production_deployment_id, /^dpl_[A-Za-z0-9]+$/, "vercel.production_deployment_id");
+          const productionWritesPaused = clean(release.production_writes_paused) || "false";
+
+          if (Object.keys(payload).length > 10) throw new Error("repository_dispatch client_payload must not exceed 10 top-level keys.");
+          if (payload.schema_version !== "nutsnews.premerge.production_vps.v1") throw new Error("Unsupported payload schema_version.");
+          if (source.repository !== "ramideltoro/nutsnews") throw new Error("source.repository must be ramideltoro/nutsnews.");
+          if (image.repository !== "ghcr.io/ramideltoro/nutsnews") throw new Error("image.repository must be the approved GHCR repository.");
+          if (buildId.split("-", 1)[0] !== sourceWorkflowRunId) throw new Error("release.build_id must belong to source.workflow_run_id.");
+          if (deployment.target !== "production-vps") throw new Error("deployment.target must be production-vps.");
+          if (deployment.idempotency_key !== `pr-${prNumber}-${sourceCommit}-production-vps`) throw new Error("deployment.idempotency_key does not match the source identity.");
+          if (!["false", "true"].includes(productionWritesPaused)) throw new Error("release.production_writes_paused must be false or true.");
+
+          appendFileSync(
+            process.env.GITHUB_OUTPUT,
+            [
+              `source_commit=${sourceCommit}`,
+              `source_workflow_run_id=${sourceWorkflowRunId}`,
+              `image_digest=${imageDigest}`,
+              `build_id=${buildId}`,
+              `migration_head=${migrationHead}`,
+              `schema_version=${schemaVersion}`,
+              `supabase_project_ref=${supabaseProjectRef}`,
+              `deployment_id=${deploymentId}`,
+              `production_writes_paused=${productionWritesPaused}`,
+              `vercel_production_deployment_id=${vercelProductionDeploymentId}`,
+              "",
+            ].join("\n"),
+            "utf8",
+          );
+          NODE
+
+      - name: Start and wait for protected pre-merge VPS apply
+        id: apply
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_COMMIT: ${{ steps.candidate.outputs.source_commit }}
+          SOURCE_WORKFLOW_RUN_ID: ${{ steps.candidate.outputs.source_workflow_run_id }}
+          IMAGE_DIGEST: ${{ steps.candidate.outputs.image_digest }}
+          BUILD_ID: ${{ steps.candidate.outputs.build_id }}
+          MIGRATION_HEAD: ${{ steps.candidate.outputs.migration_head }}
+          SCHEMA_VERSION: ${{ steps.candidate.outputs.schema_version }}
+          SUPABASE_PROJECT_REF: ${{ steps.candidate.outputs.supabase_project_ref }}
+          DEPLOYMENT_ID: ${{ steps.candidate.outputs.deployment_id }}
+          PRODUCTION_WRITES_PAUSED: ${{ steps.candidate.outputs.production_writes_paused }}
+        run: |
+          set -euo pipefail
+
+          dispatch_started_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          gh workflow run protected-ansible-apply.yml \
+            --repo "$GITHUB_REPOSITORY" \
+            --ref main \
+            --field run_mode=apply \
+            --field confirm_apply=vps.nutsnews.com \
+            --field sync_vercel_production=true \
+            --field production_writes_paused="$PRODUCTION_WRITES_PAUSED" \
+            --field enable_cloudflare_ddns=false \
+            --field enable_grafana_alloy=false \
+            --field enable_staging_access=false \
+            --field release_source_commit="$SOURCE_COMMIT" \
+            --field release_image_digest="$IMAGE_DIGEST" \
+            --field release_build_id="$BUILD_ID" \
+            --field release_source_workflow_run_id="$SOURCE_WORKFLOW_RUN_ID" \
+            --field release_deployment_id="$DEPLOYMENT_ID" \
+            --field release_smoke_helper_ref="$SOURCE_COMMIT" \
+            --field release_migration_head="$MIGRATION_HEAD" \
+            --field release_schema_version="$SCHEMA_VERSION" \
+            --field release_supabase_project_ref="$SUPABASE_PROJECT_REF" \
+            --field release_manifest_mode=premerge_candidate
+
+          release_title="Automated VPS release ${SOURCE_COMMIT}"
+          runs_file="$RUNNER_TEMP/protected-ansible-runs.json"
+          run_id=""
+          for _ in $(seq 1 30); do
+            gh run list \
+              --repo "$GITHUB_REPOSITORY" \
+              --workflow protected-ansible-apply.yml \
+              --event workflow_dispatch \
+              --branch main \
+              --limit 30 \
+              --json databaseId,displayTitle,status,createdAt \
+              > "$runs_file"
+            run_id="$(python3 -c 'import json, sys; print(next((str(run["databaseId"]) for run in json.load(open(sys.argv[1], encoding="utf-8")) if run.get("displayTitle") == sys.argv[2] and run.get("createdAt", "") >= sys.argv[3]), ""))' "$runs_file" "$release_title" "$dispatch_started_at")"
+            if [[ -n "$run_id" ]]; then
+              break
+            fi
+            sleep 2
+          done
+
+          if [[ -z "$run_id" ]]; then
+            echo "Timed out locating the protected pre-merge VPS apply workflow run." >&2
+            exit 1
+          fi
+
+          gh run watch "$run_id" --repo "$GITHUB_REPOSITORY" --exit-status
+          echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
+
+      - name: Summarize protected pre-merge VPS apply
+        shell: bash
+        env:
+          SOURCE_COMMIT: ${{ steps.candidate.outputs.source_commit }}
+          IMAGE_DIGEST: ${{ steps.candidate.outputs.image_digest }}
+          DEPLOYMENT_ID: ${{ steps.candidate.outputs.deployment_id }}
+          PROTECTED_APPLY_RUN_ID: ${{ steps.apply.outputs.run_id }}
+        run: |
+          set -euo pipefail
+          {
+            echo "## Pre-merge VPS production deploy"
+            echo
+            echo "- Source commit: \`${SOURCE_COMMIT}\`"
+            echo "- Image digest: \`${IMAGE_DIGEST}\`"
+            echo "- Deployment ID: \`${DEPLOYMENT_ID}\`"
+            echo "- Protected apply run: https://github.com/${GITHUB_REPOSITORY}/actions/runs/${PROTECTED_APPLY_RUN_ID}"
+          } >> "$GITHUB_STEP_SUMMARY"

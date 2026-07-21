@@ -81,6 +81,11 @@ on:
         required: false
         default: ""
         type: string
+      release_deployment_id:
+        description: Optional deterministic pre-merge production deployment ID.
+        required: false
+        default: ""
+        type: string
       release_smoke_helper_ref:
         description: Optional reviewed NutsNews app ref to overlay the current production smoke helper.
         required: false
@@ -101,6 +106,14 @@ on:
         required: false
         default: ""
         type: string
+      release_manifest_mode:
+        description: Require the reviewed manifest or apply a protected pre-merge candidate override.
+        required: true
+        default: reviewed_manifest
+        type: choice
+        options:
+          - reviewed_manifest
+          - premerge_candidate
       rollback_failed_image_digest:
         description: Optional failed production digest when applying a fixed recorded rollback.
         required: false
@@ -154,9 +167,11 @@ jobs:
           RELEASE_IMAGE_DIGEST: ${{ inputs.release_image_digest }}
           RELEASE_BUILD_ID: ${{ inputs.release_build_id }}
           RELEASE_SOURCE_WORKFLOW_RUN_ID: ${{ inputs.release_source_workflow_run_id }}
+          RELEASE_DEPLOYMENT_ID: ${{ inputs.release_deployment_id }}
           RELEASE_MIGRATION_HEAD: ${{ inputs.release_migration_head }}
           RELEASE_SCHEMA_VERSION: ${{ inputs.release_schema_version }}
           RELEASE_SUPABASE_PROJECT_REF: ${{ inputs.release_supabase_project_ref }}
+          RELEASE_MANIFEST_MODE: ${{ inputs.release_manifest_mode }}
           ROLLBACK_FAILED_IMAGE_DIGEST: ${{ inputs.rollback_failed_image_digest }}
           ROLLBACK_REASON: ${{ inputs.rollback_reason }}
           ROLLBACK_CONFIRMATION: ${{ inputs.rollback_confirmation }}
@@ -182,7 +197,19 @@ jobs:
               rollback_supplied=$((rollback_supplied + 1))
             fi
           done
+          if [[ "$RELEASE_MANIFEST_MODE" != "reviewed_manifest" && "$RELEASE_MANIFEST_MODE" != "premerge_candidate" ]]; then
+            echo "release_manifest_mode must be reviewed_manifest or premerge_candidate." >&2
+            exit 1
+          fi
+          if [[ -n "$RELEASE_DEPLOYMENT_ID" && ! "$RELEASE_DEPLOYMENT_ID" =~ ^prod-[0-9a-f]{24}$ ]]; then
+            echo "release_deployment_id must be prod- followed by 24 lowercase hex characters when set." >&2
+            exit 1
+          fi
           if [[ "$supplied" -eq 0 ]]; then
+            if [[ -n "$RELEASE_DEPLOYMENT_ID" || "$RELEASE_MANIFEST_MODE" != "reviewed_manifest" ]]; then
+              echo "Pre-merge release mode and deployment ID require the complete release identity bundle." >&2
+              exit 1
+            fi
             if [[ "$rollback_supplied" -ne 0 ]]; then
               echo "Rollback inputs require the complete restored release identity bundle." >&2
               exit 1
@@ -196,6 +223,10 @@ jobs:
           fi
           if [[ "$rollback_supplied" -ne 0 && "$rollback_supplied" -ne 3 ]]; then
             echo "Rollback verification requires failed digest, reason, and confirmation together." >&2
+            exit 1
+          fi
+          if [[ "$RELEASE_MANIFEST_MODE" == "premerge_candidate" && -z "$RELEASE_DEPLOYMENT_ID" ]]; then
+            echo "premerge_candidate releases require release_deployment_id." >&2
             exit 1
           fi
           echo "app_release=true" >> "$GITHUB_OUTPUT"
@@ -228,9 +259,14 @@ jobs:
           RELEASE_MIGRATION_HEAD: ${{ inputs.release_migration_head }}
           RELEASE_SCHEMA_VERSION: ${{ inputs.release_schema_version }}
           RELEASE_SUPABASE_PROJECT_REF: ${{ inputs.release_supabase_project_ref }}
+          RELEASE_MANIFEST_MODE: ${{ inputs.release_manifest_mode }}
         run: |
           set -euo pipefail
           umask 077
+          manifest_args=()
+          if [[ "$RELEASE_MANIFEST_MODE" == "premerge_candidate" ]]; then
+            manifest_args+=(--skip-manifest-verify)
+          fi
           mkdir -p "$RUNNER_TEMP/production-eligibility"
           gh attestation verify "oci://ghcr.io/ramideltoro/nutsnews@${RELEASE_IMAGE_DIGEST}" \
             --repo "$GITHUB_REPOSITORY" \
@@ -247,7 +283,8 @@ jobs:
             --schema-version "$RELEASE_SCHEMA_VERSION" \
             --supabase-project-ref "$RELEASE_SUPABASE_PROJECT_REF" \
             --output "$RUNNER_TEMP/production-eligibility/staging-qualification.json" \
-            --github-output "$RUNNER_TEMP/production-eligibility-output"
+            --github-output "$RUNNER_TEMP/production-eligibility-output" \
+            "${manifest_args[@]}"
 
       - name: Verify fixed recorded rollback
         if: steps.release_inputs.outputs.app_release == 'true' && inputs.rollback_confirmation == 'rollback-recorded-last-known-good'
@@ -318,9 +355,11 @@ jobs:
           RELEASE_IMAGE_DIGEST: ${{ inputs.release_image_digest }}
           RELEASE_BUILD_ID: ${{ inputs.release_build_id }}
           RELEASE_SOURCE_WORKFLOW_RUN_ID: ${{ inputs.release_source_workflow_run_id }}
+          RELEASE_DEPLOYMENT_ID: ${{ inputs.release_deployment_id }}
           RELEASE_MIGRATION_HEAD: ${{ inputs.release_migration_head }}
           RELEASE_SCHEMA_VERSION: ${{ inputs.release_schema_version }}
           RELEASE_SUPABASE_PROJECT_REF: ${{ inputs.release_supabase_project_ref }}
+          RELEASE_MANIFEST_MODE: ${{ inputs.release_manifest_mode }}
         run: |
           set -euo pipefail
 
@@ -338,9 +377,16 @@ jobs:
             exit 1
           fi
 
+          manifest_args=(--verify --manifest ansible/inventories/production/host_vars/vps.nutsnews.com.yml)
+          if [[ "$RELEASE_MANIFEST_MODE" == "premerge_candidate" ]]; then
+            if [[ ! "$RELEASE_DEPLOYMENT_ID" =~ ^prod-[0-9a-f]{24}$ ]]; then
+              echo "premerge_candidate releases require a deterministic prod-* deployment ID." >&2
+              exit 1
+            fi
+            manifest_args=(--validate-only)
+          fi
           release_state="$(python3 ansible/scripts/promote_nutsnews_release.py \
-            --verify \
-            --manifest ansible/inventories/production/host_vars/vps.nutsnews.com.yml \
+            "${manifest_args[@]}" \
             --image-repository ghcr.io/ramideltoro/nutsnews \
             --image-digest "$RELEASE_IMAGE_DIGEST" \
             --source-commit "$RELEASE_SOURCE_COMMIT" \
@@ -348,7 +394,7 @@ jobs:
             --migration-head "$RELEASE_MIGRATION_HEAD" \
             --schema-version "$RELEASE_SCHEMA_VERSION" \
             --supabase-project-ref "$RELEASE_SUPABASE_PROJECT_REF")"
-          release_deployment_target="$(python3 -c 'import json, sys; print(json.load(sys.stdin)["deployment_target"])' <<<"$release_state")"
+          release_deployment_target="$(python3 -c 'import json, sys; print(json.load(sys.stdin).get("deployment_target", "production-vps"))' <<<"$release_state")"
           if [[ "$release_deployment_target" != "production-vps" ]]; then
             echo "Reviewed infrastructure deployment target must be production-vps." >&2
             exit 1
@@ -613,7 +659,15 @@ jobs:
           PRODUCTION_WRITES_PAUSED: ${{ inputs.production_writes_paused }}
           SYNC_VERCEL_PRODUCTION: ${{ inputs.sync_vercel_production }}
           NUTSNEWS_VERCEL_SYNC_ENVS_FILE: ${{ runner.temp }}/vercel-selected.json
+          RELEASE_SOURCE_COMMIT: ${{ inputs.release_source_commit }}
+          RELEASE_IMAGE_DIGEST: ${{ inputs.release_image_digest }}
+          RELEASE_BUILD_ID: ${{ inputs.release_build_id }}
           RELEASE_SOURCE_WORKFLOW_RUN_ID: ${{ inputs.release_source_workflow_run_id }}
+          RELEASE_DEPLOYMENT_ID: ${{ inputs.release_deployment_id }}
+          RELEASE_MIGRATION_HEAD: ${{ inputs.release_migration_head }}
+          RELEASE_SCHEMA_VERSION: ${{ inputs.release_schema_version }}
+          RELEASE_SUPABASE_PROJECT_REF: ${{ inputs.release_supabase_project_ref }}
+          RELEASE_MANIFEST_MODE: ${{ inputs.release_manifest_mode }}
           ELIGIBILITY_STAGING_DEPLOYMENT_ID: ${{ needs.verify-production-eligibility.outputs.staging_deployment_id }}
           ELIGIBILITY_QUALIFICATION_RUN_ID: ${{ needs.verify-production-eligibility.outputs.qualification_run_id }}
           ELIGIBILITY_EXPIRES_AT: ${{ needs.verify-production-eligibility.outputs.expires_at }}
@@ -627,6 +681,7 @@ jobs:
           python3 - <<'PY'
           import json
           import os
+          import re
           from pathlib import Path
 
           keys = json.loads(os.environ["NUTSNEWS_VPS_ADMIN_AUTHORIZED_KEYS_JSON"])
@@ -956,6 +1011,64 @@ jobs:
                   "actor": os.environ["GITHUB_ACTOR"],
               },
           }
+
+          def require_match(pattern, value, label):
+              if not re.fullmatch(pattern, value):
+                  raise SystemExit(f"{label} is invalid.")
+              return value
+
+          def manifest_value(name):
+              manifest = Path("inventories/production/host_vars/vps.nutsnews.com.yml")
+              match = re.search(rf"(?m)^{re.escape(name)}:\s*(.*?)\s*$", manifest.read_text(encoding="utf-8"))
+              return match.group(1).strip().strip('"\'') if match else ""
+
+          release_manifest_mode = os.environ.get("RELEASE_MANIFEST_MODE", "reviewed_manifest").strip() or "reviewed_manifest"
+          if release_manifest_mode == "premerge_candidate":
+              release_source_commit = require_match(r"[0-9a-f]{40}", os.environ.get("RELEASE_SOURCE_COMMIT", ""), "Release source commit")
+              release_image_digest = require_match(r"sha256:[0-9a-f]{64}", os.environ.get("RELEASE_IMAGE_DIGEST", ""), "Release image digest")
+              release_build_id = require_match(r"[1-9][0-9]*-[1-9][0-9]*", os.environ.get("RELEASE_BUILD_ID", ""), "Release build ID")
+              release_source_workflow_run_id = require_match(
+                  r"[1-9][0-9]{0,19}",
+                  os.environ.get("RELEASE_SOURCE_WORKFLOW_RUN_ID", ""),
+                  "Release source workflow run ID",
+              )
+              release_deployment_id = require_match(
+                  r"prod-[0-9a-f]{24}",
+                  os.environ.get("RELEASE_DEPLOYMENT_ID", ""),
+                  "Release deployment ID",
+              )
+              release_migration_head = require_match(r"[0-9]{14}", os.environ.get("RELEASE_MIGRATION_HEAD", ""), "Release migration head")
+              release_schema_version = require_match(r"[0-9]{14}", os.environ.get("RELEASE_SCHEMA_VERSION", ""), "Release schema version")
+              release_supabase_project_ref = require_match(
+                  r"[a-z0-9]{20}",
+                  os.environ.get("RELEASE_SUPABASE_PROJECT_REF", ""),
+                  "Release Supabase project reference",
+              )
+              current_digest = require_match(
+                  r"sha256:[0-9a-f]{64}",
+                  manifest_value("vps_service_foundation_nutsnews_app_image_digest"),
+                  "Current production manifest image digest",
+              )
+              extra_vars.update(
+                  {
+                      "vps_service_foundation_nutsnews_app_image_repo": "ghcr.io/ramideltoro/nutsnews",
+                      "vps_service_foundation_nutsnews_app_image_digest": release_image_digest,
+                      "vps_service_foundation_nutsnews_app_image_review_status": "reviewed",
+                      "vps_service_foundation_nutsnews_app_source_commit": release_source_commit,
+                      "vps_service_foundation_nutsnews_app_build_id": release_build_id,
+                      "vps_service_foundation_nutsnews_app_source_workflow_run_id": release_source_workflow_run_id,
+                      "vps_service_foundation_nutsnews_app_deployment_target": "production-vps",
+                      "vps_service_foundation_nutsnews_app_last_known_good_digest": current_digest,
+                      "vps_service_foundation_nutsnews_app_config_generation": f"production-{release_build_id}-{release_migration_head}",
+                      "vps_service_foundation_nutsnews_app_deployment_id": release_deployment_id,
+                      "vps_service_foundation_nutsnews_app_migration_head": release_migration_head,
+                      "vps_service_foundation_nutsnews_app_schema_version": release_schema_version,
+                      "vps_service_foundation_nutsnews_app_supabase_project_ref": release_supabase_project_ref,
+                  }
+              )
+          elif release_manifest_mode != "reviewed_manifest":
+              raise SystemExit("release_manifest_mode must be reviewed_manifest or premerge_candidate.")
+
           Path(".runtime-extra-vars.json").write_text(json.dumps(extra_vars) + "\n", encoding="utf-8")
           PY
 
