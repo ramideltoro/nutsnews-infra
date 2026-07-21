@@ -62,6 +62,16 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Initialize promotion timing
+        shell: bash
+        run: |
+          set -euo pipefail
+          started_epoch="$(date -u +%s)"
+          {
+            echo "PROMOTION_STARTED_AT_EPOCH=${started_epoch}"
+            echo "PROMOTION_STARTED_AT_ISO=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          } >> "$GITHUB_ENV"
+
       - name: Resolve successful staging qualification evidence
         id: qualified
         shell: bash
@@ -426,6 +436,10 @@ jobs:
             echo "NUTSNEWS_INFRA_RELEASE_TOKEN is required for release GitOps automation." >&2
             exit 1
           fi
+          phase_started_at="$(date -u +%s)"
+          write_duration() {
+            echo "duration_seconds=$(($(date -u +%s) - phase_started_at))" >> "$GITHUB_OUTPUT"
+          }
 
           release_branch="release/vps-${SOURCE_COMMIT}"
           current_manifest="$RUNNER_TEMP/current-vps-release.yml"
@@ -446,6 +460,7 @@ jobs:
             echo "The current infrastructure manifest already matches this release."
             echo "pr_url=" >> "$GITHUB_OUTPUT"
             echo "release_branch=$release_branch" >> "$GITHUB_OUTPUT"
+            write_duration
             exit 0
           fi
 
@@ -459,6 +474,7 @@ jobs:
           if [[ -n "$existing_pr" ]]; then
             echo "pr_url=$existing_pr" >> "$GITHUB_OUTPUT"
             echo "release_branch=$release_branch" >> "$GITHUB_OUTPUT"
+            write_duration
             exit 0
           fi
 
@@ -478,6 +494,7 @@ jobs:
           if git diff --quiet -- ansible/inventories/production/host_vars/vps.nutsnews.com.yml; then
             echo "pr_url=" >> "$GITHUB_OUTPUT"
             echo "release_branch=$release_branch" >> "$GITHUB_OUTPUT"
+            write_duration
             exit 0
           fi
 
@@ -515,8 +532,10 @@ jobs:
             --body-file "$RUNNER_TEMP/nutsnews-release-pr.md")"
           echo "pr_url=$pr_url" >> "$GITHUB_OUTPUT"
           echo "release_branch=$release_branch" >> "$GITHUB_OUTPUT"
+          write_duration
 
       - name: Wait for promotion checks to pass and merge
+        id: promotion_merge
         if: steps.promotion.outputs.pr_url != ''
         shell: bash
         env:
@@ -525,6 +544,7 @@ jobs:
         run: |
           set -euo pipefail
 
+          phase_started_at="$(date -u +%s)"
           deadline=$((SECONDS + 3600))
           checks_file="$RUNNER_TEMP/promotion-checks.json"
           checks_error_file="$RUNNER_TEMP/promotion-checks.stderr"
@@ -586,6 +606,7 @@ jobs:
           done
 
           gh pr merge "$PR_URL" --merge --delete-branch
+          echo "duration_seconds=$(($(date -u +%s) - phase_started_at))" >> "$GITHUB_OUTPUT"
 
       - name: Verify merged manifest matches the release request
         shell: bash
@@ -632,6 +653,7 @@ jobs:
             echo "NUTSNEWS_INFRA_RELEASE_TOKEN is required to dispatch Protected Ansible Apply." >&2
             exit 1
           fi
+          phase_started_at="$(date -u +%s)"
 
           dispatch_started_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           gh workflow run protected-ansible-apply.yml \
@@ -656,6 +678,7 @@ jobs:
           release_title="Automated VPS release ${SOURCE_COMMIT}"
           runs_file="$RUNNER_TEMP/protected-ansible-runs.json"
           run_id=""
+          discovery_started_at="$(date -u +%s)"
           for _ in $(seq 1 30); do
             gh run list \
               --repo "$GITHUB_REPOSITORY" \
@@ -671,14 +694,19 @@ jobs:
             fi
             sleep 2
           done
+          discovery_seconds="$(($(date -u +%s) - discovery_started_at))"
 
           if [[ -z "$run_id" ]]; then
-            echo "Timed out locating the protected apply workflow run." >&2
+            echo "Timed out locating the protected apply workflow run after ${discovery_seconds} seconds. Expected workflow_dispatch run '${release_title}' created at or after ${dispatch_started_at}." >&2
             exit 1
           fi
 
           gh run watch "$run_id" --repo "$GITHUB_REPOSITORY" --exit-status
-          echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
+          {
+            echo "run_id=$run_id"
+            echo "discovery_seconds=$discovery_seconds"
+            echo "duration_seconds=$(($(date -u +%s) - phase_started_at))"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Request and wait for Vercel production deploy
         id: vercel
@@ -707,6 +735,7 @@ jobs:
             echo "Backend PostgreSQL primary Vercel release requires provider switch confirmation." >&2
             exit 1
           fi
+          phase_started_at="$(date -u +%s)"
 
           dispatch_started_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           node --input-type=module <<'NODE'
@@ -749,6 +778,7 @@ jobs:
           run_url=""
           run_conclusion="unknown"
           vercel_status="failed"
+          discovery_started_at="$(date -u +%s)"
           for _ in $(seq 1 60); do
             # shellcheck disable=SC2027,SC2086
             run_id="$(gh run list \
@@ -766,9 +796,10 @@ jobs:
             fi
             sleep 2
           done
+          discovery_seconds="$(($(date -u +%s) - discovery_started_at))"
 
           if [[ -z "$run_id" ]]; then
-            echo "Timed out locating the Vercel production workflow run." >&2
+            echo "Timed out locating the Vercel production workflow run after ${discovery_seconds} seconds. Expected repository_dispatch run in ramideltoro/nutsnews on main for workflow vercel-production-release.yml, created at or after ${dispatch_started_at}, with title 'Dispatch-only Vercel production ${SOURCE_COMMIT}' or 'Deploy Vercel production ${SOURCE_COMMIT}'. Check the app repository Actions tab, the nutsnews-vercel-production-release repository_dispatch trigger, and NUTSNEWS_APP_RELEASE_TOKEN dispatch permissions before rerunning promotion." >&2
           else
             run_url="$(gh run view "$run_id" --repo ramideltoro/nutsnews --json url --jq '.url')"
             if gh run watch "$run_id" --repo ramideltoro/nutsnews --exit-status; then
@@ -784,6 +815,9 @@ jobs:
             echo "run_url=$run_url"
             echo "run_conclusion=$run_conclusion"
             echo "deploy_failed=$([[ "$vercel_status" == "failed" ]] && echo true || echo false)"
+            echo "run_found=$([[ -n "$run_id" ]] && echo true || echo false)"
+            echo "discovery_seconds=$discovery_seconds"
+            echo "duration_seconds=$(($(date -u +%s) - phase_started_at))"
           } >> "$GITHUB_OUTPUT"
           if [[ "$vercel_status" == "failed" ]]; then
             if [[ -n "$run_id" ]]; then
@@ -820,6 +854,7 @@ jobs:
             echo "NUTSNEWS_APP_RELEASE_TOKEN is required to verify the failed Vercel production run before rollback." >&2
             exit 1
           fi
+          phase_started_at="$(date -u +%s)"
           if [[ -z "$VERCEL_RUN_ID" ]]; then
             echo "Refusing protected rollback without a located Vercel production workflow run." >&2
             exit 1
@@ -864,6 +899,7 @@ jobs:
 
 
           rollback_run_id=""
+          discovery_started_at="$(date -u +%s)"
           for _ in $(seq 1 30); do
             # shellcheck disable=SC2027,SC2086
             rollback_run_id="$(gh run list \
@@ -880,14 +916,19 @@ jobs:
             fi
             sleep 2
           done
+          discovery_seconds="$(($(date -u +%s) - discovery_started_at))"
 
           if [[ -z "$rollback_run_id" ]]; then
-            echo "Timed out locating the protected rollback workflow run." >&2
+            echo "Timed out locating the protected rollback workflow run after ${discovery_seconds} seconds." >&2
             exit 1
           fi
 
           gh run watch "$rollback_run_id" --repo "$GITHUB_REPOSITORY" --exit-status
-          echo "run_id=$rollback_run_id" >> "$GITHUB_OUTPUT"
+          {
+            echo "run_id=$rollback_run_id"
+            echo "discovery_seconds=$discovery_seconds"
+            echo "duration_seconds=$(($(date -u +%s) - phase_started_at))"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Summarize completed GitOps release
         if: ${{ always() }}
@@ -903,13 +944,27 @@ jobs:
           SCHEMA_VERSION: ${{ steps.release_contract.outputs.schema_version }}
           SUPABASE_PROJECT_REF: ${{ steps.production_schema.outputs.supabase_project_ref }}
           PR_URL: ${{ steps.promotion.outputs.pr_url }}
+          PROMOTION_PR_SECONDS: ${{ steps.promotion.outputs.duration_seconds }}
+          PROMOTION_MERGE_SECONDS: ${{ steps.promotion_merge.outputs.duration_seconds }}
           APPLY_RUN_ID: ${{ steps.apply.outputs.run_id }}
+          APPLY_DISCOVERY_SECONDS: ${{ steps.apply.outputs.discovery_seconds }}
+          APPLY_SECONDS: ${{ steps.apply.outputs.duration_seconds }}
           VERCEL_RUN_ID: ${{ steps.vercel.outputs.run_id }}
           VERCEL_RUN_URL: ${{ steps.vercel.outputs.run_url }}
           VERCEL_RUN_CONCLUSION: ${{ steps.vercel.outputs.run_conclusion }}
           VERCEL_DEPLOY_FAILED: ${{ steps.vercel.outputs.deploy_failed }}
+          VERCEL_RUN_FOUND: ${{ steps.vercel.outputs.run_found }}
+          VERCEL_DISCOVERY_SECONDS: ${{ steps.vercel.outputs.discovery_seconds }}
+          VERCEL_SECONDS: ${{ steps.vercel.outputs.duration_seconds }}
           ROLLBACK_RUN_ID: ${{ steps.rollback.outputs.run_id }}
+          ROLLBACK_DISCOVERY_SECONDS: ${{ steps.rollback.outputs.discovery_seconds }}
+          ROLLBACK_SECONDS: ${{ steps.rollback.outputs.duration_seconds }}
         run: |
+          total_seconds="unknown"
+          if [[ "$PROMOTION_STARTED_AT_EPOCH" =~ ^[0-9]+$ ]]; then
+            total_seconds="$(($(date -u +%s) - PROMOTION_STARTED_AT_EPOCH))"
+          fi
+
           {
             echo "## NutsNews coupled production release"
             echo
@@ -931,8 +986,28 @@ jobs:
             if [[ "$VERCEL_DEPLOY_FAILED" == "true" ]]; then
               echo "- Vercel deployment result: FAILED (${VERCEL_RUN_URL}, ${VERCEL_RUN_CONCLUSION})"
               echo "- Protected rollback run: ${ROLLBACK_RUN_ID:-(not started)}"
-            else
+            elif [[ "$VERCEL_DEPLOY_FAILED" == "false" ]]; then
               echo "- Vercel deployment result: SUCCESS"
+            else
+              echo "- Vercel deployment result: not reached or unavailable"
+            fi
+            echo
+            echo "### Phase timing"
+            echo "| Phase | Seconds | Notes |"
+            echo "| --- | ---: | --- |"
+            echo "| Promotion total | ${total_seconds} | From ${PROMOTION_STARTED_AT_ISO:-unknown} to final summary |"
+            echo "| Release PR create/reuse | ${PROMOTION_PR_SECONDS:-unknown} | GitOps manifest check, PR creation or reuse |"
+            if [[ -n "$PR_URL" ]]; then
+              echo "| Release PR checks and merge | ${PROMOTION_MERGE_SECONDS:-unknown} | gh pr checks and merge |"
+            else
+              echo "| Release PR checks and merge | not used | Manifest already matched this release |"
+            fi
+            echo "| Protected apply | ${APPLY_SECONDS:-unknown} | Discovery ${APPLY_DISCOVERY_SECONDS:-unknown}s; run ${APPLY_RUN_ID:-unknown} |"
+            echo "| Vercel dispatch and deploy | ${VERCEL_SECONDS:-unknown} | Discovery ${VERCEL_DISCOVERY_SECONDS:-unknown}s; run found ${VERCEL_RUN_FOUND:-unknown} |"
+            if [[ -n "$ROLLBACK_RUN_ID" ]]; then
+              echo "| Rollback path | ${ROLLBACK_SECONDS:-unknown} | Discovery ${ROLLBACK_DISCOVERY_SECONDS:-unknown}s; run ${ROLLBACK_RUN_ID} |"
+            else
+              echo "| Rollback path | not used | Vercel deploy did not require protected rollback |"
             fi
           } >> "$GITHUB_STEP_SUMMARY"
 
