@@ -28,6 +28,13 @@ mode before apply, waits for `/readyz`, verifies Docker's resolved digest, and
 writes a GitHub Deployment audit record. It never calls a production workflow
 or targets the production runtime.
 
+If the server-side fixed check command reports `unreviewed_infra_commit`, the
+workflow retries briefly while the reviewed infra commit marker propagates to
+the staging gateway. The retry window is bounded and summarized in GitHub
+Actions without raw gateway payloads. All other gateway codes, malformed
+responses, SSH/auth failures, candidate failures, and Ansible failures still
+fail immediately.
+
 If the server-side fixed command rejects the apply, the workflow reports only
 the sanitized gateway code, reviewed Ansible task label, diagnostic class, and
 controller version. It must not print Ansible output, rendered diffs, request
