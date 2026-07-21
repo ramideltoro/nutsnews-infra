@@ -14,6 +14,13 @@ merges it, and then dispatches this protected apply with the complete release
 identity bundle. The old direct `nutsnews-production-release` dispatch is not a
 valid entry point.
 
+The promotion workflow locates the Vercel production workflow by the dispatched
+source commit, workflow file, event, branch, and dispatch timestamp. A missing
+Vercel run is treated as an orchestration failure, not proof of a bad deploy.
+Automated rollback is allowed only after the located Vercel production run is
+rechecked and confirmed completed with a non-success conclusion for the same
+source commit.
+
 Before any job can enter the `production-vps` Environment, the workflow runs a
 no-secret production eligibility check. Baseline-only changes may proceed when
 the reviewed production release identity is unchanged. Any production app

@@ -757,8 +757,8 @@ jobs:
               --event repository_dispatch \
               --branch main \
               --limit 50 \
-              --json databaseId,displayTitle,createdAt \
-              --jq ".[] | select(.displayTitle == \"Deploy Vercel production ${SOURCE_COMMIT}\" and .createdAt >= \"${dispatch_started_at}\") | .databaseId" \
+              --json databaseId,displayTitle,headSha,createdAt \
+              --jq ".[] | select(.headSha == \"${SOURCE_COMMIT}\" and .createdAt >= \"${dispatch_started_at}\") | .databaseId" \
               | head -n 1
             )"
             if [[ -n "$run_id" ]]; then
@@ -799,10 +799,11 @@ jobs:
 
       - name: Roll back VPS release on Vercel production failure
         id: rollback
-        if: steps.vercel.outputs.deploy_failed == 'true'
+        if: steps.vercel.outputs.deploy_failed == 'true' && steps.vercel.outputs.run_id != ''
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.NUTSNEWS_INFRA_RELEASE_TOKEN }}
+          NUTSNEWS_APP_RELEASE_TOKEN: ${{ secrets.NUTSNEWS_APP_RELEASE_TOKEN }}
           SOURCE_COMMIT: ${{ steps.qualified.outputs.source_commit }}
           IMAGE_DIGEST: ${{ steps.qualified.outputs.image_digest }}
           VERCEL_RUN_ID: ${{ steps.vercel.outputs.run_id }}
@@ -813,6 +814,37 @@ jobs:
 
           if [[ -z "$GH_TOKEN" ]]; then
             echo "NUTSNEWS_INFRA_RELEASE_TOKEN is required for protected rollback dispatch." >&2
+            exit 1
+          fi
+          if [[ -z "$NUTSNEWS_APP_RELEASE_TOKEN" ]]; then
+            echo "NUTSNEWS_APP_RELEASE_TOKEN is required to verify the failed Vercel production run before rollback." >&2
+            exit 1
+          fi
+          if [[ -z "$VERCEL_RUN_ID" ]]; then
+            echo "Refusing protected rollback without a located Vercel production workflow run." >&2
+            exit 1
+          fi
+
+          vercel_run_json="$(GH_TOKEN="$NUTSNEWS_APP_RELEASE_TOKEN" gh run view "$VERCEL_RUN_ID" \
+            --repo ramideltoro/nutsnews \
+            --json conclusion,headSha,status)"
+          verified_head_sha="$(node -e 'const data = JSON.parse(process.argv[1]); process.stdout.write(data.headSha || "");' "$vercel_run_json")"
+          verified_status="$(node -e 'const data = JSON.parse(process.argv[1]); process.stdout.write(data.status || "");' "$vercel_run_json")"
+          verified_conclusion="$(node -e 'const data = JSON.parse(process.argv[1]); process.stdout.write(data.conclusion || "unknown");' "$vercel_run_json")"
+          if [[ "$verified_head_sha" != "$SOURCE_COMMIT" ]]; then
+            echo "Refusing protected rollback because Vercel run ${VERCEL_RUN_ID} belongs to ${verified_head_sha}, not ${SOURCE_COMMIT}." >&2
+            exit 1
+          fi
+          if [[ "$verified_status" != "completed" ]]; then
+            echo "Refusing protected rollback because Vercel run ${VERCEL_RUN_ID} is ${verified_status}, not completed." >&2
+            exit 1
+          fi
+          if [[ "$verified_conclusion" == "success" ]]; then
+            echo "Refusing protected rollback because Vercel run ${VERCEL_RUN_ID} succeeded." >&2
+            exit 1
+          fi
+          if [[ "$verified_conclusion" != "$VERCEL_RUN_CONCLUSION" ]]; then
+            echo "Refusing protected rollback because Vercel run ${VERCEL_RUN_ID} conclusion changed from ${VERCEL_RUN_CONCLUSION} to ${verified_conclusion}." >&2
             exit 1
           fi
 
@@ -898,3 +930,8 @@ jobs:
               echo "- Vercel deployment result: SUCCESS"
             fi
           } >> "$GITHUB_STEP_SUMMARY"
+
+          if [[ "$VERCEL_DEPLOY_FAILED" == "true" && -z "$ROLLBACK_RUN_ID" ]]; then
+            echo "Vercel production deploy did not succeed and no protected rollback run completed." >&2
+            exit 1
+          fi
