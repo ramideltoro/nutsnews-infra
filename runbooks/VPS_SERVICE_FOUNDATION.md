@@ -97,9 +97,11 @@ curl -k --resolve "nutsnews.com:443:${VPS_IP}" -I https://nutsnews.com/
 ```
 
 The `-k` flag is expected before cutover because the dormant primary-host
-origin uses Caddy internal TLS while Cloudflare is in `Full` mode. Do not change
-Cloudflare DNS in this step. Move to Cloudflare Origin CA or DNS-01 public
-origin certificates before requiring `Full (strict)`.
+origin uses Caddy internal TLS while Cloudflare is in `Full` mode. Caddy is
+configured with `skip_install_trust` so the hardened container does not attempt
+to install the local CA root on startup. Do not change Cloudflare DNS in this
+step. Move to Cloudflare Origin CA or DNS-01 public origin certificates before
+requiring `Full (strict)`.
 
 Record exact statuses, redirects, security headers, cookies, CSRF/CORS behavior,
 asset loading, cache behavior, Turnstile/contact-form origins, admin access, and
