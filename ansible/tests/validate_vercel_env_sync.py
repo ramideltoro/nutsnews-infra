@@ -41,6 +41,17 @@ require("looks_like_encrypted_envelope" in SCRIPT_PATH.read_text(encoding="utf-8
 require("validate_selected_values" in SCRIPT_PATH.read_text(encoding="utf-8"), "Vercel sync must validate semantic runtime values.")
 require("app_envs.update(vercel_envs)" in WORKFLOW, "Vercel values must be merged before passing extra vars to Ansible.")
 require(
+    "failover_status_hmac_secret = os.environ.get(\"NUTSNEWS_FAILOVER_STATUS_HMAC_SECRET\", \"\").strip()" in WORKFLOW
+    and '"NUTSNEWS_FAILOVER_STATUS_HMAC_SECRET": failover_status_hmac_secret' in WORKFLOW
+    and "failover_controller_status_url(" in WORKFLOW,
+    "Protected production apply must support the scoped failover status HMAC overlay when Vercel lacks the controller secret.",
+)
+require(
+    "NUTSNEWS_FAILOVER_ACTION_HMAC_SECRET: ${{ secrets.NUTSNEWS_FAILOVER_ACTION_HMAC_SECRET }}" not in WORKFLOW
+    and "NUTSNEWS_FAILOVER_CONTROLLER_ACTION_URL: " not in WORKFLOW,
+    "Protected production apply must not implicitly enable failover action controls.",
+)
+require(
     WORKFLOW.count("PRODUCTION_WRITES_PAUSED: ${{ inputs.production_writes_paused }}") >= 3,
     "The production write pause input must be validated, materialized into the VPS runtime, and smoke-tested.",
 )
