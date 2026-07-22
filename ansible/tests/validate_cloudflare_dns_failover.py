@@ -51,7 +51,7 @@ require(exports == {"type": "durable-object", "storage": "sqlite"}, "Durable Obj
 
 vars_ = wrangler["vars"]
 expected_vars = {
-    "CONTROLLER_NAME": "nutsnews-production",
+    "CONTROLLER_NAME": "nutsnews-production-vps-primary",
     "HEALTH_CHECK_URL": "https://vps.nutsnews.com/readyz",
     "EXPECTED_READINESS_TARGET": "production-vps",
     "CHECK_INTERVAL_SECONDS": "15",
