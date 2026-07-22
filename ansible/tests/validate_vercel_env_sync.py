@@ -105,6 +105,38 @@ require(
     "Backend PostgreSQL provider token must synchronize as an explicit server-side VPS runtime secret.",
 )
 
+failover_status_rule = mapping["variables"].get("NUTSNEWS_FAILOVER_STATUS_HMAC_SECRET", {})
+require(
+    failover_status_rule.get("category") == "server_side_secret"
+    and failover_status_rule.get("sync") is True
+    and failover_status_rule.get("destination") == "NUTSNEWS_FAILOVER_STATUS_HMAC_SECRET",
+    "Failover status HMAC secret must synchronize as an explicit server-side VPS runtime secret.",
+)
+
+failover_readonly_destinations = {
+    "NUTSNEWS_FAILOVER_CONTROLLER_STATUS_URL": "NUTSNEWS_FAILOVER_CONTROLLER_STATUS_URL",
+    "NUTSNEWS_FAILOVER_RUNBOOK_URL": "NUTSNEWS_FAILOVER_RUNBOOK_URL",
+    "NUTSNEWS_FAILOVER_CLOUDFLARE_DASHBOARD_URL": "NUTSNEWS_FAILOVER_CLOUDFLARE_DASHBOARD_URL",
+}
+for source, destination in failover_readonly_destinations.items():
+    rule = mapping["variables"].get(source, {})
+    require(
+        rule.get("category") == "safe_to_synchronize"
+        and rule.get("sync") is True
+        and rule.get("destination") == destination,
+        f"{source} must remain an explicitly synchronized read-only failover dashboard setting.",
+    )
+
+require(
+    any(
+        rule.get("category") == "manual_review"
+        and rule.get("sync") is False
+        and "ACTION_HMAC_SECRET" in rule.get("pattern", "")
+        for rule in mapping.get("patterns", [])
+    ),
+    "Manual failover action credentials must remain manual-review only until intentionally enabled.",
+)
+
 runtime_safety_destinations = {
     "NUTSNEWS_BACKEND_API_URL": "NUTSNEWS_BACKEND_API_URL",
     "NUTSNEWS_BACKEND_POSTGRES_PRIMARY_CONFIRMATION": "NUTSNEWS_BACKEND_POSTGRES_PRIMARY_CONFIRMATION",
@@ -148,6 +180,10 @@ valid_runtime_values = {
     "AUTH_TRUST_HOST": "true",
     "NUTSNEWS_ADMIN_CANONICAL_ORIGIN": "https://www.nutsnews.com",
     "NUTSNEWS_ADMIN_DIRECT_ORIGIN": "https://vps.nutsnews.com",
+    "NUTSNEWS_FAILOVER_CONTROLLER_STATUS_URL": "https://nutsnews-controller.nutsnews.workers.dev/status?mode=dashboard",
+    "NUTSNEWS_FAILOVER_STATUS_HMAC_SECRET": "x" * 64,
+    "NUTSNEWS_FAILOVER_RUNBOOK_URL": "https://github.com/ramideltoro/nutsnews/blob/main/.github/deployment/failover-visibility-runbook.md",
+    "NUTSNEWS_FAILOVER_CLOUDFLARE_DASHBOARD_URL": "https://dash.cloudflare.com/example/nutsnews.com/dns/records",
     "NUTSNEWS_DATABASE_PROVIDER_MODE": "backend_postgres_primary",
     "NUTSNEWS_BACKEND_API_URL": "https://backend.nutsnews.com/api/app/db",
     "NUTSNEWS_BACKEND_API_TOKEN": "backend-token-fixture",
@@ -163,9 +199,13 @@ for invalid_values in (
     {**valid_runtime_values, "AUTH_TRUST_HOST": "false"},
     {**valid_runtime_values, "NUTSNEWS_ADMIN_CANONICAL_ORIGIN": "http://www.nutsnews.com"},
     {**valid_runtime_values, "NUTSNEWS_ADMIN_DIRECT_ORIGIN": "https://www.nutsnews.com"},
+    {**valid_runtime_values, "NUTSNEWS_FAILOVER_CONTROLLER_STATUS_URL": "https://example.com/status"},
+    {**valid_runtime_values, "NUTSNEWS_FAILOVER_STATUS_HMAC_SECRET": "too-short"},
     {key: value for key, value in valid_runtime_values.items() if key != "NUTSNEWS_BACKEND_API_URL"},
     {key: value for key, value in valid_runtime_values.items() if key != "NUTSNEWS_BACKEND_API_TOKEN"},
     {key: value for key, value in valid_runtime_values.items() if key != "NUTSNEWS_BACKEND_POSTGRES_PRIMARY_CONFIRMATION"},
+    {key: value for key, value in valid_runtime_values.items() if key != "NUTSNEWS_FAILOVER_CONTROLLER_STATUS_URL"},
+    {key: value for key, value in valid_runtime_values.items() if key != "NUTSNEWS_FAILOVER_STATUS_HMAC_SECRET"},
 ):
     try:
         sync.validate_selected_values(invalid_values)

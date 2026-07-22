@@ -22,6 +22,14 @@ dashboard can use it for GitHub Actions status. The Auth.js Google OAuth and
 session secrets are synchronized as server-only values because Auth.js reads
 the `AUTH_*` convention internally.
 
+The read-only failover visibility dashboard also depends on this sync. The
+VPS runtime receives `NUTSNEWS_FAILOVER_CONTROLLER_STATUS_URL` and the
+server-only `NUTSNEWS_FAILOVER_STATUS_HMAC_SECRET`, plus optional runbook and
+Cloudflare dashboard links. Manual failover action URLs and
+`NUTSNEWS_FAILOVER_ACTION_HMAC_SECRET` are intentionally manual-review only;
+their presence stops the sync until an operator deliberately decides to make
+DNS-changing controls operable from the VPS admin UI.
+
 Use the companion operating guide in `ramideltoro/nutsnews-docs` for credential
 setup, classification policy, dry-run/apply commands, rollback, rotation, and
 removal procedures.
@@ -63,7 +71,11 @@ before writing the private temporary selection file. Auth.js values are checked
 semantically: `AUTH_GOOGLE_ID` must match a Google Web client ID, `AUTH_GOOGLE_SECRET`
 must be nonempty, `AUTH_SECRET` must be at least 32 characters, and
 `ADMIN_EMAILS` must be a comma-separated list of email addresses. Failures name
-only the affected variables; response bodies and values are never printed.
+only the affected variables; response bodies and values are never printed. The
+failover controller status URL must be the HTTPS
+`nutsnews-controller.nutsnews.workers.dev/status` endpoint, and the status HMAC
+secret must be present and look like usable plaintext whenever either failover
+status variable is selected.
 
 If Vercel returns HTTP 403 while retrieving a selected secret, the protected
 token does not have access to decrypt that project variable. Create or rotate

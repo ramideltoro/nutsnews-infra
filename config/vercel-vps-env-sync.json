@@ -138,6 +138,30 @@
       "destination": "NUTSNEWS_EDGE_FEED_SNAPSHOT_URL",
       "reason": "Worker edge snapshot endpoint consumed by the web runtime."
     },
+    "NUTSNEWS_FAILOVER_CONTROLLER_STATUS_URL": {
+      "category": "safe_to_synchronize",
+      "sync": true,
+      "destination": "NUTSNEWS_FAILOVER_CONTROLLER_STATUS_URL",
+      "reason": "Protected failover controller status endpoint consumed by the VPS admin dashboard for read-only DNS visibility."
+    },
+    "NUTSNEWS_FAILOVER_STATUS_HMAC_SECRET": {
+      "category": "server_side_secret",
+      "sync": true,
+      "destination": "NUTSNEWS_FAILOVER_STATUS_HMAC_SECRET",
+      "reason": "Server-only HMAC credential used by the VPS admin dashboard to sign read-only failover status requests."
+    },
+    "NUTSNEWS_FAILOVER_RUNBOOK_URL": {
+      "category": "safe_to_synchronize",
+      "sync": true,
+      "destination": "NUTSNEWS_FAILOVER_RUNBOOK_URL",
+      "reason": "Optional operator runbook link rendered by the failover visibility dashboard."
+    },
+    "NUTSNEWS_FAILOVER_CLOUDFLARE_DASHBOARD_URL": {
+      "category": "safe_to_synchronize",
+      "sync": true,
+      "destination": "NUTSNEWS_FAILOVER_CLOUDFLARE_DASHBOARD_URL",
+      "reason": "Optional Cloudflare DNS dashboard link rendered by the failover visibility dashboard."
+    },
     "NUTSNEWS_DATA_ENV": {
       "category": "safe_to_synchronize",
       "sync": true,
@@ -345,6 +369,12 @@
       "category": "preview_development_only",
       "sync": false,
       "reason": "Preview/development configuration must not enter VPS production."
+    },
+    {
+      "pattern": "^NUTSNEWS_FAILOVER_(CONTROLLER_ACTION_URL|CONTROLLER_AUDIT_URL|ACTION_HMAC_SECRET)$",
+      "category": "manual_review",
+      "sync": false,
+      "reason": "Manual failover actions can change DNS and must be intentionally reviewed before enabling VPS admin controls."
     },
     {
       "pattern": "^(NEXT_PUBLIC_TURNSTILE_|TURNSTILE_|ADMIN_|CONTROLLER_)",
