@@ -271,6 +271,36 @@
       "destination": "AUTH_SECRET",
       "reason": "Auth.js session/encryption secret required by the VPS server runtime."
     },
+    "AUTH_URL": {
+      "category": "safe_to_synchronize",
+      "sync": true,
+      "destination": "AUTH_URL",
+      "reason": "Auth.js canonical public origin; validated and forced to www.nutsnews.com before VPS rendering."
+    },
+    "NEXTAUTH_URL": {
+      "category": "safe_to_synchronize",
+      "sync": true,
+      "destination": "NEXTAUTH_URL",
+      "reason": "Legacy Auth.js canonical public origin; validated and forced to www.nutsnews.com before VPS rendering."
+    },
+    "AUTH_TRUST_HOST": {
+      "category": "safe_to_synchronize",
+      "sync": true,
+      "destination": "AUTH_TRUST_HOST",
+      "reason": "Auth.js proxy host trust flag required behind the VPS reverse proxy."
+    },
+    "NUTSNEWS_ADMIN_CANONICAL_ORIGIN": {
+      "category": "safe_to_synchronize",
+      "sync": true,
+      "destination": "NUTSNEWS_ADMIN_CANONICAL_ORIGIN",
+      "reason": "Documented canonical browser origin for production admin OAuth."
+    },
+    "NUTSNEWS_ADMIN_DIRECT_ORIGIN": {
+      "category": "safe_to_synchronize",
+      "sync": true,
+      "destination": "NUTSNEWS_ADMIN_DIRECT_ORIGIN",
+      "reason": "Documented direct VPS operator origin that may serve admin routes without becoming the default login destination."
+    },
     "SENTRY_AUTH_TOKEN": {
       "category": "server_side_secret",
       "sync": false,

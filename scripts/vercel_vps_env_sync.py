@@ -31,6 +31,8 @@ GOOGLE_CLIENT_ID_RE = re.compile(r"^[0-9]+-[A-Za-z0-9_-]+\.apps\.googleuserconte
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 MAX_RUNTIME_AUTH_SECRET_LENGTH = 512
 BACKEND_POSTGRES_PRIMARY_CONFIRMATION = "enable-backend-postgres-primary"
+ADMIN_CANONICAL_ORIGIN = "https://www.nutsnews.com"
+ADMIN_DIRECT_ORIGIN = "https://vps.nutsnews.com"
 PROVIDER_SWITCH_CONFIRMATIONS = {
     "deploy-supabase-primary",
     BACKEND_POSTGRES_PRIMARY_CONFIRMATION,
@@ -161,6 +163,21 @@ def usable_record_value(record: dict[str, Any]) -> str:
     return value
 
 
+def exact_bare_origin(value: str, expected: str) -> bool:
+    parsed = urllib.parse.urlparse(value)
+    return (
+        parsed.scheme == "https"
+        and parsed.netloc
+        and not parsed.username
+        and not parsed.password
+        and parsed.params == ""
+        and parsed.query == ""
+        and parsed.fragment == ""
+        and parsed.path in {"", "/"}
+        and f"https://{parsed.netloc}" == expected
+    )
+
+
 def validate_selected_values(selected: dict[str, str]) -> None:
     invalid: set[str] = set()
     for key in ("AUTH_GOOGLE_ID", "AUTH_GOOGLE_SECRET", "AUTH_SECRET"):
@@ -187,6 +204,19 @@ def validate_selected_values(selected: dict[str, str]) -> None:
         or len(auth_secret) > MAX_RUNTIME_AUTH_SECRET_LENGTH
     ):
         invalid.add("AUTH_SECRET")
+
+    for key in ("AUTH_URL", "NEXTAUTH_URL", "NUTSNEWS_ADMIN_CANONICAL_ORIGIN"):
+        value = selected.get(key, "")
+        if value and not exact_bare_origin(value, ADMIN_CANONICAL_ORIGIN):
+            invalid.add(key)
+
+    direct_origin = selected.get("NUTSNEWS_ADMIN_DIRECT_ORIGIN", "")
+    if direct_origin and not exact_bare_origin(direct_origin, ADMIN_DIRECT_ORIGIN):
+        invalid.add("NUTSNEWS_ADMIN_DIRECT_ORIGIN")
+
+    auth_trust_host = selected.get("AUTH_TRUST_HOST", "")
+    if auth_trust_host and auth_trust_host.strip().lower() != "true":
+        invalid.add("AUTH_TRUST_HOST")
 
     admin_emails = selected.get("ADMIN_EMAILS", "")
     if admin_emails and not all(EMAIL_RE.fullmatch(email.strip()) for email in admin_emails.split(",")):

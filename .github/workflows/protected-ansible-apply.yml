@@ -721,6 +721,7 @@ jobs:
           import os
           import re
           from pathlib import Path
+          from urllib.parse import urlparse
 
           keys = json.loads(os.environ["NUTSNEWS_VPS_ADMIN_AUTHORIZED_KEYS_JSON"])
           if not isinstance(keys, list) or not keys:
@@ -783,6 +784,21 @@ jobs:
                   raise SystemExit(f"{name} must start with https:// when set.")
               return value
 
+          def bare_https_origin(name, value):
+              parsed = urlparse(value)
+              if (
+                  parsed.scheme != "https"
+                  or not parsed.netloc
+                  or parsed.username
+                  or parsed.password
+                  or parsed.params
+                  or parsed.query
+                  or parsed.fragment
+                  or parsed.path not in ("", "/")
+              ):
+                  raise SystemExit(f"{name} must be a bare https:// origin.")
+              return f"https://{parsed.netloc}"
+
           backup_enabled = truthy("NUTSNEWS_BACKUP_ENABLED")
           backup_repository = (
               os.environ.get("NUTSNEWS_BACKUP_REPOSITORY", "").strip()
@@ -810,6 +826,25 @@ jobs:
           # environment map that the role templates.
           if vercel_envs:
               app_envs.update(vercel_envs)
+          admin_canonical_origin = bare_https_origin(
+              "NUTSNEWS_ADMIN_CANONICAL_ORIGIN",
+              "https://www.nutsnews.com",
+          )
+          admin_direct_origin = bare_https_origin(
+              "NUTSNEWS_ADMIN_DIRECT_ORIGIN",
+              "https://vps.nutsnews.com",
+          )
+          if admin_canonical_origin == admin_direct_origin:
+              raise SystemExit("NUTSNEWS_ADMIN_CANONICAL_ORIGIN and NUTSNEWS_ADMIN_DIRECT_ORIGIN must differ.")
+          app_envs.update(
+              {
+                  "AUTH_URL": admin_canonical_origin,
+                  "NEXTAUTH_URL": admin_canonical_origin,
+                  "AUTH_TRUST_HOST": "true",
+                  "NUTSNEWS_ADMIN_CANONICAL_ORIGIN": admin_canonical_origin,
+                  "NUTSNEWS_ADMIN_DIRECT_ORIGIN": admin_direct_origin,
+              }
+          )
           production_writes_paused = os.environ.get("PRODUCTION_WRITES_PAUSED", "false").strip().lower() or "false"
           if production_writes_paused not in {"true", "false"}:
               raise SystemExit("production_writes_paused must be true or false.")

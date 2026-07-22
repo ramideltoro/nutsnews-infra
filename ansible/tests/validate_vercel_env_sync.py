@@ -53,6 +53,18 @@ require(
     and '["production"] if truthy("SYNC_VERCEL_PRODUCTION") else []' in WORKFLOW,
     "Production runtime materialization must be disabled when the reviewed Vercel sync is disabled.",
 )
+require(
+    '"AUTH_URL": admin_canonical_origin' in WORKFLOW
+    and '"NEXTAUTH_URL": admin_canonical_origin' in WORKFLOW
+    and '"AUTH_TRUST_HOST": "true"' in WORKFLOW
+    and '"NUTSNEWS_ADMIN_CANONICAL_ORIGIN": admin_canonical_origin' in WORKFLOW
+    and '"NUTSNEWS_ADMIN_DIRECT_ORIGIN": admin_direct_origin' in WORKFLOW,
+    "Protected production apply must force the canonical admin Auth.js origin after merging synced envs.",
+)
+require(
+    "https://www.nutsnews.com" in WORKFLOW and "https://vps.nutsnews.com" in WORKFLOW,
+    "Protected production apply must document the canonical and direct admin origins in code.",
+)
 
 selected = [name for name, rule in mapping["variables"].items() if rule.get("sync")]
 require(selected, "Mapping must contain an explicit synchronization allowlist.")
@@ -111,10 +123,31 @@ for source, destination in runtime_safety_destinations.items():
         f"{source} must remain an explicitly synchronized runtime safety identity.",
     )
 
+admin_auth_destinations = {
+    "AUTH_URL": "AUTH_URL",
+    "NEXTAUTH_URL": "NEXTAUTH_URL",
+    "AUTH_TRUST_HOST": "AUTH_TRUST_HOST",
+    "NUTSNEWS_ADMIN_CANONICAL_ORIGIN": "NUTSNEWS_ADMIN_CANONICAL_ORIGIN",
+    "NUTSNEWS_ADMIN_DIRECT_ORIGIN": "NUTSNEWS_ADMIN_DIRECT_ORIGIN",
+}
+for source, destination in admin_auth_destinations.items():
+    rule = mapping["variables"].get(source, {})
+    require(
+        rule.get("category") == "safe_to_synchronize"
+        and rule.get("sync") is True
+        and rule.get("destination") == destination,
+        f"{source} must remain an explicitly synchronized and validated admin Auth.js setting.",
+    )
+
 valid_runtime_values = {
     "AUTH_GOOGLE_ID": "1234567890-fixture.apps.googleusercontent.com",
     "AUTH_GOOGLE_SECRET": "google-secret-fixture",
     "AUTH_SECRET": "x" * 32,
+    "AUTH_URL": "https://www.nutsnews.com",
+    "NEXTAUTH_URL": "https://www.nutsnews.com",
+    "AUTH_TRUST_HOST": "true",
+    "NUTSNEWS_ADMIN_CANONICAL_ORIGIN": "https://www.nutsnews.com",
+    "NUTSNEWS_ADMIN_DIRECT_ORIGIN": "https://vps.nutsnews.com",
     "NUTSNEWS_DATABASE_PROVIDER_MODE": "backend_postgres_primary",
     "NUTSNEWS_BACKEND_API_URL": "https://backend.nutsnews.com/api/app/db",
     "NUTSNEWS_BACKEND_API_TOKEN": "backend-token-fixture",
@@ -125,6 +158,11 @@ for invalid_values in (
     {**valid_runtime_values, "NUTSNEWS_DATABASE_PROVIDER_MODE": "unknown"},
     {**valid_runtime_values, "NUTSNEWS_BACKEND_API_URL": "https://example.com/api/app/db"},
     {**valid_runtime_values, "NUTSNEWS_BACKEND_POSTGRES_PRIMARY_CONFIRMATION": "deploy-supabase-primary"},
+    {**valid_runtime_values, "AUTH_URL": "https://vps.nutsnews.com"},
+    {**valid_runtime_values, "NEXTAUTH_URL": "https://vps.nutsnews.com"},
+    {**valid_runtime_values, "AUTH_TRUST_HOST": "false"},
+    {**valid_runtime_values, "NUTSNEWS_ADMIN_CANONICAL_ORIGIN": "http://www.nutsnews.com"},
+    {**valid_runtime_values, "NUTSNEWS_ADMIN_DIRECT_ORIGIN": "https://www.nutsnews.com"},
     {key: value for key, value in valid_runtime_values.items() if key != "NUTSNEWS_BACKEND_API_URL"},
     {key: value for key, value in valid_runtime_values.items() if key != "NUTSNEWS_BACKEND_API_TOKEN"},
     {key: value for key, value in valid_runtime_values.items() if key != "NUTSNEWS_BACKEND_POSTGRES_PRIMARY_CONFIRMATION"},
