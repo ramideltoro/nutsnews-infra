@@ -20,6 +20,7 @@ storage = "sqlite"
 
 [vars]
 CONTROLLER_NAME = "nutsnews-production-vps-primary"
+RETIRED_CONTROLLER_NAMES = "nutsnews-production"
 HEALTH_CHECK_URL = "https://vps.nutsnews.com/readyz"
 EXPECTED_READINESS_TARGET = "production-vps"
 HEALTH_CHECK_TIMEOUT_MS = "4000"

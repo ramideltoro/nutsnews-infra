@@ -49,6 +49,18 @@ function controllerStub(env) {
   return env.DNS_FAILOVER.get(id);
 }
 
+function controllerStubByName(env, controllerName) {
+  const id = env.DNS_FAILOVER.idFromName(controllerName);
+  return env.DNS_FAILOVER.get(id);
+}
+
+function retiredControllerNames(env) {
+  return String(env.RETIRED_CONTROLLER_NAMES || "")
+    .split(",")
+    .map((name) => name.trim())
+    .filter(Boolean);
+}
+
 async function requestJson(request) {
   const text = await request.text();
   if (!text.trim()) {
@@ -355,6 +367,19 @@ export class DnsFailoverController extends DurableObject {
       return jsonResponse(await this.status(config));
     }
 
+    if (request.method === "POST" && url.pathname === "/retire-controller") {
+      const body = await requestJson(request);
+      const reason = sanitizeSummary(body.reason || "retired controller alarm disabled");
+      const state = await this.storedState();
+      state.manualLock = true;
+      state.manualLockReason = reason;
+      state.lastDnsAction = "manual:retired";
+      await this.saveState(state);
+      await this.saveTestHealthOverride(null);
+      await this.ctx.storage.deleteAlarm();
+      return jsonResponse(await this.status(config));
+    }
+
     if (request.method === "POST" && (url.pathname === "/manual-failover" || url.pathname === "/manual-failback")) {
       const body = await requestJson(request);
       const failover = url.pathname === "/manual-failover";
@@ -392,6 +417,31 @@ export default {
     }
     if (!adminAuthorized(request, env)) {
       return jsonResponse({ ok: false, error: "Unauthorized." }, 401);
+    }
+    if (request.method === "POST" && url.pathname === "/retire-controller") {
+      const body = await requestJson(request);
+      const config = readConfig(env);
+      const controllerName = String(body.controllerName || "").trim();
+      if (body.confirm !== "retire-dns-failover-controller") {
+        return jsonResponse({ ok: false, error: "retire-controller requires confirm=retire-dns-failover-controller." }, 400);
+      }
+      if (!controllerName) {
+        return jsonResponse({ ok: false, error: "retire-controller requires controllerName." }, 400);
+      }
+      if (controllerName === config.controllerName) {
+        return jsonResponse({ ok: false, error: "retire-controller refuses the active controller." }, 400);
+      }
+      if (!retiredControllerNames(env).includes(controllerName)) {
+        return jsonResponse({ ok: false, error: "retire-controller target is not allowlisted." }, 400);
+      }
+      return controllerStubByName(env, controllerName).fetch(
+        "https://dns-failover.internal/retire-controller",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ reason: body.reason || `retired controller ${controllerName}` }),
+        },
+      );
     }
     return controllerStub(env).fetch(request);
   },
