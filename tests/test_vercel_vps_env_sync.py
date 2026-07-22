@@ -33,6 +33,8 @@ CURRENT_VERCEL_PRODUCTION_NAMES = {
     "AUTH_GOOGLE_ID",
     "AUTH_GOOGLE_SECRET",
     "AUTH_SECRET",
+    "AUTH_TRUST_HOST",
+    "AUTH_URL",
     "BETTER_STACK_INGESTING_HOST",
     "BETTER_STACK_SOURCE_TOKEN",
     "CONTACT_FROM_EMAIL",
@@ -51,7 +53,14 @@ CURRENT_VERCEL_PRODUCTION_NAMES = {
     "NEXT_PUBLIC_TURNSTILE_SITE_KEY",
     "NEXT_PUBLIC_VERCEL_ENV",
     "NEXT_PUBLIC_VERCEL_GIT_COMMIT_SHA",
+    "NEXTAUTH_URL",
     "NUTSNEWS_EDGE_FEED_SNAPSHOT_URL",
+    "NUTSNEWS_ADMIN_CANONICAL_ORIGIN",
+    "NUTSNEWS_ADMIN_DIRECT_ORIGIN",
+    "NUTSNEWS_FAILOVER_CLOUDFLARE_DASHBOARD_URL",
+    "NUTSNEWS_FAILOVER_CONTROLLER_STATUS_URL",
+    "NUTSNEWS_FAILOVER_RUNBOOK_URL",
+    "NUTSNEWS_FAILOVER_STATUS_HMAC_SECRET",
     "NUTSNEWS_BACKEND_API_URL",
     "NUTSNEWS_BACKEND_API_TOKEN",
     "NUTSNEWS_BACKEND_POSTGRES_PRIMARY_CONFIRMATION",
@@ -223,6 +232,139 @@ class VercelVpsEnvSyncTests(unittest.TestCase):
         )
         self.assertEqual(selected, {"NUTSNEWS_BACKEND_API_TOKEN": "backend-token-fixture"})
         self.assertEqual(report["server_side_secret"], ["NUTSNEWS_BACKEND_API_TOKEN"])
+
+    def test_failover_status_config_synchronizes_for_read_only_dashboard(self) -> None:
+        selected, report = sync.classify_records(
+            [
+                {
+                    "key": "NUTSNEWS_FAILOVER_CONTROLLER_STATUS_URL",
+                    "target": ["production"],
+                    "type": "plain",
+                    "decrypted": True,
+                    "value": "https://nutsnews-controller.nutsnews.workers.dev/status?mode=dashboard",
+                },
+                {
+                    "key": "NUTSNEWS_FAILOVER_STATUS_HMAC_SECRET",
+                    "target": ["production"],
+                    "type": "encrypted",
+                    "decrypted": True,
+                    "value": "x" * 64,
+                },
+                {
+                    "key": "NUTSNEWS_FAILOVER_RUNBOOK_URL",
+                    "target": ["production"],
+                    "type": "plain",
+                    "decrypted": True,
+                    "value": "https://github.com/ramideltoro/nutsnews/blob/main/.github/deployment/failover-visibility-runbook.md",
+                },
+                {
+                    "key": "NUTSNEWS_FAILOVER_CLOUDFLARE_DASHBOARD_URL",
+                    "target": ["production"],
+                    "type": "plain",
+                    "decrypted": True,
+                    "value": "https://dash.cloudflare.com/example/nutsnews.com/dns/records",
+                },
+            ],
+            self.mapping,
+        )
+
+        self.assertEqual(
+            selected,
+            {
+                "NUTSNEWS_FAILOVER_CONTROLLER_STATUS_URL": "https://nutsnews-controller.nutsnews.workers.dev/status?mode=dashboard",
+                "NUTSNEWS_FAILOVER_STATUS_HMAC_SECRET": "x" * 64,
+                "NUTSNEWS_FAILOVER_RUNBOOK_URL": "https://github.com/ramideltoro/nutsnews/blob/main/.github/deployment/failover-visibility-runbook.md",
+                "NUTSNEWS_FAILOVER_CLOUDFLARE_DASHBOARD_URL": "https://dash.cloudflare.com/example/nutsnews.com/dns/records",
+            },
+        )
+        self.assertEqual(
+            report["safe_to_synchronize"],
+            [
+                "NUTSNEWS_FAILOVER_CONTROLLER_STATUS_URL",
+                "NUTSNEWS_FAILOVER_RUNBOOK_URL",
+                "NUTSNEWS_FAILOVER_CLOUDFLARE_DASHBOARD_URL",
+            ],
+        )
+        self.assertEqual(report["server_side_secret"], ["NUTSNEWS_FAILOVER_STATUS_HMAC_SECRET"])
+        sync.validate_selected_values(
+            {
+                "AUTH_GOOGLE_ID": "1234567890-test-client.apps.googleusercontent.com",
+                "AUTH_GOOGLE_SECRET": "valid-secret-fixture",
+                "AUTH_SECRET": "s" * 64,
+                **selected,
+            }
+        )
+
+    def test_failover_status_config_requires_controller_url_and_hmac_secret(self) -> None:
+        required_auth = {
+            "AUTH_GOOGLE_ID": "1234567890-test-client.apps.googleusercontent.com",
+            "AUTH_GOOGLE_SECRET": "valid-secret-fixture",
+            "AUTH_SECRET": "s" * 64,
+        }
+        valid = {
+            **required_auth,
+            "NUTSNEWS_FAILOVER_CONTROLLER_STATUS_URL": "https://nutsnews-controller.nutsnews.workers.dev/status",
+            "NUTSNEWS_FAILOVER_STATUS_HMAC_SECRET": "x" * 64,
+        }
+        sync.validate_selected_values(valid)
+
+        for invalid_values in (
+            {
+                **valid,
+                "NUTSNEWS_FAILOVER_CONTROLLER_STATUS_URL": "http://nutsnews-controller.nutsnews.workers.dev/status",
+            },
+            {
+                **valid,
+                "NUTSNEWS_FAILOVER_CONTROLLER_STATUS_URL": "https://example.com/status?mode=dashboard",
+            },
+            {
+                **valid,
+                "NUTSNEWS_FAILOVER_CONTROLLER_STATUS_URL": "https://nutsnews-controller.nutsnews.workers.dev/actions",
+            },
+            {
+                **valid,
+                "NUTSNEWS_FAILOVER_STATUS_HMAC_SECRET": "too-short",
+            },
+            {
+                **required_auth,
+                "NUTSNEWS_FAILOVER_CONTROLLER_STATUS_URL": valid["NUTSNEWS_FAILOVER_CONTROLLER_STATUS_URL"],
+            },
+            {
+                **required_auth,
+                "NUTSNEWS_FAILOVER_STATUS_HMAC_SECRET": valid["NUTSNEWS_FAILOVER_STATUS_HMAC_SECRET"],
+            },
+            {
+                **valid,
+                "NUTSNEWS_FAILOVER_RUNBOOK_URL": "http://github.com/ramideltoro/nutsnews",
+            },
+            {
+                **valid,
+                "NUTSNEWS_FAILOVER_CLOUDFLARE_DASHBOARD_URL": "https://user:pass@dash.cloudflare.com/example",
+            },
+        ):
+            with self.assertRaises(SystemExit):
+                sync.validate_selected_values(invalid_values)
+
+    def test_failover_action_controls_require_manual_review(self) -> None:
+        for key in (
+            "NUTSNEWS_FAILOVER_CONTROLLER_ACTION_URL",
+            "NUTSNEWS_FAILOVER_CONTROLLER_AUDIT_URL",
+            "NUTSNEWS_FAILOVER_ACTION_HMAC_SECRET",
+        ):
+            with self.subTest(key=key):
+                with self.assertRaisesRegex(SystemExit, key):
+                    sync.classify_records(
+                        [
+                            {
+                                "key": key,
+                                "target": ["production"],
+                                "type": "encrypted",
+                                "decrypted": True,
+                                "value": "manual-control-fixture",
+                            }
+                        ],
+                        self.mapping,
+                    )
 
     def test_valid_plaintext_is_accepted(self) -> None:
         selected, _ = sync.classify_records(

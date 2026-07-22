@@ -33,6 +33,8 @@ MAX_RUNTIME_AUTH_SECRET_LENGTH = 512
 BACKEND_POSTGRES_PRIMARY_CONFIRMATION = "enable-backend-postgres-primary"
 ADMIN_CANONICAL_ORIGIN = "https://www.nutsnews.com"
 ADMIN_DIRECT_ORIGIN = "https://vps.nutsnews.com"
+FAILOVER_CONTROLLER_STATUS_HOST = "nutsnews-controller.nutsnews.workers.dev"
+MIN_FAILOVER_HMAC_SECRET_LENGTH = 32
 PROVIDER_SWITCH_CONFIRMATIONS = {
     "deploy-supabase-primary",
     BACKEND_POSTGRES_PRIMARY_CONFIRMATION,
@@ -178,6 +180,36 @@ def exact_bare_origin(value: str, expected: str) -> bool:
     )
 
 
+def safe_https_url(value: str) -> bool:
+    parsed = urllib.parse.urlparse(value)
+    return (
+        parsed.scheme == "https"
+        and bool(parsed.netloc)
+        and not parsed.username
+        and not parsed.password
+        and parsed.fragment == ""
+    )
+
+
+def failover_controller_status_url(value: str) -> bool:
+    parsed = urllib.parse.urlparse(value)
+    query = urllib.parse.parse_qs(parsed.query, keep_blank_values=True)
+    return (
+        safe_https_url(value)
+        and parsed.netloc == FAILOVER_CONTROLLER_STATUS_HOST
+        and parsed.path.rstrip("/") == "/status"
+        and parsed.params == ""
+        and (not query or query == {"mode": ["dashboard"]})
+    )
+
+
+def usable_hmac_secret(value: str) -> bool:
+    return (
+        MIN_FAILOVER_HMAC_SECRET_LENGTH <= len(value) <= MAX_RUNTIME_AUTH_SECRET_LENGTH
+        and not looks_like_encrypted_envelope(value)
+    )
+
+
 def validate_selected_values(selected: dict[str, str]) -> None:
     invalid: set[str] = set()
     for key in ("AUTH_GOOGLE_ID", "AUTH_GOOGLE_SECRET", "AUTH_SECRET"):
@@ -217,6 +249,19 @@ def validate_selected_values(selected: dict[str, str]) -> None:
     auth_trust_host = selected.get("AUTH_TRUST_HOST", "")
     if auth_trust_host and auth_trust_host.strip().lower() != "true":
         invalid.add("AUTH_TRUST_HOST")
+
+    failover_status_url = selected.get("NUTSNEWS_FAILOVER_CONTROLLER_STATUS_URL", "")
+    failover_status_secret = selected.get("NUTSNEWS_FAILOVER_STATUS_HMAC_SECRET", "")
+    if failover_status_url or failover_status_secret:
+        if not failover_status_url or not failover_controller_status_url(failover_status_url):
+            invalid.add("NUTSNEWS_FAILOVER_CONTROLLER_STATUS_URL")
+        if not failover_status_secret or not usable_hmac_secret(failover_status_secret):
+            invalid.add("NUTSNEWS_FAILOVER_STATUS_HMAC_SECRET")
+
+    for key in ("NUTSNEWS_FAILOVER_RUNBOOK_URL", "NUTSNEWS_FAILOVER_CLOUDFLARE_DASHBOARD_URL"):
+        value = selected.get(key, "")
+        if value and not safe_https_url(value):
+            invalid.add(key)
 
     admin_emails = selected.get("ADMIN_EMAILS", "")
     if admin_emails and not all(EMAIL_RE.fullmatch(email.strip()) for email in admin_emails.split(",")):
