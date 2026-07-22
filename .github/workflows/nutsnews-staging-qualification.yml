@@ -128,6 +128,7 @@ jobs:
           NUTSNEWS_STAGING_DEPLOYMENT_ID: ${{ steps.deployment.outputs.staging_deployment_id }}
           NUTSNEWS_QUALIFICATION_SUITE_REVISION: ${{ steps.deployment.outputs.source_commit }}
           NUTSNEWS_QUALIFICATION_ARTIFACT_DIR: ${{ runner.temp }}/qualification-evidence/app
+          NUTSNEWS_ADMIN_TEST_AUTH_BYPASS_EXPECTED: "true"
         run: |
           set -euo pipefail
           umask 077
