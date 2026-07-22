@@ -52,6 +52,7 @@ require(exports == {"type": "durable-object", "storage": "sqlite"}, "Durable Obj
 vars_ = wrangler["vars"]
 expected_vars = {
     "CONTROLLER_NAME": "nutsnews-production-vps-primary",
+    "RETIRED_CONTROLLER_NAMES": "nutsnews-production",
     "HEALTH_CHECK_URL": "https://vps.nutsnews.com/readyz",
     "EXPECTED_READINESS_TARGET": "production-vps",
     "CHECK_INTERVAL_SECONDS": "15",
@@ -74,8 +75,11 @@ for phrase in (
     "/manual-failover",
     "/manual-failback",
     "/test-health-override",
+    "/retire-controller",
     "force-vps-health-failure",
     "clear-vps-health-override",
+    "retire-dns-failover-controller",
+    "deleteAlarm()",
     "adminAuthorized",
     "CLOUDFLARE_DNS_API_TOKEN",
 ):
@@ -131,6 +135,8 @@ for phrase in (
     "controlled failover drill",
     "force-vps-health-failure",
     "clear-vps-health-override",
+    "retire-dns-failover-controller",
+    "nutsnews-production",
     "NUTSNEWS_DNS_FAILOVER_RECORDS_JSON",
     "After #396, with writes enabled and VPS primary active",
 ):

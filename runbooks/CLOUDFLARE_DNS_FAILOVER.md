@@ -9,6 +9,7 @@ During normal operation, normal visitor requests do not execute this Worker. The
 - Worker: `nutsnews-dns-failover`
 - Durable Object: `DnsFailoverController`
 - Durable Object instance name: `nutsnews-production-vps-primary`
+- Retired Durable Object instance names: `nutsnews-production`
 - Cron Trigger: `* * * * *`
 - Durable Object alarm cadence: 15 seconds
 - VPS readiness check: `https://vps.nutsnews.com/readyz`
@@ -168,6 +169,22 @@ most 20 forced failures, expires after at most 300 seconds, and stores no
 secret material. It does not change DNS directly; it only makes the next
 controller checks see synthetic VPS readiness failures so the normal threshold
 and DNS-state gates decide whether to fail over.
+
+Retire a previously used Durable Object instance after a controller-name
+rotation:
+
+```bash
+curl -fsS -X POST -H "Authorization: Bearer $NUTSNEWS_DNS_FAILOVER_ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  --data '{"confirm":"retire-dns-failover-controller","controllerName":"nutsnews-production","reason":"controller name rotated to nutsnews-production-vps-primary"}' \
+  https://<worker-subdomain>.workers.dev/retire-controller
+```
+
+The retire endpoint can target only names listed in `RETIRED_CONTROLLER_NAMES`
+and refuses the active `CONTROLLER_NAME`. Retirement sets a manual lock on the
+old Durable Object, clears any test override, and calls `deleteAlarm()` so the
+old instance cannot keep running a stale 15-second loop against the managed DNS
+records.
 
 ## Verification
 
