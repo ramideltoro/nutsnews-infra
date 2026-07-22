@@ -30,6 +30,16 @@ Cloudflare dashboard links. Manual failover action URLs and
 their presence stops the sync until an operator deliberately decides to make
 DNS-changing controls operable from the VPS admin UI.
 
+If the live controller status secret is managed outside Vercel, keep the same
+`NUTSNEWS_FAILOVER_STATUS_HMAC_SECRET` value in the scoped `cloudflare-admin`
+and `production-vps` GitHub Environment secrets. Run
+`cloudflare-failover-status-secret-apply.yml` from `main` to store the Worker
+secret on `nutsnews-controller`, then run Protected Ansible Apply with
+`sync_vercel_production=true` to materialize the read-only status URL and HMAC
+secret into the VPS app environment. This path does not configure
+`NUTSNEWS_FAILOVER_ACTION_HMAC_SECRET`, so manual dashboard controls remain
+disabled.
+
 Use the companion operating guide in `ramideltoro/nutsnews-docs` for credential
 setup, classification policy, dry-run/apply commands, rollback, rotation, and
 removal procedures.

@@ -18,6 +18,7 @@ ENTRYPOINT = WORKER_DIR / "src/index.mjs"
 TESTS = WORKER_DIR / "tests/core.test.mjs"
 CI_WORKFLOW = ROOT / ".github/workflows/cloudflare-dns-failover-ci.yml"
 APPLY_WORKFLOW = ROOT / ".github/workflows/cloudflare-dns-failover-apply.yml"
+STATUS_SECRET_WORKFLOW = ROOT / ".github/workflows/cloudflare-failover-status-secret-apply.yml"
 RUNBOOK = ROOT / "runbooks/CLOUDFLARE_DNS_FAILOVER.md"
 
 
@@ -36,6 +37,7 @@ entrypoint = read(ENTRYPOINT)
 tests = read(TESTS)
 ci_workflow = read(CI_WORKFLOW)
 apply_workflow = read(APPLY_WORKFLOW)
+status_secret_workflow = read(STATUS_SECRET_WORKFLOW)
 runbook = read(RUNBOOK)
 
 require(wrangler["name"] == "nutsnews-dns-failover", "Worker name must be stable.")
@@ -99,7 +101,7 @@ for phrase in (
 ):
     require(phrase in core + tests, f"State-machine coverage missing {phrase}.")
 
-for path in (CI_WORKFLOW, APPLY_WORKFLOW):
+for path in (CI_WORKFLOW, APPLY_WORKFLOW, STATUS_SECRET_WORKFLOW):
     text = read(path)
     require("actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0" in text, f"{path} checkout must be pinned.")
     require("actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e" in text, f"{path} setup-node must be pinned.")
@@ -122,6 +124,31 @@ for phrase in (
 require("production-vps" not in apply_workflow, "Cloudflare deploy must not use VPS SSH environments.")
 require("staging-vps" not in apply_workflow, "Cloudflare deploy must not use staging SSH environments.")
 require("DNS_WRITES_ENABLED: ${{ inputs.dns_writes_enabled }}" in apply_workflow, "DNS writes input must feed only the Worker secret.")
+
+for phrase in (
+    "environment: cloudflare-admin",
+    "refs/heads/main",
+    "nutsnews-controller.nutsnews.workers.dev",
+    "NUTSNEWS_FAILOVER_STATUS_HMAC_SECRET",
+    "wrangler@4.113.0 secret put",
+    "--name nutsnews-controller",
+    "X-NutsNews-Failover-Timestamp",
+    "X-NutsNews-Failover-Signature",
+    "nutsnews.failover.status.v1",
+    "Manual action secret configured by this workflow: \\`false\\`",
+):
+    require(phrase in status_secret_workflow, f"Status secret workflow must include {phrase}.")
+
+for forbidden in (
+    "NUTSNEWS_FAILOVER_ACTION_HMAC_SECRET",
+    "manual-failover",
+    "manual-failback",
+    "DNS_WRITES_ENABLED",
+):
+    require(forbidden not in status_secret_workflow, f"Status secret workflow must not configure {forbidden}.")
+
+require("production-vps" not in status_secret_workflow, "Controller status secret apply must not use VPS SSH environments.")
+require("staging-vps" not in status_secret_workflow, "Controller status secret apply must not use staging SSH environments.")
 
 for phrase in (
     "normal visitor requests do not execute this Worker",

@@ -506,6 +506,7 @@ jobs:
           NUTSNEWS_VERCEL_TOKEN: ${{ secrets.NUTSNEWS_VERCEL_TOKEN }}
           NUTSNEWS_VERCEL_PROJECT_ID: ${{ secrets.NUTSNEWS_VERCEL_PROJECT_ID }}
           NUTSNEWS_VERCEL_TEAM_ID: ${{ secrets.NUTSNEWS_VERCEL_TEAM_ID }}
+          NUTSNEWS_FAILOVER_STATUS_HMAC_SECRET: ${{ secrets.NUTSNEWS_FAILOVER_STATUS_HMAC_SECRET }}
           ENABLE_CLOUDFLARE_DDNS: ${{ inputs.enable_cloudflare_ddns }}
           ENABLE_GRAFANA_ALLOY: ${{ inputs.enable_grafana_alloy }}
           ENABLE_STAGING_ACCESS: ${{ inputs.enable_staging_access }}
@@ -573,6 +574,13 @@ jobs:
                 missing=1
               fi
             done
+          fi
+
+          if [[ -n "$NUTSNEWS_FAILOVER_STATUS_HMAC_SECRET" ]]; then
+            if [[ ${#NUTSNEWS_FAILOVER_STATUS_HMAC_SECRET} -lt 32 || ${#NUTSNEWS_FAILOVER_STATUS_HMAC_SECRET} -gt 512 ]]; then
+              echo "NUTSNEWS_FAILOVER_STATUS_HMAC_SECRET must be between 32 and 512 characters when configured." >&2
+              missing=1
+            fi
           fi
 
           exit "$missing"
@@ -689,6 +697,10 @@ jobs:
           NUTSNEWS_GRAFANA_CLOUD_USAGE_API_URL: ${{ secrets.NUTSNEWS_GRAFANA_CLOUD_USAGE_API_URL }}
           NUTSNEWS_GITHUB_USAGE_API_TOKEN: ${{ secrets.NUTSNEWS_GITHUB_USAGE_API_TOKEN }}
           NUTSNEWS_GITHUB_ACTIONS_USAGE_API_URL: ${{ secrets.NUTSNEWS_GITHUB_ACTIONS_USAGE_API_URL }}
+          NUTSNEWS_FAILOVER_CONTROLLER_STATUS_URL: https://nutsnews-controller.nutsnews.workers.dev/status?mode=dashboard
+          NUTSNEWS_FAILOVER_STATUS_HMAC_SECRET: ${{ secrets.NUTSNEWS_FAILOVER_STATUS_HMAC_SECRET }}
+          NUTSNEWS_FAILOVER_RUNBOOK_URL: https://github.com/ramideltoro/nutsnews/blob/main/.github/deployment/failover-visibility-runbook.md
+          NUTSNEWS_FAILOVER_CLOUDFLARE_DASHBOARD_URL: ${{ secrets.NUTSNEWS_FAILOVER_CLOUDFLARE_DASHBOARD_URL }}
           ENABLE_GRAFANA_ALLOY: ${{ inputs.enable_grafana_alloy }}
           ENABLE_STAGING_ACCESS: ${{ inputs.enable_staging_access }}
           NUTSNEWS_STAGING_ACCESS_TEAM_DOMAIN: ${{ secrets.NUTSNEWS_STAGING_ACCESS_TEAM_DOMAIN }}
@@ -721,7 +733,11 @@ jobs:
           import os
           import re
           from pathlib import Path
-          from urllib.parse import urlparse
+          from urllib.parse import parse_qs, urlparse
+
+          FAILOVER_CONTROLLER_STATUS_URL = "https://nutsnews-controller.nutsnews.workers.dev/status?mode=dashboard"
+          FAILOVER_CONTROLLER_STATUS_HOST = "nutsnews-controller.nutsnews.workers.dev"
+          MAX_RUNTIME_SECRET_LENGTH = 512
 
           keys = json.loads(os.environ["NUTSNEWS_VPS_ADMIN_AUTHORIZED_KEYS_JSON"])
           if not isinstance(keys, list) or not keys:
@@ -784,6 +800,25 @@ jobs:
                   raise SystemExit(f"{name} must start with https:// when set.")
               return value
 
+          def failover_controller_status_url(name, default):
+              value = os.environ.get(name, "").strip() or default
+              parsed = urlparse(value)
+              query = parse_qs(parsed.query, keep_blank_values=True)
+              if (
+                  parsed.scheme != "https"
+                  or parsed.netloc != FAILOVER_CONTROLLER_STATUS_HOST
+                  or parsed.username
+                  or parsed.password
+                  or parsed.path.rstrip("/") != "/status"
+                  or parsed.params
+                  or parsed.fragment
+                  or (query and query != {"mode": ["dashboard"]})
+              ):
+                  raise SystemExit(
+                      f"{name} must be the protected https://{FAILOVER_CONTROLLER_STATUS_HOST}/status endpoint."
+                  )
+              return value
+
           def bare_https_origin(name, value):
               parsed = urlparse(value)
               if (
@@ -826,6 +861,25 @@ jobs:
           # environment map that the role templates.
           if vercel_envs:
               app_envs.update(vercel_envs)
+          failover_status_hmac_secret = os.environ.get("NUTSNEWS_FAILOVER_STATUS_HMAC_SECRET", "").strip()
+          if failover_status_hmac_secret:
+              if len(failover_status_hmac_secret) < 32 or len(failover_status_hmac_secret) > MAX_RUNTIME_SECRET_LENGTH:
+                  raise SystemExit("NUTSNEWS_FAILOVER_STATUS_HMAC_SECRET must be between 32 and 512 characters.")
+              app_envs.update(
+                  {
+                      "NUTSNEWS_FAILOVER_CONTROLLER_STATUS_URL": failover_controller_status_url(
+                          "NUTSNEWS_FAILOVER_CONTROLLER_STATUS_URL",
+                          FAILOVER_CONTROLLER_STATUS_URL,
+                      ),
+                      "NUTSNEWS_FAILOVER_STATUS_HMAC_SECRET": failover_status_hmac_secret,
+                  }
+              )
+              failover_runbook_url = optional_https_url("NUTSNEWS_FAILOVER_RUNBOOK_URL")
+              if failover_runbook_url:
+                  app_envs["NUTSNEWS_FAILOVER_RUNBOOK_URL"] = failover_runbook_url
+              failover_cloudflare_dashboard_url = optional_https_url("NUTSNEWS_FAILOVER_CLOUDFLARE_DASHBOARD_URL")
+              if failover_cloudflare_dashboard_url:
+                  app_envs["NUTSNEWS_FAILOVER_CLOUDFLARE_DASHBOARD_URL"] = failover_cloudflare_dashboard_url
           admin_canonical_origin = bare_https_origin(
               "NUTSNEWS_ADMIN_CANONICAL_ORIGIN",
               "https://www.nutsnews.com",
