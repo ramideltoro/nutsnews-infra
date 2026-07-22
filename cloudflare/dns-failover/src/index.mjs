@@ -3,7 +3,10 @@ import {
   DNS_STATE,
   applyDnsUpdateSuccess,
   classifyDnsRecords,
+  consumeTestHealthOverride as consumeTestHealthOverrideState,
+  createTestHealthOverride,
   evaluateFailover,
+  normalizeTestHealthOverride,
   normalizeState,
   publicStatus,
   readConfig,
@@ -12,6 +15,7 @@ import {
 
 const API_BASE = "https://api.cloudflare.com/client/v4";
 const STATE_KEY = "failover-state";
+const TEST_HEALTH_OVERRIDE_KEY = "test-health-override";
 
 function jsonResponse(payload, status = 200) {
   return new Response(JSON.stringify(payload, null, 2), {
@@ -169,6 +173,36 @@ export class DnsFailoverController extends DurableObject {
     await this.ctx.storage.put(STATE_KEY, normalizeState(state));
   }
 
+  async storedTestHealthOverride() {
+    return normalizeTestHealthOverride((await this.ctx.storage.get(TEST_HEALTH_OVERRIDE_KEY)) || {});
+  }
+
+  async saveTestHealthOverride(override) {
+    if (override) {
+      await this.ctx.storage.put(TEST_HEALTH_OVERRIDE_KEY, normalizeTestHealthOverride(override));
+      return;
+    }
+    await this.ctx.storage.delete(TEST_HEALTH_OVERRIDE_KEY);
+  }
+
+  async status(config = readConfig(this.env)) {
+    return publicStatus(
+      await this.storedState(),
+      config,
+      await this.ctx.storage.getAlarm(),
+      await this.storedTestHealthOverride(),
+    );
+  }
+
+  async consumeTestHealthOverride() {
+    const override = await this.storedTestHealthOverride();
+    const result = consumeTestHealthOverrideState(override);
+    if (result.health || override.forcedFailureCountRemaining > 0) {
+      await this.saveTestHealthOverride(result.override);
+    }
+    return result.health;
+  }
+
   async scheduleNext(delayMs = null) {
     const config = readConfig(this.env);
     const nextAlarm = Date.now() + (delayMs ?? config.checkIntervalMs);
@@ -193,7 +227,7 @@ export class DnsFailoverController extends DurableObject {
     let health = { ok: false, error: "Health check did not run." };
 
     try {
-      health = await checkVpsHealth(config);
+      health = (await this.consumeTestHealthOverride()) || await checkVpsHealth(config);
     } catch (error) {
       health = {
         ok: false,
@@ -264,7 +298,7 @@ export class DnsFailoverController extends DurableObject {
     const config = readConfig(this.env);
 
     if (request.method === "GET" && url.pathname === "/status") {
-      return jsonResponse(publicStatus(await this.storedState(), config, await this.ctx.storage.getAlarm()));
+      return jsonResponse(await this.status(config));
     }
 
     if (request.method === "POST" && url.pathname === "/watchdog") {
@@ -275,7 +309,7 @@ export class DnsFailoverController extends DurableObject {
     if (request.method === "POST" && url.pathname === "/check-now") {
       const result = await this.runCheck("manual-check");
       await this.scheduleNext();
-      return jsonResponse(publicStatus(result.state, result.config, await this.ctx.storage.getAlarm()));
+      return jsonResponse(await this.status(result.config));
     }
 
     if (request.method === "POST" && url.pathname === "/manual-lock") {
@@ -289,7 +323,36 @@ export class DnsFailoverController extends DurableObject {
       state.lastDnsAction = body.locked ? "manual:locked" : "manual:unlocked";
       await this.saveState(state);
       await this.scheduleNext();
-      return jsonResponse(publicStatus(state, config, await this.ctx.storage.getAlarm()));
+      return jsonResponse(await this.status(config));
+    }
+
+    if (request.method === "POST" && url.pathname === "/test-health-override") {
+      const body = await requestJson(request);
+      if (body.confirm === "clear-vps-health-override") {
+        await this.saveTestHealthOverride(null);
+        await this.scheduleNext();
+        return jsonResponse(await this.status(config));
+      }
+      if (body.confirm !== "force-vps-health-failure") {
+        return jsonResponse({
+          ok: false,
+          error: "Test health override requires confirm=force-vps-health-failure or confirm=clear-vps-health-override.",
+        }, 400);
+      }
+
+      let override;
+      try {
+        override = createTestHealthOverride({
+          failureCount: body.failureCount ?? body.failures ?? config.failureThreshold,
+          ttlSeconds: body.ttlSeconds ?? 120,
+          reason: body.reason || "operator failover drill",
+        });
+      } catch (error) {
+        return jsonResponse({ ok: false, error: sanitizeSummary(error?.message || error) }, 400);
+      }
+      await this.saveTestHealthOverride(override);
+      await this.scheduleNext(1000);
+      return jsonResponse(await this.status(config));
     }
 
     if (request.method === "POST" && (url.pathname === "/manual-failover" || url.pathname === "/manual-failback")) {
@@ -309,7 +372,7 @@ export class DnsFailoverController extends DurableObject {
       state = applyDnsUpdateSuccess(state, action);
       await this.saveState(state);
       await this.scheduleNext();
-      return jsonResponse(publicStatus(state, config, await this.ctx.storage.getAlarm()));
+      return jsonResponse(await this.status(config));
     }
 
     return jsonResponse({ ok: false, error: "Not found." }, 404);

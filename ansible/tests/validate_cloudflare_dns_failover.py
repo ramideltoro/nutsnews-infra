@@ -73,6 +73,9 @@ for phrase in (
     "/manual-lock",
     "/manual-failover",
     "/manual-failback",
+    "/test-health-override",
+    "force-vps-health-failure",
+    "clear-vps-health-override",
     "adminAuthorized",
     "CLOUDFLARE_DNS_API_TOKEN",
 ):
@@ -88,6 +91,7 @@ for phrase in (
     "suppressed:dns_writes_disabled",
     "suppressed:manual_lock",
     "none:vps_already_primary",
+    "Operator test health override active",
 ):
     require(phrase in core + tests, f"State-machine coverage missing {phrase}.")
 
@@ -124,8 +128,11 @@ for phrase in (
     "300 seconds",
     "manual failover",
     "manual failback",
+    "controlled failover drill",
+    "force-vps-health-failure",
+    "clear-vps-health-override",
     "NUTSNEWS_DNS_FAILOVER_RECORDS_JSON",
-    "Do not enable automatic DNS writes until #396",
+    "After #396, with writes enabled and VPS primary active",
 ):
     require(phrase in runbook, f"Runbook missing required phrase: {phrase}")
 
