@@ -8,7 +8,7 @@ During normal operation, normal visitor requests do not execute this Worker. The
 
 - Worker: `nutsnews-dns-failover`
 - Durable Object: `DnsFailoverController`
-- Durable Object instance name: `nutsnews-production`
+- Durable Object instance name: `nutsnews-production-vps-primary`
 - Cron Trigger: `* * * * *`
 - Durable Object alarm cadence: 15 seconds
 - VPS readiness check: `https://vps.nutsnews.com/readyz`
