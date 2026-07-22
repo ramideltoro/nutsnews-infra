@@ -24,6 +24,14 @@ RESERVED_ENV_KEYS = {
     "NUTSNEWS_CONFIG_GENERATION",
     "NUTSNEWS_EXPECTED_SCHEMA_VERSION",
 }
+AUTOMATION_MANAGED_STAGING_ENV_KEYS = {
+    "NUTSNEWS_ADMIN_TEST_AUTH_BYPASS",
+    "NUTSNEWS_TEST_USER_NAMESPACE",
+}
+STAGING_ADMIN_TEST_AUTH_ENVS = {
+    "NUTSNEWS_ADMIN_TEST_AUTH_BYPASS": "true",
+    "NUTSNEWS_TEST_USER_NAMESPACE": "nutsnews-test-staging-admin-smoke",
+}
 REQUIRED_STAGING_ENV_KEYS = {
     "AUTH_GOOGLE_ID",
     "AUTH_GOOGLE_SECRET",
@@ -69,6 +77,8 @@ def parse_staging_envs(
             raise CandidateError("Staging application environment keys must be safe shell-style identifiers.")
         if key in RESERVED_ENV_KEYS:
             raise CandidateError(f"Staging application environment may not override release identity key {key}.")
+        if key in AUTOMATION_MANAGED_STAGING_ENV_KEYS:
+            raise CandidateError(f"Staging application environment may not override automation-managed key {key}.")
         if not isinstance(value, str):
             raise CandidateError("Staging application environment values must be strings.")
         if not value.strip():
@@ -117,6 +127,7 @@ def main() -> None:
     except (OSError, json.JSONDecodeError, CandidateError) as error:
         raise SystemExit(f"Cannot render staging Ansible variables: {error}") from error
 
+    staging_envs.update(STAGING_ADMIN_TEST_AUTH_ENVS)
     config_generation = f"staging-{candidate.deployment_id}-{arguments.infra_commit[:12]}"
     configured_secret_env_keys = sorted(STAGING_SECRET_ENV_KEYS & staging_envs.keys())
     values = {

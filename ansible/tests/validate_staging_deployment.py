@@ -20,6 +20,7 @@ WRITE_VARS = ROOT / "scripts/write_staging_ansible_vars.py"
 GATEWAY = ROOT / "scripts/staging_gateway_request.py"
 GATEWAY_RESULT = ROOT / "scripts/staging_gateway_result.py"
 WORKFLOW = REPO / ".github/workflows/nutsnews-staging-deploy.yml"
+QUALIFICATION_WORKFLOW = REPO / ".github/workflows/nutsnews-staging-qualification.yml"
 STAGING_ANSIBLE_REQUIREMENTS = REPO / ".github/requirements/staging-ansible.txt"
 PLAYBOOK = ROOT / "playbooks/deploy-staging.yml"
 INVENTORY = ROOT / "inventories/staging/hosts.yml"
@@ -127,6 +128,14 @@ for incomplete_oauth in (
         pass
     else:
         raise AssertionError("Incomplete protected staging OAuth credentials must fail closed.")
+
+for key, value in write_vars_module.STAGING_ADMIN_TEST_AUTH_ENVS.items():
+    try:
+        write_vars_module.parse_staging_envs(json.dumps({**minimal_staging_env, key: value}))
+    except module.CandidateError:
+        pass
+    else:
+        raise AssertionError(f"{key} must be owned by reviewed staging automation, not secret JSON.")
 
 check_success = gateway_result_module.evaluate_gateway_result({"ok": True, "operation": "check"}, 0, "check")
 assert check_success.ok
@@ -257,6 +266,36 @@ assert valid.deployment_id.startswith("stg-")
 assert len(valid.deployment_id) == len("stg-") + 24
 assert valid.migration_head == "20260713000000"
 assert valid.supabase_project_ref == "mpqfulvvagyzqneiaqky"
+
+with tempfile.TemporaryDirectory() as tempdir:
+    output_path = Path(tempdir) / "staging-vars.json"
+    github_output_path = Path(tempdir) / "github-output.txt"
+    render_command = subprocess.run(
+        [
+            sys.executable,
+            str(WRITE_VARS),
+            "--candidate-file",
+            str(FIXTURES / "valid.json"),
+            "--infra-commit",
+            "d" * 40,
+            "--output",
+            str(output_path),
+            "--github-output",
+            str(github_output_path),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+        env={**os.environ, "NUTSNEWS_STAGING_APP_ENVS_JSON": json.dumps(minimal_staging_env)},
+    )
+    assert render_command.returncode == 0, render_command.stderr
+    rendered = json.loads(output_path.read_text(encoding="utf-8"))
+    rendered_app_envs = rendered["vps_service_foundation_nutsnews_staging_app_envs"]
+    for key, value in write_vars_module.STAGING_ADMIN_TEST_AUTH_ENVS.items():
+        assert rendered_app_envs[key] == value
+        assert key not in rendered["vps_service_foundation_nutsnews_staging_secret_env_keys"]
+        assert key not in rendered["vps_service_foundation_nutsnews_staging_required_secrets"]
+    assert "config_generation=staging-" in github_output_path.read_text(encoding="utf-8")
 
 for name in ("mutable-tag.json", "invalid-digest.json", "wrong-repository.json", "partial.json"):
     try:
@@ -544,6 +583,7 @@ def provenance_fetch(url: str, _headers: dict[str, str] | None = None) -> object
 module.verify_oci_provenance(valid, provenance_fetch)
 
 workflow = WORKFLOW.read_text(encoding="utf-8")
+qualification_workflow = QUALIFICATION_WORKFLOW.read_text(encoding="utf-8")
 staging_ansible_requirements = STAGING_ANSIBLE_REQUIREMENTS.read_text(encoding="utf-8")
 playbook = PLAYBOOK.read_text(encoding="utf-8")
 inventory = INVENTORY.read_text(encoding="utf-8")
@@ -576,6 +616,10 @@ for required in (
     "always() && !cancelled()",
 ):
     assert required in workflow, f"Staging workflow is missing required guardrail: {required}"
+
+assert (
+    'NUTSNEWS_ADMIN_TEST_AUTH_BYPASS_EXPECTED: "true"' in qualification_workflow
+), "Staging qualification must require the protected admin dashboard auth-bypass sweep."
 
 assert staging_ansible_requirements == "ansible-core==2.21.2\n"
 for required in (
