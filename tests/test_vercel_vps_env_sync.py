@@ -86,6 +86,26 @@ CURRENT_VERCEL_PRODUCTION_NAMES = {
     "TURNSTILE_SECRET_KEY",
 }
 
+REQUIRED_AUTH_VALUES = {
+    "AUTH_GOOGLE_ID": "1234567890-test-client.apps.googleusercontent.com",
+    "AUTH_GOOGLE_SECRET": "valid-secret-fixture",
+    "AUTH_SECRET": "s" * 64,
+}
+
+HOME_SERVER_STATS_VALUES = {
+    "HOME_SERVER_STATS_URL": "https://ai.nutsnews.com/stats",
+    "HOME_SERVER_STATS_API_KEY": "home-server-stats-key-fixture",
+}
+
+
+def valid_runtime_fixture(**overrides: str) -> dict[str, str]:
+    values = {
+        **REQUIRED_AUTH_VALUES,
+        **HOME_SERVER_STATS_VALUES,
+    }
+    values.update(overrides)
+    return values
+
 
 class VercelVpsEnvSyncTests(unittest.TestCase):
     def setUp(self) -> None:
@@ -233,6 +253,52 @@ class VercelVpsEnvSyncTests(unittest.TestCase):
         self.assertEqual(selected, {"NUTSNEWS_BACKEND_API_TOKEN": "backend-token-fixture"})
         self.assertEqual(report["server_side_secret"], ["NUTSNEWS_BACKEND_API_TOKEN"])
 
+    def test_home_server_stats_config_synchronizes_for_admin_dashboard(self) -> None:
+        selected, report = sync.classify_records(
+            [
+                {
+                    "key": "HOME_SERVER_STATS_URL",
+                    "target": ["production"],
+                    "type": "plain",
+                    "decrypted": True,
+                    "value": "https://ai.nutsnews.com/stats",
+                },
+                {
+                    "key": "HOME_SERVER_STATS_API_KEY",
+                    "target": ["production"],
+                    "type": "encrypted",
+                    "decrypted": True,
+                    "value": "home-server-stats-key-fixture",
+                },
+            ],
+            self.mapping,
+        )
+
+        self.assertEqual(selected, HOME_SERVER_STATS_VALUES)
+        self.assertEqual(report["safe_to_synchronize"], ["HOME_SERVER_STATS_URL"])
+        self.assertEqual(report["server_side_secret"], ["HOME_SERVER_STATS_API_KEY"])
+        sync.validate_selected_values(valid_runtime_fixture())
+
+    def test_home_server_stats_config_requires_canonical_url_and_api_key(self) -> None:
+        sync.validate_selected_values(valid_runtime_fixture())
+
+        invalid_cases = (
+            valid_runtime_fixture(HOME_SERVER_STATS_URL="https://ai.nutsnews.com/api/stats"),
+            valid_runtime_fixture(HOME_SERVER_STATS_URL="https://ai.nutsnews.com/health"),
+            valid_runtime_fixture(HOME_SERVER_STATS_URL="http://ai.nutsnews.com/stats"),
+            valid_runtime_fixture(HOME_SERVER_STATS_URL="https://example.com/stats"),
+            valid_runtime_fixture(HOME_SERVER_STATS_URL="https://ai.nutsnews.com/stats?debug=true"),
+            valid_runtime_fixture(HOME_SERVER_STATS_API_KEY="short"),
+            valid_runtime_fixture(HOME_SERVER_STATS_API_KEY=json.dumps({"encryptedValue": "ciphertext-fixture"})),
+            {key: value for key, value in valid_runtime_fixture().items() if key != "HOME_SERVER_STATS_URL"},
+            {key: value for key, value in valid_runtime_fixture().items() if key != "HOME_SERVER_STATS_API_KEY"},
+        )
+
+        for invalid_values in invalid_cases:
+            with self.subTest(invalid_values=sorted(invalid_values)):
+                with self.assertRaisesRegex(SystemExit, "HOME_SERVER_STATS"):
+                    sync.validate_selected_values(invalid_values)
+
     def test_failover_status_config_synchronizes_for_read_only_dashboard(self) -> None:
         selected, report = sync.classify_records(
             [
@@ -286,21 +352,10 @@ class VercelVpsEnvSyncTests(unittest.TestCase):
             ],
         )
         self.assertEqual(report["server_side_secret"], ["NUTSNEWS_FAILOVER_STATUS_HMAC_SECRET"])
-        sync.validate_selected_values(
-            {
-                "AUTH_GOOGLE_ID": "1234567890-test-client.apps.googleusercontent.com",
-                "AUTH_GOOGLE_SECRET": "valid-secret-fixture",
-                "AUTH_SECRET": "s" * 64,
-                **selected,
-            }
-        )
+        sync.validate_selected_values(valid_runtime_fixture(**selected))
 
     def test_failover_status_config_requires_controller_url_and_hmac_secret(self) -> None:
-        required_auth = {
-            "AUTH_GOOGLE_ID": "1234567890-test-client.apps.googleusercontent.com",
-            "AUTH_GOOGLE_SECRET": "valid-secret-fixture",
-            "AUTH_SECRET": "s" * 64,
-        }
+        required_auth = valid_runtime_fixture()
         valid = {
             **required_auth,
             "NUTSNEWS_FAILOVER_CONTROLLER_STATUS_URL": "https://nutsnews-controller.nutsnews.workers.dev/status",
@@ -404,12 +459,10 @@ class VercelVpsEnvSyncTests(unittest.TestCase):
         opaque_client_id = "x" * 1192
         with self.assertRaisesRegex(SystemExit, "AUTH_GOOGLE_ID") as raised:
             sync.validate_selected_values(
-                {
-                    "AUTH_GOOGLE_ID": opaque_client_id,
-                    "AUTH_GOOGLE_SECRET": "valid-secret-fixture",
-                    "AUTH_SECRET": "s" * 64,
-                    "ADMIN_EMAILS": "rami.deltoro@gmail.com",
-                }
+                valid_runtime_fixture(
+                    AUTH_GOOGLE_ID=opaque_client_id,
+                    ADMIN_EMAILS="rami.deltoro@gmail.com",
+                )
             )
         self.assertNotIn(opaque_client_id, str(raised.exception))
 
@@ -418,12 +471,11 @@ class VercelVpsEnvSyncTests(unittest.TestCase):
         opaque_auth_secret = "x" * 1168
         with self.assertRaisesRegex(SystemExit, "AUTH_GOOGLE_SECRET.*AUTH_SECRET") as raised:
             sync.validate_selected_values(
-                {
-                    "AUTH_GOOGLE_ID": "1234567890-test-client.apps.googleusercontent.com",
-                    "AUTH_GOOGLE_SECRET": opaque_google_secret,
-                    "AUTH_SECRET": opaque_auth_secret,
-                    "ADMIN_EMAILS": "rami.deltoro@gmail.com",
-                }
+                valid_runtime_fixture(
+                    AUTH_GOOGLE_SECRET=opaque_google_secret,
+                    AUTH_SECRET=opaque_auth_secret,
+                    ADMIN_EMAILS="rami.deltoro@gmail.com",
+                )
             )
         self.assertNotIn(opaque_google_secret, str(raised.exception))
         self.assertNotIn(opaque_auth_secret, str(raised.exception))
@@ -447,58 +499,39 @@ class VercelVpsEnvSyncTests(unittest.TestCase):
 
     def test_auth_semantics_and_admin_email_format_are_checked(self) -> None:
         sync.validate_selected_values(
-            {
-                "AUTH_GOOGLE_ID": "1234567890-test-client.apps.googleusercontent.com",
-                "AUTH_GOOGLE_SECRET": "valid-secret-fixture",
-                "AUTH_SECRET": "s" * 64,
-                "ADMIN_EMAILS": "rami.deltoro@gmail.com,admin@example.com",
-            }
+            valid_runtime_fixture(ADMIN_EMAILS="rami.deltoro@gmail.com,admin@example.com")
         )
         with self.assertRaisesRegex(SystemExit, "ADMIN_EMAILS"):
             sync.validate_selected_values(
-                {
-                    "AUTH_GOOGLE_ID": "1234567890-test-client.apps.googleusercontent.com",
-                    "AUTH_GOOGLE_SECRET": "valid-secret-fixture",
-                    "AUTH_SECRET": "s" * 64,
-                    "ADMIN_EMAILS": "not-an-email",
-                }
+                valid_runtime_fixture(ADMIN_EMAILS="not-an-email")
             )
 
     def test_backend_primary_requires_backend_api_token(self) -> None:
         with self.assertRaisesRegex(SystemExit, "NUTSNEWS_BACKEND_API_TOKEN"):
             sync.validate_selected_values(
-                {
-                    "AUTH_GOOGLE_ID": "1234567890-test-client.apps.googleusercontent.com",
-                    "AUTH_GOOGLE_SECRET": "valid-secret-fixture",
-                    "AUTH_SECRET": "s" * 64,
-                    "NUTSNEWS_DATABASE_PROVIDER_MODE": "backend_postgres_primary",
-                    "NUTSNEWS_BACKEND_API_URL": "https://backend.nutsnews.com/api/app/db",
-                    "NUTSNEWS_BACKEND_POSTGRES_PRIMARY_CONFIRMATION": "enable-backend-postgres-primary",
-                }
+                valid_runtime_fixture(
+                    NUTSNEWS_DATABASE_PROVIDER_MODE="backend_postgres_primary",
+                    NUTSNEWS_BACKEND_API_URL="https://backend.nutsnews.com/api/app/db",
+                    NUTSNEWS_BACKEND_POSTGRES_PRIMARY_CONFIRMATION="enable-backend-postgres-primary",
+                )
             )
 
         with self.assertRaisesRegex(SystemExit, "NUTSNEWS_BACKEND_POSTGRES_PRIMARY_CONFIRMATION"):
             sync.validate_selected_values(
-                {
-                    "AUTH_GOOGLE_ID": "1234567890-test-client.apps.googleusercontent.com",
-                    "AUTH_GOOGLE_SECRET": "valid-secret-fixture",
-                    "AUTH_SECRET": "s" * 64,
-                    "NUTSNEWS_DATABASE_PROVIDER_MODE": "backend_postgres_primary",
-                    "NUTSNEWS_BACKEND_API_URL": "https://backend.nutsnews.com/api/app/db",
-                    "NUTSNEWS_BACKEND_API_TOKEN": "backend-token-fixture",
-                }
+                valid_runtime_fixture(
+                    NUTSNEWS_DATABASE_PROVIDER_MODE="backend_postgres_primary",
+                    NUTSNEWS_BACKEND_API_URL="https://backend.nutsnews.com/api/app/db",
+                    NUTSNEWS_BACKEND_API_TOKEN="backend-token-fixture",
+                )
             )
 
         sync.validate_selected_values(
-            {
-                "AUTH_GOOGLE_ID": "1234567890-test-client.apps.googleusercontent.com",
-                "AUTH_GOOGLE_SECRET": "valid-secret-fixture",
-                "AUTH_SECRET": "s" * 64,
-                "NUTSNEWS_DATABASE_PROVIDER_MODE": "backend_postgres_primary",
-                "NUTSNEWS_BACKEND_API_URL": "https://backend.nutsnews.com/api/app/db",
-                "NUTSNEWS_BACKEND_API_TOKEN": "backend-token-fixture",
-                "NUTSNEWS_BACKEND_POSTGRES_PRIMARY_CONFIRMATION": "enable-backend-postgres-primary",
-            }
+            valid_runtime_fixture(
+                NUTSNEWS_DATABASE_PROVIDER_MODE="backend_postgres_primary",
+                NUTSNEWS_BACKEND_API_URL="https://backend.nutsnews.com/api/app/db",
+                NUTSNEWS_BACKEND_API_TOKEN="backend-token-fixture",
+                NUTSNEWS_BACKEND_POSTGRES_PRIMARY_CONFIRMATION="enable-backend-postgres-primary",
+            )
         )
 
     def test_fetch_uses_documented_per_variable_decrypted_endpoint(self) -> None:
