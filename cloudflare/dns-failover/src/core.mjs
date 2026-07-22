@@ -18,6 +18,13 @@ export const DEFAULT_STATE = Object.freeze({
   lastHealthStatus: "unknown",
 });
 
+export const DEFAULT_TEST_HEALTH_OVERRIDE = Object.freeze({
+  forcedFailureCountRemaining: 0,
+  expiresAt: "",
+  reason: "",
+  updatedAt: "",
+});
+
 const ALLOWED_RECORD_TYPES = new Set(["A", "AAAA", "CNAME"]);
 
 export function sanitizeSummary(value, fallback = "") {
@@ -39,6 +46,21 @@ export function normalizeState(state = {}) {
       ? Math.max(0, state.consecutiveRecoveryCount)
       : DEFAULT_STATE.consecutiveRecoveryCount,
     manualLock: state.manualLock === true,
+  };
+}
+
+export function normalizeTestHealthOverride(override = {}) {
+  const source = override && typeof override === "object" ? override : {};
+  const forcedFailureCountRemaining = Number.isInteger(source.forcedFailureCountRemaining)
+    ? Math.max(0, source.forcedFailureCountRemaining)
+    : DEFAULT_TEST_HEALTH_OVERRIDE.forcedFailureCountRemaining;
+  const expiresAt = typeof source.expiresAt === "string" ? source.expiresAt : "";
+  const updatedAt = typeof source.updatedAt === "string" ? source.updatedAt : "";
+  return {
+    forcedFailureCountRemaining,
+    expiresAt,
+    reason: sanitizeSummary(source.reason || ""),
+    updatedAt,
   };
 }
 
@@ -65,6 +87,57 @@ export function parseInteger(value, defaultValue, { min = 0, max = Number.MAX_SA
     throw new Error(`Invalid integer configuration value: ${value}`);
   }
   return parsed;
+}
+
+export function testHealthOverrideActive(override = {}, nowMs = Date.now()) {
+  const normalized = normalizeTestHealthOverride(override);
+  if (normalized.forcedFailureCountRemaining < 1) {
+    return false;
+  }
+  const expiresAtMs = Date.parse(normalized.expiresAt);
+  return Number.isFinite(expiresAtMs) && expiresAtMs > nowMs;
+}
+
+export function createTestHealthOverride({ failureCount, ttlSeconds, reason } = {}, nowMs = Date.now()) {
+  const count = parseInteger(failureCount, 3, { min: 1, max: 20 });
+  const ttl = parseInteger(ttlSeconds, 120, { min: 15, max: 300 });
+  const now = new Date(nowMs).toISOString();
+  return {
+    forcedFailureCountRemaining: count,
+    expiresAt: new Date(nowMs + ttl * 1000).toISOString(),
+    reason: sanitizeSummary(reason || "operator failover drill", "operator failover drill"),
+    updatedAt: now,
+  };
+}
+
+export function consumeTestHealthOverride(override = {}, nowMs = Date.now()) {
+  const normalized = normalizeTestHealthOverride(override);
+  if (!testHealthOverrideActive(normalized, nowMs)) {
+    return { override: null, health: null };
+  }
+
+  const remainingAfterThisCheck = Math.max(0, normalized.forcedFailureCountRemaining - 1);
+  return {
+    override: remainingAfterThisCheck > 0
+      ? { ...normalized, forcedFailureCountRemaining: remainingAfterThisCheck }
+      : null,
+    health: {
+      ok: false,
+      error: sanitizeSummary(`Operator test health override active: ${normalized.reason}.`),
+    },
+  };
+}
+
+export function publicTestHealthOverrideStatus(override = {}, nowMs = Date.now()) {
+  const normalized = normalizeTestHealthOverride(override);
+  const active = testHealthOverrideActive(normalized, nowMs);
+  return {
+    active,
+    forcedFailureCountRemaining: active ? normalized.forcedFailureCountRemaining : 0,
+    expiresAt: normalized.expiresAt,
+    reason: normalized.reason,
+    updatedAt: normalized.updatedAt,
+  };
 }
 
 export function parseDnsRecords(rawRecords, defaultType = "CNAME") {
@@ -280,7 +353,7 @@ export function applyDnsUpdateSuccess(state, action, nowMs = Date.now()) {
   };
 }
 
-export function publicStatus(state, config, alarmTimestamp = null) {
+export function publicStatus(state, config, alarmTimestamp = null, testHealthOverride = null) {
   return {
     controller: config.controllerName,
     state: normalizeState(state),
@@ -305,5 +378,6 @@ export function publicStatus(state, config, alarmTimestamp = null) {
     alarm: {
       scheduledAt: alarmTimestamp ? new Date(alarmTimestamp).toISOString() : null,
     },
+    testHealthOverride: publicTestHealthOverrideStatus(testHealthOverride),
   };
 }

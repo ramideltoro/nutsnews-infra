@@ -4,7 +4,10 @@ import {
   DNS_STATE,
   applyDnsUpdateSuccess,
   classifyDnsRecords,
+  consumeTestHealthOverride,
+  createTestHealthOverride,
   evaluateFailover,
+  publicTestHealthOverrideStatus,
   readConfig,
 } from "../src/core.mjs";
 
@@ -159,4 +162,44 @@ test("cooldown suppresses rapid repeated DNS updates", () => {
   });
   assert.equal(decision.action, null);
   assert.equal(decision.state.lastDnsAction, "suppressed:dns_update_cooldown:vps_recovered");
+});
+
+test("test health override forces only the requested expiring failures", () => {
+  const nowMs = Date.parse("2026-07-22T00:00:00Z");
+  const override = createTestHealthOverride(
+    { failureCount: 2, ttlSeconds: 60, reason: "issue-397 drill" },
+    nowMs,
+  );
+
+  assert.deepEqual(publicTestHealthOverrideStatus(override, nowMs), {
+    active: true,
+    forcedFailureCountRemaining: 2,
+    expiresAt: "2026-07-22T00:01:00.000Z",
+    reason: "issue-397 drill",
+    updatedAt: "2026-07-22T00:00:00.000Z",
+  });
+
+  const first = consumeTestHealthOverride(override, nowMs + 1_000);
+  assert.equal(first.health.ok, false);
+  assert.equal(first.override.forcedFailureCountRemaining, 1);
+
+  const second = consumeTestHealthOverride(first.override, nowMs + 2_000);
+  assert.equal(second.health.ok, false);
+  assert.equal(second.override, null);
+
+  const third = consumeTestHealthOverride(second.override, nowMs + 3_000);
+  assert.equal(third.health, null);
+  assert.equal(third.override, null);
+});
+
+test("test health override expires without forcing stale failures", () => {
+  const nowMs = Date.parse("2026-07-22T00:00:00Z");
+  const override = createTestHealthOverride(
+    { failureCount: 3, ttlSeconds: 15, reason: "short drill" },
+    nowMs,
+  );
+  const expired = consumeTestHealthOverride(override, nowMs + 16_000);
+  assert.equal(expired.health, null);
+  assert.equal(expired.override, null);
+  assert.equal(publicTestHealthOverrideStatus(override, nowMs + 16_000).active, false);
 });

@@ -90,7 +90,8 @@ confirm_apply: dns-failover.nutsnews.com
 confirm_dns_writes:
 ```
 
-Do not enable automatic DNS writes until #396:
+Enable or refresh automatic DNS writes only through the protected apply
+workflow from `main`:
 
 ```text
 run_mode: apply
@@ -143,6 +144,31 @@ curl -fsS -X POST -H "Authorization: Bearer $NUTSNEWS_DNS_FAILOVER_ADMIN_TOKEN" 
   https://<worker-subdomain>.workers.dev/manual-failback
 ```
 
+Expiring VPS health failure override for a controlled failover drill:
+
+```bash
+curl -fsS -X POST -H "Authorization: Bearer $NUTSNEWS_DNS_FAILOVER_ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  --data '{"confirm":"force-vps-health-failure","failureCount":3,"ttlSeconds":120,"reason":"issue-397 failover drill"}' \
+  https://<worker-subdomain>.workers.dev/test-health-override
+```
+
+Clear the override immediately after the drill if any forced failures remain:
+
+```bash
+curl -fsS -X POST -H "Authorization: Bearer $NUTSNEWS_DNS_FAILOVER_ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  --data '{"confirm":"clear-vps-health-override"}' \
+  https://<worker-subdomain>.workers.dev/test-health-override
+```
+
+Use `/test-health-override` only for a bounded operator drill. It is
+admin-token protected, requires an explicit confirmation phrase, accepts at
+most 20 forced failures, expires after at most 300 seconds, and stores no
+secret material. It does not change DNS directly; it only makes the next
+controller checks see synthetic VPS readiness failures so the normal threshold
+and DNS-state gates decide whether to fail over.
+
 ## Verification
 
 Before #396, verify that the Worker deploys and the status endpoint reports:
@@ -153,7 +179,7 @@ Before #396, verify that the Worker deploys and the status endpoint reports:
 - no manual lock unless an incident requires it
 - last check timestamps updating after cron and Durable Object alarm propagation
 
-During #396, after enabling writes and cutting over:
+After #396, with writes enabled and VPS primary active:
 
 - `https://nutsnews.com/readyz` and `https://www.nutsnews.com/readyz` report `production-vps` while VPS is healthy.
 - The controller status reports DNS on `vps` and no pending or failed DNS action.
@@ -161,5 +187,29 @@ During #396, after enabling writes and cutting over:
 - The third consecutive VPS failure updates apex and www to `cname.vercel-dns.com`.
 - While DNS points to Vercel, checks continue every 15 seconds.
 - Once VPS is reachable and current DNS is Vercel, failback updates apex and www to `vps.nutsnews.com`.
+
+Controlled drill sequence:
+
+1. Verify direct Vercel secondary health/readiness and confirm the expected
+   source commit before mutating DNS.
+2. Set the expiring health override with `failureCount:3`.
+3. Call `/check-now` once and verify `consecutiveFailureCount: 1`,
+   `lastDnsAction: none:failure_threshold_not_met`, and Cloudflare DNS still
+   points apex and `www` to `vps.nutsnews.com`.
+4. Call `/check-now` a second time and verify `consecutiveFailureCount: 2`,
+   `lastDnsAction: none:failure_threshold_not_met`, and Cloudflare DNS still
+   points apex and `www` to `vps.nutsnews.com`.
+5. Call `/check-now` a third time and verify `lastDnsAction:
+   updated:vps_failure_threshold:vercel`, Cloudflare DNS points both records to
+   `cname.vercel-dns.com`, and public apex/`www` health reports
+   `x-nutsnews-deployment-target: vercel-production` after propagation.
+6. Confirm `/status` continues to update `lastCheckTimestamp` while DNS points
+   to Vercel.
+7. Clear the test override if needed. With real VPS readiness healthy and DNS
+   currently on Vercel, wait through the DNS update cooldown and verify
+   failback updates both records to `vps.nutsnews.com`.
+8. Finish only after apex/`www` again report
+   `x-nutsnews-deployment-target: production-vps` and controller status is
+   healthy on `activeDnsTarget: vps`.
 
 If the controller or Cloudflare API is unavailable, use the Cloudflare dashboard or API directly to perform manual failover or manual failback using the same record names, CNAME targets, proxied status, and Auto TTL above. Reconcile any emergency change back into this repository afterward.
