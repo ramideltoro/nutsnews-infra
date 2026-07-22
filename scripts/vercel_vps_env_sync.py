@@ -35,6 +35,8 @@ ADMIN_CANONICAL_ORIGIN = "https://www.nutsnews.com"
 ADMIN_DIRECT_ORIGIN = "https://vps.nutsnews.com"
 FAILOVER_CONTROLLER_STATUS_HOST = "nutsnews-controller.nutsnews.workers.dev"
 MIN_FAILOVER_HMAC_SECRET_LENGTH = 32
+HOME_SERVER_STATS_URL = "https://ai.nutsnews.com/stats"
+MIN_HOME_SERVER_STATS_API_KEY_LENGTH = 8
 PROVIDER_SWITCH_CONFIRMATIONS = {
     "deploy-supabase-primary",
     BACKEND_POSTGRES_PRIMARY_CONFIRMATION,
@@ -203,9 +205,28 @@ def failover_controller_status_url(value: str) -> bool:
     )
 
 
+def home_server_stats_url(value: str) -> bool:
+    parsed = urllib.parse.urlparse(value)
+    return (
+        safe_https_url(value)
+        and parsed.netloc == "ai.nutsnews.com"
+        and parsed.path == "/stats"
+        and parsed.params == ""
+        and parsed.query == ""
+        and value == HOME_SERVER_STATS_URL
+    )
+
+
 def usable_hmac_secret(value: str) -> bool:
     return (
         MIN_FAILOVER_HMAC_SECRET_LENGTH <= len(value) <= MAX_RUNTIME_AUTH_SECRET_LENGTH
+        and not looks_like_encrypted_envelope(value)
+    )
+
+
+def usable_home_server_stats_api_key(value: str) -> bool:
+    return (
+        MIN_HOME_SERVER_STATS_API_KEY_LENGTH <= len(value) <= MAX_RUNTIME_AUTH_SECRET_LENGTH
         and not looks_like_encrypted_envelope(value)
     )
 
@@ -257,6 +278,13 @@ def validate_selected_values(selected: dict[str, str]) -> None:
             invalid.add("NUTSNEWS_FAILOVER_CONTROLLER_STATUS_URL")
         if not failover_status_secret or not usable_hmac_secret(failover_status_secret):
             invalid.add("NUTSNEWS_FAILOVER_STATUS_HMAC_SECRET")
+
+    home_stats_url = selected.get("HOME_SERVER_STATS_URL", "")
+    home_stats_api_key = selected.get("HOME_SERVER_STATS_API_KEY", "")
+    if not home_stats_url or not home_server_stats_url(home_stats_url):
+        invalid.add("HOME_SERVER_STATS_URL")
+    if not home_stats_api_key or not usable_home_server_stats_api_key(home_stats_api_key):
+        invalid.add("HOME_SERVER_STATS_API_KEY")
 
     for key in ("NUTSNEWS_FAILOVER_RUNBOOK_URL", "NUTSNEWS_FAILOVER_CLOUDFLARE_DASHBOARD_URL"):
         value = selected.get(key, "")

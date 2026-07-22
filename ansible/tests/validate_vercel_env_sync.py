@@ -138,6 +138,19 @@ for source, destination in failover_readonly_destinations.items():
         f"{source} must remain an explicitly synchronized read-only failover dashboard setting.",
     )
 
+home_server_stats_destinations = {
+    "HOME_SERVER_STATS_URL": ("safe_to_synchronize", "HOME_SERVER_STATS_URL"),
+    "HOME_SERVER_STATS_API_KEY": ("server_side_secret", "HOME_SERVER_STATS_API_KEY"),
+}
+for source, (category, destination) in home_server_stats_destinations.items():
+    rule = mapping["variables"].get(source, {})
+    require(
+        rule.get("category") == category
+        and rule.get("sync") is True
+        and rule.get("destination") == destination,
+        f"{source} must remain explicitly synchronized for the protected Home Server admin dashboard.",
+    )
+
 require(
     any(
         rule.get("category") == "manual_review"
@@ -195,6 +208,8 @@ valid_runtime_values = {
     "NUTSNEWS_FAILOVER_STATUS_HMAC_SECRET": "x" * 64,
     "NUTSNEWS_FAILOVER_RUNBOOK_URL": "https://github.com/ramideltoro/nutsnews/blob/main/.github/deployment/failover-visibility-runbook.md",
     "NUTSNEWS_FAILOVER_CLOUDFLARE_DASHBOARD_URL": "https://dash.cloudflare.com/example/nutsnews.com/dns/records",
+    "HOME_SERVER_STATS_URL": "https://ai.nutsnews.com/stats",
+    "HOME_SERVER_STATS_API_KEY": "home-server-stats-key-fixture",
     "NUTSNEWS_DATABASE_PROVIDER_MODE": "backend_postgres_primary",
     "NUTSNEWS_BACKEND_API_URL": "https://backend.nutsnews.com/api/app/db",
     "NUTSNEWS_BACKEND_API_TOKEN": "backend-token-fixture",
@@ -212,11 +227,16 @@ for invalid_values in (
     {**valid_runtime_values, "NUTSNEWS_ADMIN_DIRECT_ORIGIN": "https://www.nutsnews.com"},
     {**valid_runtime_values, "NUTSNEWS_FAILOVER_CONTROLLER_STATUS_URL": "https://example.com/status"},
     {**valid_runtime_values, "NUTSNEWS_FAILOVER_STATUS_HMAC_SECRET": "too-short"},
+    {**valid_runtime_values, "HOME_SERVER_STATS_URL": "https://ai.nutsnews.com/api/stats"},
+    {**valid_runtime_values, "HOME_SERVER_STATS_URL": "https://ai.nutsnews.com/health"},
+    {**valid_runtime_values, "HOME_SERVER_STATS_API_KEY": "short"},
     {key: value for key, value in valid_runtime_values.items() if key != "NUTSNEWS_BACKEND_API_URL"},
     {key: value for key, value in valid_runtime_values.items() if key != "NUTSNEWS_BACKEND_API_TOKEN"},
     {key: value for key, value in valid_runtime_values.items() if key != "NUTSNEWS_BACKEND_POSTGRES_PRIMARY_CONFIRMATION"},
     {key: value for key, value in valid_runtime_values.items() if key != "NUTSNEWS_FAILOVER_CONTROLLER_STATUS_URL"},
     {key: value for key, value in valid_runtime_values.items() if key != "NUTSNEWS_FAILOVER_STATUS_HMAC_SECRET"},
+    {key: value for key, value in valid_runtime_values.items() if key != "HOME_SERVER_STATS_URL"},
+    {key: value for key, value in valid_runtime_values.items() if key != "HOME_SERVER_STATS_API_KEY"},
 ):
     try:
         sync.validate_selected_values(invalid_values)
