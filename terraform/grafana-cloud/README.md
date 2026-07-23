@@ -15,6 +15,12 @@ Backend dashboards are managed at `grafana_dashboard.backend_observability["<das
 
 Do not remove existing backend Grafana resources until import and query/alert verification pass. The protected apply workflow uploads `grafana-cloud-post-apply-verification`, and backend direct provisioning should remain retired only after that report shows the backend folder, dashboards, alert rules, Prometheus queries, and Loki queries are present.
 
+## Worker-Uplift Telemetry Scope
+
+The worker-uplift telemetry scope is approved in `catalog/worker-uplift-telemetry-scope.json`. It makes RabbitMQ metrics, worker service metrics, and structured logs required; keeps traces and exemplars deferred; forbids profiles and article/model payload telemetry; and fixes the worker metric/Loki stream label set to `environment`, `host`, `service`, `version`, `queue`, and `outcome`.
+
+This policy is source-controlled only and does not enable the worker-uplift production path. The shared operating guide is `ramideltoro/nutsnews-docs/NUTSNEWS_WORKER_UPLIFT_TELEMETRY_SCOPE.md`.
+
 ## State
 
 The repo did not previously have a remote Terraform/OpenTofu backend pattern. This module declares a partial `s3` backend and intentionally commits no backend coordinates, state files, tfvars, Grafana URLs, tenant IDs, usernames, or tokens.
@@ -77,17 +83,17 @@ After merge, run `Grafana Cloud Apply` from `main`. The workflow applies the rem
 
 Rollback is GitOps-based: revert the infra PR on `main`, run `Grafana Cloud Plan`, confirm the plan does not destroy protected folders/dashboards/rule groups unexpectedly, and then run `Grafana Cloud Apply`. The managed folders, dashboards, and rule groups use `prevent_destroy` so destructive rollback requires an explicit reviewed code change.
 
-## Free-Tier Assumptions
+## Free-Tier And Live-Limit Guardrails
 
-The committed defaults assume the current Grafana Cloud Free limits documented in the shared runbook. Check Grafana pricing before changing them:
+The committed defaults for optional Synthetic Monitoring and k6 still assume the current Grafana Cloud Free limits documented in the shared runbook. Check Grafana pricing before changing them:
 
-- Metrics: 10,000 active series per month.
-- Logs: 50 GB ingested per month with 14-day retention.
 - Synthetic Monitoring API tests: 100,000 executions per month.
 - Synthetic Monitoring browser tests: 10,000 executions per month.
 - k6: 500 virtual user hours per month.
 
-The `NutsNews Logs Overview` dashboard uses the Loki datasource for source, service, level, systemd unit, Docker container, Caddy status-class, and recent-error views. Log ingest and active stream quota risk are covered by the quota guardrail rules, while the log-pipeline rules alert on Alloy Loki dropped entries, write retries, and high error log volume.
+Metrics, logs, and traces quota guardrails use live `grafanacloud_*_usage` and `grafanacloud_*_limits` data from the `grafanacloud-usage` datasource instead of hard-coded free-plan constants. Current alert thresholds are 70%, 85%, and 95% of the live platform limit for metrics active series, log active streams, log ingestion rate, and trace ingestion rate. Trace alert `NoData` is OK because full worker trace export and exemplars are explicitly deferred.
+
+The `NutsNews Logs Overview` dashboard uses the Loki datasource for source, service, level, systemd unit, Docker container, Caddy status-class, and recent-error views. Log active-stream and ingest-rate quota risk are covered by the quota guardrail rules, while the log-pipeline rules alert on Alloy Loki dropped entries, write retries, and high error log volume.
 
 ## Local Validation
 
@@ -95,4 +101,5 @@ The `NutsNews Logs Overview` dashboard uses the Loki datasource for source, serv
 tofu fmt -recursive terraform/grafana-cloud
 tofu -chdir=terraform/grafana-cloud init -backend=false -input=false
 tofu -chdir=terraform/grafana-cloud validate -no-color
+python3 terraform/grafana-cloud/tests/validate_worker_uplift_telemetry_scope.py
 ```
