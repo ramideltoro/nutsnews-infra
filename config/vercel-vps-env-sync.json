@@ -150,6 +150,12 @@
       "destination": "NUTSNEWS_FAILOVER_STATUS_HMAC_SECRET",
       "reason": "Server-only HMAC credential used by the VPS admin dashboard to sign read-only failover status requests."
     },
+    "NUTSNEWS_FAILOVER_ACTION_HMAC_SECRET": {
+      "category": "server_side_secret",
+      "sync": true,
+      "destination": "NUTSNEWS_FAILOVER_ACTION_HMAC_SECRET",
+      "reason": "Server-only HMAC credential used by protected VPS admin manual controls and failover action audit history."
+    },
     "NUTSNEWS_FAILOVER_RUNBOOK_URL": {
       "category": "safe_to_synchronize",
       "sync": true,
@@ -371,7 +377,7 @@
       "reason": "Preview/development configuration must not enter VPS production."
     },
     {
-      "pattern": "^NUTSNEWS_FAILOVER_(CONTROLLER_ACTION_URL|CONTROLLER_AUDIT_URL|ACTION_HMAC_SECRET)$",
+      "pattern": "^NUTSNEWS_FAILOVER_(CONTROLLER_ACTION_URL|CONTROLLER_AUDIT_URL)$",
       "category": "manual_review",
       "sync": false,
       "reason": "Manual failover actions can change DNS and must be intentionally reviewed before enabling VPS admin controls."
