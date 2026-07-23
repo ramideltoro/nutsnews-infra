@@ -1,6 +1,7 @@
 locals {
   backend_dashboard_import_ids = toset([
     for dashboard in local.backend_catalog.dashboards : dashboard.uid
+    if try(dashboard.importExisting, true)
   ])
 }
 

@@ -72,6 +72,8 @@
     {
       "title": "NutsNews Backend PostgreSQL Failover",
       "uid": "nutsnews-backend-postgres-failover",
+      "importExisting": false,
+      "missingRemoteObjectReason": "Grafana Cloud Apply run 29984664724 reported this dashboard UID does not exist remotely, so OpenTofu creates it from the source catalog instead of importing it.",
       "panels": [
         {"title": "PostgreSQL Service Active", "unit": "short", "expr": "nutsnews_backend_service_active{job=\"nutsnews-backend-host\",unit=\"postgresql\"}"},
         {"title": "Failover Restore Ready", "unit": "short", "expr": "nutsnews_backend_postgres_failover_ready{job=\"nutsnews-backend-host\"}"},
