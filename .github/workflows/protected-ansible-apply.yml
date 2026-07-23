@@ -154,7 +154,7 @@ jobs:
 
     steps:
       - name: Checkout reviewed production verifier
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           fetch-depth: 2
           persist-credentials: false
@@ -340,7 +340,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
 
@@ -443,7 +443,7 @@ jobs:
 
       - name: Set up Python with pip cache
         id: setup_python
-        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6.3.0
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
         with:
           python-version: "3.13"
           cache: pip
@@ -1342,7 +1342,7 @@ jobs:
 
       - name: Checkout exact app post-production smoke suite
         if: inputs.release_source_commit != ''
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           repository: ramideltoro/nutsnews
           ref: ${{ inputs.release_source_commit }}
@@ -1351,7 +1351,7 @@ jobs:
 
       - name: Checkout current app smoke helper
         if: inputs.release_source_commit != '' && inputs.release_smoke_helper_ref != ''
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           repository: ramideltoro/nutsnews
           ref: ${{ inputs.release_smoke_helper_ref }}
