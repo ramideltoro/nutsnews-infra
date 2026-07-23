@@ -43,6 +43,69 @@ They use bounded `environment`, `host`, `vhost`, `stage`, `queue`, and
 main, retry, and DLQ queues. Loki drill-down links filter by the approved
 worker-uplift container labels. Trace links are not present because traces remain deferred by the approved #144 telemetry scope.
 
+### Worker-Uplift Alerts And SLOs
+
+Worker-uplift RabbitMQ alert and SLO assets from
+`ramideltoro/nutsnews-worker#90` are source-controlled in
+`terraform/grafana-cloud/catalog/worker-uplift-rabbitmq-alerts.json` and owned
+by `ramideltoro/nutsnews-infra`.
+The worker-uplift RabbitMQ alert and SLO ownership boundary stays in infra;
+backend and worker repositories only emit telemetry.
+
+Grafana objects:
+
+- `NutsNews Worker-Uplift Pipeline SLOs`
+  (`nutsnews-worker-uplift-slos`)
+- `NutsNews Worker-Uplift RabbitMQ Guardrails`
+  (`grafana_rule_group.worker_uplift_guardrails`)
+
+The alert group covers broker down, private canary failure, Alloy scrape/write
+loss, no consumers while work exists, sustained backlog or oldest-age pressure,
+publish/ack imbalance, unacked growth, DLQs, excessive retry/redelivery,
+connection churn, memory/disk alarms, low disk, file descriptor pressure, stale
+recovery proof, repeated restarts, and SLO burn-rate alerts.
+
+Each notification includes:
+
+- `deployment_environment`
+- `service`
+- `queue`
+- `severity`
+- `owner`
+- `route`
+- `threshold`
+- `runbook_url`
+- value from Grafana's alert evaluation output
+- recovery window through `keep_firing_for`
+
+The SLO dashboard exposes broker availability, stage success/latency,
+end-to-end feed freshness, retry/DLQ rate, and final publication success. Stage,
+feed freshness, and publication panels are intentionally no-data OK until the
+later worker service issues emit those metrics. Broker availability and
+retry/DLQ SLO alerts use multi-window burn-rate expressions where live traffic
+supports that pattern.
+
+Use the backend `Backend RabbitMQ Canary` workflow to exercise alert firing and
+recovery without exposing RabbitMQ publicly:
+
+| Drill | Alert classes exercised |
+| --- | --- |
+| `network-interruption` | broker down, broker availability burn |
+| `invalid-credentials` | canary failure, connection churn, descriptor-pressure triage |
+| `consumer-loss` | no consumers while work exists, unacked growth |
+| `disk-watermark` | memory/disk alarm, low disk |
+| `full-queue` | sustained backlog/oldest age, stage latency/freshness warning |
+| `poison-message` | DLQ, retry/DLQ burn, final publication warning |
+| `grafana-connectivity-loss` | Alloy metrics write loss |
+| `restart` | recovery proof and restart guardrails |
+
+After each deliberate fixture, run a normal canary and wait through the
+configured recovery window before evaluating recovery. Alert tests must not
+publish production articles, expose AMQP/management endpoints, disable legacy
+ingestion/failover, mutate contact points, or disable Alloy remote write.
+Rollback is a Git revert of the infra PR followed by `Grafana Cloud Plan` and
+`Grafana Cloud Apply`; the Grafana resources use `prevent_destroy`.
+
 ## Remote State Bootstrap
 
 If you do not already have an S3-compatible remote state bucket, use the protected `Grafana State Bootstrap` workflow before running Grafana Cloud plan/apply.

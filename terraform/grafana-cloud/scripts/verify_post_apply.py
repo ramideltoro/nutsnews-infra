@@ -17,6 +17,7 @@ from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 BACKEND_CATALOG = ROOT / "catalog" / "backend-observability.json"
+WORKER_UPLIFT_CATALOG = ROOT / "catalog" / "worker-uplift-rabbitmq-alerts.json"
 
 VPS_DASHBOARD_UIDS = {
     "nutsnews-vps-overview",
@@ -46,6 +47,8 @@ PROMETHEUS_QUERIES = {
     "backend_public_endpoint": 'nutsnews_backend_public_endpoint_healthy{job="nutsnews-backend-host"}',
     "backend_rabbitmq": 'up{job=~"nutsnews-rabbitmq|nutsnews-rabbitmq-queues",environment="production"}',
     "backend_rabbitmq_queues": 'rabbitmq_detailed_queue_messages{job="nutsnews-rabbitmq-queues",environment="production"}',
+    "backend_rabbitmq_canary": 'nutsnews_backend_rabbitmq_canary_success{job="nutsnews-backend-host",environment="production",instance="backend.nutsnews.com"}',
+    "backend_rabbitmq_recovery": 'nutsnews_backend_rabbitmq_recovery_stage_healthy{job="nutsnews-backend-host",environment="production",instance="backend.nutsnews.com"}',
 }
 
 LOKI_QUERIES = {
@@ -85,6 +88,10 @@ def env(name: str, fallback: str = "") -> str:
 
 def load_backend_catalog() -> dict[str, Any]:
     return json.loads(BACKEND_CATALOG.read_text(encoding="utf-8"))
+
+
+def load_worker_uplift_catalog() -> dict[str, Any]:
+    return json.loads(WORKER_UPLIFT_CATALOG.read_text(encoding="utf-8"))
 
 
 def prometheus_query(client: GrafanaClient, datasource_uid: str, query: str) -> dict[str, Any]:
@@ -164,8 +171,11 @@ def main() -> int:
         return 1
 
     catalog = load_backend_catalog()
+    worker_uplift_catalog = load_worker_uplift_catalog()
     backend_dashboard_uids = {dashboard["uid"] for dashboard in catalog["dashboards"]}
+    worker_uplift_dashboard_uids = {dashboard["uid"] for dashboard in worker_uplift_catalog["dashboards"]}
     backend_alert_uids = {alert["uid"] for alert in catalog["alerts"]}
+    worker_uplift_alert_uids = {alert["uid"] for alert in worker_uplift_catalog["alerts"]}
     client = GrafanaClient(url, token)
     errors: list[str] = []
 
@@ -177,7 +187,7 @@ def main() -> int:
             errors.append(str(exc))
 
     dashboards = {}
-    for uid in sorted(VPS_DASHBOARD_UIDS | backend_dashboard_uids):
+    for uid in sorted(VPS_DASHBOARD_UIDS | backend_dashboard_uids | worker_uplift_dashboard_uids):
         try:
             dashboard = client.request("GET", f"/api/dashboards/uid/{urllib.parse.quote(uid)}")
             dashboards[uid] = dashboard.get("dashboard", {}).get("title", "")
@@ -185,21 +195,35 @@ def main() -> int:
             errors.append(str(exc))
 
     alerts = {}
-    for uid in sorted(backend_alert_uids):
+    for uid in sorted(backend_alert_uids | worker_uplift_alert_uids):
         try:
             alert = client.request("GET", f"/api/v1/provisioning/alert-rules/{urllib.parse.quote(uid)}")
-            alerts[uid] = alert.get("title", "")
+            alerts[uid] = {
+                "title": alert.get("title", ""),
+                "folder_uid": alert.get("folderUID") or alert.get("folderUid") or "",
+                "rule_group": alert.get("ruleGroup") or alert.get("rule_group") or "",
+            }
         except RuntimeError as exc:
             errors.append(str(exc))
 
-    for folder_uid, group_name in sorted(VPS_ALERT_RULE_GROUPS | {(catalog["folder"]["uid"], catalog["alert_group"]["name"])}):
-        group_alerts = [
-            alert_uid
-            for alert_uid, title in alerts.items()
-            if folder_uid == catalog["folder"]["uid"] and title
-        ]
-        if folder_uid == catalog["folder"]["uid"] and not group_alerts:
-            errors.append(f"missing alert rules for group {folder_uid}:{group_name}")
+    for uid in sorted(backend_alert_uids | worker_uplift_alert_uids):
+        if uid not in alerts:
+            errors.append(f"missing alert rule UID: {uid}")
+
+    expected_backend_groups = {
+        catalog["alert_group"]["name"]: backend_alert_uids,
+        worker_uplift_catalog["alert_group"]["name"]: worker_uplift_alert_uids,
+    }
+    if any(alert.get("rule_group") for alert in alerts.values()):
+        for group_name, expected_uids in sorted(expected_backend_groups.items()):
+            group_alerts = [
+                alert_uid
+                for alert_uid in expected_uids
+                if alerts.get(alert_uid, {}).get("folder_uid") == catalog["folder"]["uid"]
+                and alerts.get(alert_uid, {}).get("rule_group") == group_name
+            ]
+            if len(group_alerts) != len(expected_uids):
+                errors.append(f"missing alert rules for group {catalog['folder']['uid']}:{group_name}")
 
     prometheus = {
         name: prometheus_query(client, prometheus_uid, query)
@@ -222,7 +246,8 @@ def main() -> int:
         "status": "pass" if not errors else "fail",
         "folders": folders,
         "dashboard_count": len(dashboards),
-        "backend_alert_count": len(alerts),
+        "backend_alert_count": sum(1 for uid in backend_alert_uids if uid in alerts),
+        "worker_uplift_alert_count": sum(1 for uid in worker_uplift_alert_uids if uid in alerts),
         "prometheus_queries": prometheus,
         "loki_queries": loki,
         "errors": errors,

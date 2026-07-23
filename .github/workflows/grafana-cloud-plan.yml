@@ -42,6 +42,7 @@ jobs:
           python3 terraform/grafana-cloud/tests/validate_grafana_ownership.py
           python3 terraform/grafana-cloud/tests/validate_worker_uplift_telemetry_scope.py
           python3 terraform/grafana-cloud/tests/validate_worker_uplift_rabbitmq_dashboards.py
+          python3 terraform/grafana-cloud/tests/validate_worker_uplift_alerts_slos.py
           tofu -chdir=terraform/grafana-cloud init -backend=false -input=false
           tofu -chdir=terraform/grafana-cloud validate -no-color
 
