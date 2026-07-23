@@ -168,7 +168,7 @@
     },
     {
       "title": "NutsNews Worker-Uplift RabbitMQ Resources",
-      "uid": "nutsnews-worker-uplift-rabbitmq-resources",
+      "uid": "nutsnews-worker-uplift-rmq-resources",
       "description": "RabbitMQ node resources, connections, channels, consumers, queue count, file descriptors, and resource-related logs.",
       "importExisting": false,
       "missingRemoteObjectReason": "New source-controlled dashboard for ramideltoro/nutsnews-worker#89; OpenTofu creates it after the #141 Grafana ownership handoff.",
