@@ -279,6 +279,10 @@ def validate_selected_values(selected: dict[str, str]) -> None:
         if not failover_status_secret or not usable_hmac_secret(failover_status_secret):
             invalid.add("NUTSNEWS_FAILOVER_STATUS_HMAC_SECRET")
 
+    failover_action_secret = selected.get("NUTSNEWS_FAILOVER_ACTION_HMAC_SECRET", "")
+    if failover_action_secret and not usable_hmac_secret(failover_action_secret):
+        invalid.add("NUTSNEWS_FAILOVER_ACTION_HMAC_SECRET")
+
     home_stats_url = selected.get("HOME_SERVER_STATS_URL", "")
     home_stats_api_key = selected.get("HOME_SERVER_STATS_API_KEY", "")
     if not home_stats_url or not home_server_stats_url(home_stats_url):

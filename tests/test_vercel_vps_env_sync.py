@@ -60,6 +60,7 @@ CURRENT_VERCEL_PRODUCTION_NAMES = {
     "NUTSNEWS_FAILOVER_CLOUDFLARE_DASHBOARD_URL",
     "NUTSNEWS_FAILOVER_CONTROLLER_STATUS_URL",
     "NUTSNEWS_FAILOVER_RUNBOOK_URL",
+    "NUTSNEWS_FAILOVER_ACTION_HMAC_SECRET",
     "NUTSNEWS_FAILOVER_STATUS_HMAC_SECRET",
     "NUTSNEWS_BACKEND_API_URL",
     "NUTSNEWS_BACKEND_API_TOKEN",
@@ -299,7 +300,7 @@ class VercelVpsEnvSyncTests(unittest.TestCase):
                 with self.assertRaisesRegex(SystemExit, "HOME_SERVER_STATS"):
                     sync.validate_selected_values(invalid_values)
 
-    def test_failover_status_config_synchronizes_for_read_only_dashboard(self) -> None:
+    def test_failover_status_and_action_secrets_sync_for_admin_dashboard(self) -> None:
         selected, report = sync.classify_records(
             [
                 {
@@ -315,6 +316,13 @@ class VercelVpsEnvSyncTests(unittest.TestCase):
                     "type": "encrypted",
                     "decrypted": True,
                     "value": "x" * 64,
+                },
+                {
+                    "key": "NUTSNEWS_FAILOVER_ACTION_HMAC_SECRET",
+                    "target": ["production"],
+                    "type": "encrypted",
+                    "decrypted": True,
+                    "value": "y" * 64,
                 },
                 {
                     "key": "NUTSNEWS_FAILOVER_RUNBOOK_URL",
@@ -339,6 +347,7 @@ class VercelVpsEnvSyncTests(unittest.TestCase):
             {
                 "NUTSNEWS_FAILOVER_CONTROLLER_STATUS_URL": "https://nutsnews-controller.nutsnews.workers.dev/status?mode=dashboard",
                 "NUTSNEWS_FAILOVER_STATUS_HMAC_SECRET": "x" * 64,
+                "NUTSNEWS_FAILOVER_ACTION_HMAC_SECRET": "y" * 64,
                 "NUTSNEWS_FAILOVER_RUNBOOK_URL": "https://github.com/ramideltoro/nutsnews/blob/main/.github/deployment/failover-visibility-runbook.md",
                 "NUTSNEWS_FAILOVER_CLOUDFLARE_DASHBOARD_URL": "https://dash.cloudflare.com/example/nutsnews.com/dns/records",
             },
@@ -351,7 +360,10 @@ class VercelVpsEnvSyncTests(unittest.TestCase):
                 "NUTSNEWS_FAILOVER_CLOUDFLARE_DASHBOARD_URL",
             ],
         )
-        self.assertEqual(report["server_side_secret"], ["NUTSNEWS_FAILOVER_STATUS_HMAC_SECRET"])
+        self.assertEqual(
+            report["server_side_secret"],
+            ["NUTSNEWS_FAILOVER_STATUS_HMAC_SECRET", "NUTSNEWS_FAILOVER_ACTION_HMAC_SECRET"],
+        )
         sync.validate_selected_values(valid_runtime_fixture(**selected))
 
     def test_failover_status_config_requires_controller_url_and_hmac_secret(self) -> None:
@@ -381,6 +393,10 @@ class VercelVpsEnvSyncTests(unittest.TestCase):
                 "NUTSNEWS_FAILOVER_STATUS_HMAC_SECRET": "too-short",
             },
             {
+                **valid,
+                "NUTSNEWS_FAILOVER_ACTION_HMAC_SECRET": "too-short",
+            },
+            {
                 **required_auth,
                 "NUTSNEWS_FAILOVER_CONTROLLER_STATUS_URL": valid["NUTSNEWS_FAILOVER_CONTROLLER_STATUS_URL"],
             },
@@ -400,11 +416,27 @@ class VercelVpsEnvSyncTests(unittest.TestCase):
             with self.assertRaises(SystemExit):
                 sync.validate_selected_values(invalid_values)
 
-    def test_failover_action_controls_require_manual_review(self) -> None:
+    def test_failover_action_hmac_secret_synchronizes_for_manual_controls(self) -> None:
+        selected, report = sync.classify_records(
+            [
+                {
+                    "key": "NUTSNEWS_FAILOVER_ACTION_HMAC_SECRET",
+                    "target": ["production"],
+                    "type": "encrypted",
+                    "decrypted": True,
+                    "value": "z" * 64,
+                }
+            ],
+            self.mapping,
+        )
+        self.assertEqual(selected, {"NUTSNEWS_FAILOVER_ACTION_HMAC_SECRET": "z" * 64})
+        self.assertEqual(report["server_side_secret"], ["NUTSNEWS_FAILOVER_ACTION_HMAC_SECRET"])
+        sync.validate_selected_values(valid_runtime_fixture(**selected))
+
+    def test_failover_action_urls_require_manual_review(self) -> None:
         for key in (
             "NUTSNEWS_FAILOVER_CONTROLLER_ACTION_URL",
             "NUTSNEWS_FAILOVER_CONTROLLER_AUDIT_URL",
-            "NUTSNEWS_FAILOVER_ACTION_HMAC_SECRET",
         ):
             with self.subTest(key=key):
                 with self.assertRaisesRegex(SystemExit, key):

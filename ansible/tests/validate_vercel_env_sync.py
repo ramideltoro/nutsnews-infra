@@ -47,9 +47,8 @@ require(
     "Protected production apply must support the scoped failover status HMAC overlay when Vercel lacks the controller secret.",
 )
 require(
-    "NUTSNEWS_FAILOVER_ACTION_HMAC_SECRET: ${{ secrets.NUTSNEWS_FAILOVER_ACTION_HMAC_SECRET }}" not in WORKFLOW
-    and "NUTSNEWS_FAILOVER_CONTROLLER_ACTION_URL: " not in WORKFLOW,
-    "Protected production apply must not implicitly enable failover action controls.",
+    "NUTSNEWS_FAILOVER_ACTION_HMAC_SECRET: ${{ secrets.NUTSNEWS_FAILOVER_ACTION_HMAC_SECRET }}" not in WORKFLOW,
+    "Protected production apply must source the failover action HMAC through reviewed Vercel-to-VPS sync, not a direct workflow secret overlay.",
 )
 require(
     WORKFLOW.count("PRODUCTION_WRITES_PAUSED: ${{ inputs.production_writes_paused }}") >= 3,
@@ -124,6 +123,14 @@ require(
     "Failover status HMAC secret must synchronize as an explicit server-side VPS runtime secret.",
 )
 
+failover_action_rule = mapping["variables"].get("NUTSNEWS_FAILOVER_ACTION_HMAC_SECRET", {})
+require(
+    failover_action_rule.get("category") == "server_side_secret"
+    and failover_action_rule.get("sync") is True
+    and failover_action_rule.get("destination") == "NUTSNEWS_FAILOVER_ACTION_HMAC_SECRET",
+    "Failover action HMAC secret must synchronize as an explicit server-side VPS runtime secret.",
+)
+
 failover_readonly_destinations = {
     "NUTSNEWS_FAILOVER_CONTROLLER_STATUS_URL": "NUTSNEWS_FAILOVER_CONTROLLER_STATUS_URL",
     "NUTSNEWS_FAILOVER_RUNBOOK_URL": "NUTSNEWS_FAILOVER_RUNBOOK_URL",
@@ -155,10 +162,10 @@ require(
     any(
         rule.get("category") == "manual_review"
         and rule.get("sync") is False
-        and "ACTION_HMAC_SECRET" in rule.get("pattern", "")
+        and "CONTROLLER_" in rule.get("pattern", "")
         for rule in mapping.get("patterns", [])
     ),
-    "Manual failover action credentials must remain manual-review only until intentionally enabled.",
+    "Manual failover action endpoint settings must remain manual-review only until intentionally enabled.",
 )
 
 runtime_safety_destinations = {
@@ -206,6 +213,7 @@ valid_runtime_values = {
     "NUTSNEWS_ADMIN_DIRECT_ORIGIN": "https://vps.nutsnews.com",
     "NUTSNEWS_FAILOVER_CONTROLLER_STATUS_URL": "https://nutsnews-controller.nutsnews.workers.dev/status?mode=dashboard",
     "NUTSNEWS_FAILOVER_STATUS_HMAC_SECRET": "x" * 64,
+    "NUTSNEWS_FAILOVER_ACTION_HMAC_SECRET": "y" * 64,
     "NUTSNEWS_FAILOVER_RUNBOOK_URL": "https://github.com/ramideltoro/nutsnews/blob/main/.github/deployment/failover-visibility-runbook.md",
     "NUTSNEWS_FAILOVER_CLOUDFLARE_DASHBOARD_URL": "https://dash.cloudflare.com/example/nutsnews.com/dns/records",
     "HOME_SERVER_STATS_URL": "https://ai.nutsnews.com/stats",
