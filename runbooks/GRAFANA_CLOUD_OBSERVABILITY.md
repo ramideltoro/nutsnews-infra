@@ -31,6 +31,18 @@ Backend dashboards use `grafana_dashboard.backend_observability["<dashboard_uid>
 
 Do not remove existing backend Grafana resources until import and query/alert verification pass. If a protected apply proves a catalog UID is missing remotely, set that dashboard's `importExisting` field to `false` with the apply evidence so OpenTofu creates the missing dashboard from source instead of failing import. The `Grafana Cloud Apply` workflow writes the `grafana-cloud-post-apply-verification` artifact after checking the backend folder, dashboards, alert rules, Prometheus query data, and backend host/source Loki query data.
 
+Worker-uplift RabbitMQ dashboards from `ramideltoro/nutsnews-worker#89` are
+source-created in the backend folder after the #141 ownership handoff:
+
+- `NutsNews Worker-Uplift RabbitMQ Overview`
+- `NutsNews Worker-Uplift Queue Drilldown`
+- `NutsNews Worker-Uplift RabbitMQ Resources`
+
+They use bounded `environment`, `host`, `vhost`, `stage`, `queue`, and
+`service` variables. The `queue` variable lists all 35 declared worker-uplift
+main, retry, and DLQ queues. Loki drill-down links filter by the approved
+worker-uplift container labels. Trace links are not present because traces remain deferred by the approved #144 telemetry scope.
+
 ## Remote State Bootstrap
 
 If you do not already have an S3-compatible remote state bucket, use the protected `Grafana State Bootstrap` workflow before running Grafana Cloud plan/apply.
@@ -200,7 +212,7 @@ If the backend secret is missing, stop and configure remote state before applyin
 2. Run `Grafana Cloud Plan`; the import blocks should map the existing backend folder, dashboards, and rule group to the infra OpenTofu addresses.
 3. Resolve any duplicate UID, missing object, or refresh-only drift result before merge.
 4. Run `Grafana Cloud Apply` from `main`.
-5. Verify the post-apply report shows backend dashboards, 11 backend alert rules, backend Prometheus query results, and backend host/source Loki log lines.
+5. Verify the post-apply report shows backend dashboards, 11 backend alert rules, backend Prometheus query results, RabbitMQ metric query results, backend host/source Loki log lines, and worker-uplift RabbitMQ container log lines.
 6. Only after that verification passes, retire backend direct provisioning and remove backend-scoped Grafana management credentials. Leave backend telemetry write credentials in place.
 
 ### Rollback
@@ -246,6 +258,8 @@ Use Loki Explore:
 {service_namespace="nutsnews", source="docker", compose_project=~"nutsnews-service-foundation|nutsnews-app"}
 {service_namespace="nutsnews", source="docker", container="nutsnews-caddy"} | json
 {service_namespace="nutsnews"} |~ "(?i)(error|critical|panic|failed|denied)"
+{host="backend.nutsnews.com", source="container", service="rabbitmq"}
+{host="backend.nutsnews.com", source="container", queue=~"nutsnews.worker.*"}
 ```
 
 Container log streams are present when `vps_service_foundation_grafana_alloy_collect_docker_logs` is enabled. Container metrics stay disabled until `vps_service_foundation_grafana_alloy_collect_docker` is explicitly enabled after a separate review.
@@ -280,6 +294,13 @@ Expected dashboards are in the `NutsNews Observability` folder:
 - NutsNews Application Service Health
 - NutsNews Synthetic Uptime API Checks
 - NutsNews Grafana Cloud Usage Quota
+
+Expected worker-uplift backend dashboards are in the `NutsNews Backend Ops`
+folder:
+
+- NutsNews Worker-Uplift RabbitMQ Overview
+- NutsNews Worker-Uplift Queue Drilldown
+- NutsNews Worker-Uplift RabbitMQ Resources
 
 The Docker dashboard keeps resource panels from cAdvisor for a future metrics review, but Docker log panels work through the Docker API log collector. Use the Ops Portal for current Docker container state.
 

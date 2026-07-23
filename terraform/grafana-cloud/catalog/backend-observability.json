@@ -4,10 +4,10 @@
     "uid": "nutsnews-backend-ops"
   },
   "guardrails": {
-    "max_dashboards": 10,
+    "max_dashboards": 13,
     "max_panels_per_dashboard": 12,
     "max_total_panels": 80,
-    "max_unique_queries": 100,
+    "max_unique_queries": 130,
     "max_alert_rules": 12
   },
   "alert_group": {
@@ -123,6 +123,64 @@
         {"title": "Fail2ban Ban Events", "datasource": "loki", "unit": "short", "expr": "sum(count_over_time({host=\"backend.nutsnews.com\",service=\"security\"} |~ \"(?i)(notice.*\\bban\\b|sshd.*\\bban\\b)\" [15m]))"},
         {"title": "Backup And Timer Logs", "datasource": "loki", "type": "logs", "expr": "{host=\"backend.nutsnews.com\",service=~\"backup|timer\"}"},
         {"title": "Log Volume By Source", "datasource": "loki", "unit": "short", "expr": "sum by (source) (count_over_time({host=\"backend.nutsnews.com\"}[15m]))"}
+      ]
+    },
+    {
+      "title": "NutsNews Worker-Uplift RabbitMQ Overview",
+      "uid": "nutsnews-worker-uplift-rabbitmq-overview",
+      "description": "Broker health, stage flow, backlog, DLQ, telemetry freshness, alarms, and Alloy health for the worker-uplift RabbitMQ path.",
+      "importExisting": false,
+      "missingRemoteObjectReason": "New source-controlled dashboard for ramideltoro/nutsnews-worker#89; OpenTofu creates it after the #141 Grafana ownership handoff.",
+      "panels": [
+        {"title": "Broker Scrape Up", "type": "stat", "unit": "short", "description": "RabbitMQ aggregate scrape health from the backend Alloy collector.", "expr": "max(up{job=\"nutsnews-rabbitmq\",environment=~\"$environment\",host=~\"$host\"})", "links": [{"title": "Filtered RabbitMQ logs", "targetBlank": false, "url": "/explore?left=%7B%22datasource%22%3A%22%24%24%7Bloki_datasource_uid%7D%22%2C%22queries%22%3A%5B%7B%22refId%22%3A%22A%22%2C%22datasource%22%3A%7B%22type%22%3A%22loki%22%2C%22uid%22%3A%22%24%24%7Bloki_datasource_uid%7D%22%7D%2C%22expr%22%3A%22%7Bhost%3D~%5C%22%24host%5C%22%2Csource%3D%5C%22container%5C%22%2Cservice%3D%5C%22rabbitmq%5C%22%7D%22%2C%22queryType%22%3A%22range%22%7D%5D%2C%22range%22%3A%7B%22from%22%3A%22now-6h%22%2C%22to%22%3A%22now%22%7D%7D"}]},
+        {"title": "Queue Metrics Scrape Up", "type": "stat", "unit": "short", "description": "Detailed queue scrape health for the declared worker-uplift queues.", "expr": "max(up{job=\"nutsnews-rabbitmq-queues\",environment=~\"$environment\",host=~\"$host\"})"},
+        {"title": "Ready Messages Total", "type": "stat", "unit": "short", "description": "Ready backlog across selected worker-uplift queues.", "expr": "sum(rabbitmq_detailed_queue_messages_ready{job=\"nutsnews-rabbitmq-queues\",environment=~\"$environment\",host=~\"$host\",vhost=~\"$vhost\",queue=~\"$queue\"})"},
+        {"title": "Unacked Messages Total", "type": "stat", "unit": "short", "description": "In-flight messages that have been delivered but not acknowledged.", "expr": "sum(rabbitmq_detailed_queue_messages_unacked{job=\"nutsnews-rabbitmq-queues\",environment=~\"$environment\",host=~\"$host\",vhost=~\"$vhost\",queue=~\"$queue\"})"},
+        {"title": "Ingress Publish Rate", "unit": "ops", "description": "Aggregate RabbitMQ publish rate when the broker exposes publish counters.", "expr": "sum(rate(rabbitmq_queue_messages_published_total{job=\"nutsnews-rabbitmq\",environment=~\"$environment\",host=~\"$host\"}[$__rate_interval]))"},
+        {"title": "Egress Ack Rate", "unit": "ops", "description": "Acknowledgement throughput across selected worker-uplift queues.", "expr": "sum(rate(rabbitmq_detailed_queue_messages_acked_total{job=\"nutsnews-rabbitmq-queues\",environment=~\"$environment\",host=~\"$host\",vhost=~\"$vhost\",queue=~\"$queue\"}[$__rate_interval]))"},
+        {"title": "Redelivery Rate", "unit": "ops", "description": "Message redelivery rate across selected worker-uplift queues.", "expr": "sum(rate(rabbitmq_detailed_queue_messages_redelivered_total{job=\"nutsnews-rabbitmq-queues\",environment=~\"$environment\",host=~\"$host\",vhost=~\"$vhost\",queue=~\"$queue\"}[$__rate_interval]))"},
+        {"title": "DLQ Ready Messages", "type": "stat", "unit": "short", "description": "Ready messages parked in terminal worker-uplift DLQs.", "expr": "sum(rabbitmq_detailed_queue_messages_ready{job=\"nutsnews-rabbitmq-queues\",environment=~\"$environment\",host=~\"$host\",vhost=~\"$vhost\",queue=~\".*\\.dlq$\"})"},
+        {"title": "Stage Ack Throughput", "unit": "ops", "description": "Acknowledgement throughput grouped by selected main-stage queue.", "expr": "sum by (queue) (rate(rabbitmq_detailed_queue_messages_acked_total{job=\"nutsnews-rabbitmq-queues\",environment=~\"$environment\",host=~\"$host\",vhost=~\"$vhost\",queue=~\"nutsnews\\.worker\\.($stage)\\.v1\"}[$__rate_interval]))"},
+        {"title": "Queue Metric Freshness", "type": "stat", "unit": "s", "description": "Age of the newest detailed queue metric sample; worker-owned oldest-content age metrics are expected later.", "expr": "max(time() - timestamp(rabbitmq_detailed_queue_messages{job=\"nutsnews-rabbitmq-queues\",environment=~\"$environment\",host=~\"$host\",vhost=~\"$vhost\",queue=~\"$queue\"}))"},
+        {"title": "Broker Alarms", "type": "stat", "unit": "short", "description": "RabbitMQ memory, disk, and general alarm signals when exposed by the broker exporter.", "expr": "max(rabbitmq_alarms{job=\"nutsnews-rabbitmq\",environment=~\"$environment\",host=~\"$host\"} or rabbitmq_alarms_memory_used_watermark{job=\"nutsnews-rabbitmq\",environment=~\"$environment\",host=~\"$host\"} or rabbitmq_alarms_free_disk_space_watermark{job=\"nutsnews-rabbitmq\",environment=~\"$environment\",host=~\"$host\"})"},
+        {"title": "Alloy Remote Write Pending Samples", "type": "stat", "unit": "short", "description": "Backend Alloy remote-write backlog; sustained nonzero values can mean telemetry is not leaving the host.", "expr": "max(prometheus_remote_storage_samples_pending{job=\"nutsnews-backend-host\",instance=~\"$host\"})"}
+      ]
+    },
+    {
+      "title": "NutsNews Worker-Uplift Queue Drilldown",
+      "uid": "nutsnews-worker-uplift-rabbitmq-queues",
+      "description": "Queue and stage drill-down for depth, consumer pressure, retries, DLQs, delivery/ack rates, service versions, and filtered Loki logs.",
+      "importExisting": false,
+      "missingRemoteObjectReason": "New source-controlled dashboard for ramideltoro/nutsnews-worker#89; OpenTofu creates it after the #141 Grafana ownership handoff.",
+      "panels": [
+        {"title": "Selected Queue Depth", "unit": "short", "description": "Total messages in every selected queue.", "expr": "sum by (queue) (rabbitmq_detailed_queue_messages{job=\"nutsnews-rabbitmq-queues\",environment=~\"$environment\",host=~\"$host\",vhost=~\"$vhost\",queue=~\"$queue\"})", "links": [{"title": "Filtered queue logs", "targetBlank": false, "url": "/explore?left=%7B%22datasource%22%3A%22%24%24%7Bloki_datasource_uid%7D%22%2C%22queries%22%3A%5B%7B%22refId%22%3A%22A%22%2C%22datasource%22%3A%7B%22type%22%3A%22loki%22%2C%22uid%22%3A%22%24%24%7Bloki_datasource_uid%7D%22%7D%2C%22expr%22%3A%22%7Bhost%3D~%5C%22%24host%5C%22%2Csource%3D%5C%22container%5C%22%2Cqueue%3D~%5C%22%24queue%5C%22%7D%22%2C%22queryType%22%3A%22range%22%7D%5D%2C%22range%22%3A%7B%22from%22%3A%22now-6h%22%2C%22to%22%3A%22now%22%7D%7D"}]},
+        {"title": "Ready By Queue", "unit": "short", "description": "Messages ready for delivery by selected queue.", "expr": "sum by (queue) (rabbitmq_detailed_queue_messages_ready{job=\"nutsnews-rabbitmq-queues\",environment=~\"$environment\",host=~\"$host\",vhost=~\"$vhost\",queue=~\"$queue\"})"},
+        {"title": "Unacked By Queue", "unit": "short", "description": "Delivered but unacknowledged messages by selected queue.", "expr": "sum by (queue) (rabbitmq_detailed_queue_messages_unacked{job=\"nutsnews-rabbitmq-queues\",environment=~\"$environment\",host=~\"$host\",vhost=~\"$vhost\",queue=~\"$queue\"})"},
+        {"title": "Consumer Count By Queue", "unit": "short", "description": "Consumer count by selected queue.", "expr": "sum by (queue) (rabbitmq_detailed_queue_consumers{job=\"nutsnews-rabbitmq-queues\",environment=~\"$environment\",host=~\"$host\",vhost=~\"$vhost\",queue=~\"$queue\"})"},
+        {"title": "Consumer Utilisation By Queue", "unit": "percentunit", "description": "RabbitMQ consumer utilisation by selected queue.", "expr": "avg by (queue) (rabbitmq_detailed_queue_consumer_utilisation{job=\"nutsnews-rabbitmq-queues\",environment=~\"$environment\",host=~\"$host\",vhost=~\"$vhost\",queue=~\"$queue\"})"},
+        {"title": "Consumer Capacity By Queue", "unit": "percentunit", "description": "RabbitMQ consumer capacity by selected queue.", "expr": "avg by (queue) (rabbitmq_detailed_queue_consumer_capacity{job=\"nutsnews-rabbitmq-queues\",environment=~\"$environment\",host=~\"$host\",vhost=~\"$vhost\",queue=~\"$queue\"})"},
+        {"title": "Deliver Rate By Queue", "unit": "ops", "description": "Delivered message rate by selected queue.", "expr": "sum by (queue) (rate(rabbitmq_detailed_queue_messages_delivered_total{job=\"nutsnews-rabbitmq-queues\",environment=~\"$environment\",host=~\"$host\",vhost=~\"$vhost\",queue=~\"$queue\"}[$__rate_interval]))"},
+        {"title": "Ack Rate By Queue", "unit": "ops", "description": "Acknowledgement rate by selected queue.", "expr": "sum by (queue) (rate(rabbitmq_detailed_queue_messages_acked_total{job=\"nutsnews-rabbitmq-queues\",environment=~\"$environment\",host=~\"$host\",vhost=~\"$vhost\",queue=~\"$queue\"}[$__rate_interval]))"},
+        {"title": "Retry Queue Depth", "unit": "short", "description": "Backlog in selected retry queues.", "expr": "sum by (queue) (rabbitmq_detailed_queue_messages_ready{job=\"nutsnews-rabbitmq-queues\",environment=~\"$environment\",host=~\"$host\",vhost=~\"$vhost\",queue=~\".*\\.retry-(30s|5m|30m)$\"})"},
+        {"title": "DLQ Queue Depth", "unit": "short", "description": "Backlog in selected terminal DLQs.", "expr": "sum by (queue) (rabbitmq_detailed_queue_messages_ready{job=\"nutsnews-rabbitmq-queues\",environment=~\"$environment\",host=~\"$host\",vhost=~\"$vhost\",queue=~\".*\\.dlq$\"})"},
+        {"title": "Worker Service Versions And Logs", "datasource": "loki", "type": "logs", "description": "Structured worker-uplift logs filtered by selected host, service, and queue; worker services can be empty until deployment.", "expr": "{host=~\"$host\",source=\"container\",service=~\"$service\",queue=~\"$queue\"}"}
+      ]
+    },
+    {
+      "title": "NutsNews Worker-Uplift RabbitMQ Resources",
+      "uid": "nutsnews-worker-uplift-rabbitmq-resources",
+      "description": "RabbitMQ node resources, connections, channels, consumers, queue count, file descriptors, and resource-related logs.",
+      "importExisting": false,
+      "missingRemoteObjectReason": "New source-controlled dashboard for ramideltoro/nutsnews-worker#89; OpenTofu creates it after the #141 Grafana ownership handoff.",
+      "panels": [
+        {"title": "RabbitMQ Connections", "unit": "short", "description": "Open RabbitMQ connections.", "expr": "sum(rabbitmq_connections{job=\"nutsnews-rabbitmq\",environment=~\"$environment\",host=~\"$host\"})"},
+        {"title": "RabbitMQ Channels", "unit": "short", "description": "Open RabbitMQ channels.", "expr": "sum(rabbitmq_channels{job=\"nutsnews-rabbitmq\",environment=~\"$environment\",host=~\"$host\"})"},
+        {"title": "RabbitMQ Consumers", "unit": "short", "description": "Total RabbitMQ consumers.", "expr": "sum(rabbitmq_consumers{job=\"nutsnews-rabbitmq\",environment=~\"$environment\",host=~\"$host\"})"},
+        {"title": "RabbitMQ Queue Count", "unit": "short", "description": "Queue count visible from the aggregate RabbitMQ exporter.", "expr": "sum(rabbitmq_queues{job=\"nutsnews-rabbitmq\",environment=~\"$environment\",host=~\"$host\"})"},
+        {"title": "RabbitMQ Memory Used", "unit": "bytes", "description": "RabbitMQ process or node memory used when exposed by the exporter.", "expr": "max(rabbitmq_process_resident_memory_bytes{job=\"nutsnews-rabbitmq\",environment=~\"$environment\",host=~\"$host\"} or rabbitmq_node_mem_used{job=\"nutsnews-rabbitmq\",environment=~\"$environment\",host=~\"$host\"})"},
+        {"title": "RabbitMQ Disk Free", "unit": "bytes", "description": "RabbitMQ free disk signal when exposed by the exporter.", "expr": "min(rabbitmq_node_disk_free{job=\"nutsnews-rabbitmq\",environment=~\"$environment\",host=~\"$host\"} or rabbitmq_disk_space_available_bytes{job=\"nutsnews-rabbitmq\",environment=~\"$environment\",host=~\"$host\"})"},
+        {"title": "RabbitMQ File Descriptor Usage", "unit": "percentunit", "description": "RabbitMQ file descriptor usage ratio when open/max file descriptor gauges are exposed.", "expr": "max(rabbitmq_process_open_fds{job=\"nutsnews-rabbitmq\",environment=~\"$environment\",host=~\"$host\"} / rabbitmq_process_max_fds{job=\"nutsnews-rabbitmq\",environment=~\"$environment\",host=~\"$host\"})"},
+        {"title": "RabbitMQ Resource Logs", "datasource": "loki", "type": "logs", "description": "RabbitMQ logs filtered for resource, connection, channel, and alarm terms.", "expr": "{host=~\"$host\",source=\"container\",service=\"rabbitmq\"} |~ \"(?i)(memory|disk|alarm|connection|channel|file descriptor)\""}
       ]
     }
   ],

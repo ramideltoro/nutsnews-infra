@@ -21,6 +21,22 @@ The worker-uplift telemetry scope is approved in `catalog/worker-uplift-telemetr
 
 This policy is source-controlled only and does not enable the worker-uplift production path. The shared operating guide is `ramideltoro/nutsnews-docs/NUTSNEWS_WORKER_UPLIFT_TELEMETRY_SCOPE.md`.
 
+## Worker-Uplift RabbitMQ Dashboards
+
+Issue `ramideltoro/nutsnews-worker#89` adds three source-created dashboards to
+the backend ops folder:
+
+- `NutsNews Worker-Uplift RabbitMQ Overview`
+- `NutsNews Worker-Uplift Queue Drilldown`
+- `NutsNews Worker-Uplift RabbitMQ Resources`
+
+The dashboards use bounded `environment`, `host`, `vhost`, `stage`, `queue`,
+and `service` variables. The `queue` variable lists all 35 declared main,
+retry, and DLQ names so operators can select any contract queue without editing
+queries. Queue and service panels include Grafana Explore links to filtered
+Loki logs. Trace links are intentionally absent because traces remain deferred
+under the approved worker-uplift telemetry policy.
+
 ## State
 
 The repo did not previously have a remote Terraform/OpenTofu backend pattern. This module declares a partial `s3` backend and intentionally commits no backend coordinates, state files, tfvars, Grafana URLs, tenant IDs, usernames, or tokens.
@@ -79,7 +95,7 @@ The backend import blocks are declared in `imports.tf`:
 
 Run the protected `Grafana Cloud Plan` workflow first. It performs a normal plan and a refresh-only drift check against remote state. If drift is reported, reconcile it before applying.
 
-After merge, run `Grafana Cloud Apply` from `main`. The workflow applies the remote-state-backed plan and then runs `scripts/verify_post_apply.py --require-query-data`. The required Loki samples use the source-managed backend host selectors `{host="backend.nutsnews.com"}` and `{host="backend.nutsnews.com",source="journal"}`. Treat a failed verification as a blocked handoff: keep the legacy backend resources intact, fix the missing import/query/alert condition, and rerun plan/apply.
+After merge, run `Grafana Cloud Apply` from `main`. The workflow applies the remote-state-backed plan and then runs `scripts/verify_post_apply.py --require-query-data`. The required data checks include backend host metrics, RabbitMQ aggregate/detailed metrics, backend host logs, backend journal logs, and worker-uplift RabbitMQ container logs. Treat a failed verification as a blocked handoff: keep the legacy backend resources intact, fix the missing import/query/alert condition, and rerun plan/apply.
 
 Rollback is GitOps-based: revert the infra PR on `main`, run `Grafana Cloud Plan`, confirm the plan does not destroy protected folders/dashboards/rule groups unexpectedly, and then run `Grafana Cloud Apply`. The managed folders, dashboards, and rule groups use `prevent_destroy` so destructive rollback requires an explicit reviewed code change.
 
@@ -101,5 +117,8 @@ The `NutsNews Logs Overview` dashboard uses the Loki datasource for source, serv
 tofu fmt -recursive terraform/grafana-cloud
 tofu -chdir=terraform/grafana-cloud init -backend=false -input=false
 tofu -chdir=terraform/grafana-cloud validate -no-color
+python3 terraform/grafana-cloud/tests/validate_dashboard_definitions.py
+python3 terraform/grafana-cloud/tests/validate_grafana_ownership.py
 python3 terraform/grafana-cloud/tests/validate_worker_uplift_telemetry_scope.py
+python3 terraform/grafana-cloud/tests/validate_worker_uplift_rabbitmq_dashboards.py
 ```

@@ -34,7 +34,7 @@ dashboard_uids = [dashboard["uid"] for dashboard in dashboards]
 alert_uids = [alert["uid"] for alert in alerts]
 
 require(folder == {"title": "NutsNews Backend Ops", "uid": "nutsnews-backend-ops"}, "backend folder UID/title changed")
-require(len(dashboards) == 10, "backend catalog must preserve all 10 backend dashboards")
+require(len(dashboards) == 13, "backend catalog must preserve all 13 backend dashboards")
 require(len(alerts) == 11, "backend catalog must preserve all 11 backend alerts")
 require(len(dashboard_uids) == len(set(dashboard_uids)), "backend dashboard UIDs must be unique")
 require(len(alert_uids) == len(set(alert_uids)), "backend alert UIDs must be unique")
@@ -56,15 +56,27 @@ for uid in dashboard_uids:
 source_created_dashboards = [
     dashboard for dashboard in dashboards if dashboard.get("importExisting") is False
 ]
-require(len(source_created_dashboards) == 1, "exactly one backend dashboard may be source-created instead of imported")
+source_created_uids = [dashboard["uid"] for dashboard in source_created_dashboards]
+expected_source_created_uids = [
+    "nutsnews-backend-postgres-failover",
+    "nutsnews-worker-uplift-rabbitmq-overview",
+    "nutsnews-worker-uplift-rabbitmq-queues",
+    "nutsnews-worker-uplift-rabbitmq-resources",
+]
+require(source_created_uids == expected_source_created_uids, "backend source-created dashboards must be the approved catalog-owned dashboards")
 require(
-    [dashboard["uid"] for dashboard in source_created_dashboards] == ["nutsnews-backend-postgres-failover"],
-    "only the missing backend PostgreSQL failover dashboard may be source-created instead of imported",
+    source_created_dashboards[0]["uid"] == "nutsnews-backend-postgres-failover",
+    "the existing backend PostgreSQL failover exception must remain first in the source-created dashboard list",
 )
 require(
     "Grafana Cloud Apply run 29984664724" in source_created_dashboards[0].get("missingRemoteObjectReason", ""),
     "source-created dashboard must document the apply evidence for the missing remote object",
 )
+for dashboard in source_created_dashboards[1:]:
+    require(
+        "ramideltoro/nutsnews-worker#89" in dashboard.get("missingRemoteObjectReason", ""),
+        f"{dashboard['uid']} must document the #89 source-created reason",
+    )
 
 for uid in alert_uids:
     require(uid in json.dumps(CATALOG), f"backend catalog missing alert UID {uid}")

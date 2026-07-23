@@ -44,11 +44,14 @@ PROMETHEUS_QUERIES = {
     "vps_node_exporter": 'up{job=~"integrations/node_exporter"}',
     "backend_host": 'up{job="nutsnews-backend-host"}',
     "backend_public_endpoint": 'nutsnews_backend_public_endpoint_healthy{job="nutsnews-backend-host"}',
+    "backend_rabbitmq": 'up{job=~"nutsnews-rabbitmq|nutsnews-rabbitmq-queues",environment="production"}',
+    "backend_rabbitmq_queues": 'rabbitmq_detailed_queue_messages{job="nutsnews-rabbitmq-queues",environment="production"}',
 }
 
 LOKI_QUERIES = {
     "backend_host_logs": '{host="backend.nutsnews.com"}',
     "backend_journal": '{host="backend.nutsnews.com",source="journal"}',
+    "backend_rabbitmq_logs": '{host="backend.nutsnews.com",source="container",service="rabbitmq"}',
 }
 
 

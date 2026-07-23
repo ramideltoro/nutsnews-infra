@@ -224,6 +224,7 @@ locals {
           type = local.datasource_types[panel.datasource]
           uid  = local.datasource_uids[panel.datasource]
         }
+        description = try(panel.description, "")
         fieldConfig = {
           defaults = {
             color = {
@@ -251,6 +252,7 @@ locals {
               }
             }
             mappings = []
+            noValue  = try(panel.noValue, "No data")
             unit     = panel.unit
           }
           overrides = []
@@ -262,6 +264,7 @@ locals {
           y = floor(index / 2) * 8
         }
         id    = index + 1
+        links = try(panel.links, [])
         title = panel.title
         type  = panel.type
         options = merge(

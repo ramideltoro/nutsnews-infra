@@ -9,13 +9,20 @@ locals {
       description = try(dashboard.description, "Backend host, runtime, service, backup, database, quota, alert, synthetic, and log observability imported from nutsnews-backend.")
       panels = [
         for panel in dashboard.panels : {
-          title      = panel.title
-          type       = try(panel.type, "timeseries")
-          datasource = try(panel.datasource, "prometheus")
-          unit       = try(panel.unit, "short")
-          width      = try(panel.width, 12)
-          height     = try(panel.height, 8)
-          expr       = panel.expr
+          title       = panel.title
+          type        = try(panel.type, "timeseries")
+          datasource  = try(panel.datasource, "prometheus")
+          unit        = try(panel.unit, "short")
+          width       = try(panel.width, 12)
+          height      = try(panel.height, 8)
+          expr        = panel.expr
+          description = try(panel.description, "")
+          links = [
+            for link in try(panel.links, []) : merge(link, {
+              url = replace(try(link.url, ""), "%24%24%7Bloki_datasource_uid%7D", urlencode(var.loki_datasource_uid))
+            })
+          ]
+          noValue = try(panel.noValue, "No data")
         }
       ]
     }
@@ -28,6 +35,7 @@ locals {
           type = local.datasource_types[panel.datasource]
           uid  = local.datasource_uids[panel.datasource]
         }
+        description = panel.description
         fieldConfig = {
           defaults = {
             color = {
@@ -55,6 +63,7 @@ locals {
               }
             }
             mappings = []
+            noValue  = panel.noValue
             unit     = panel.unit
           }
           overrides = []
@@ -66,6 +75,7 @@ locals {
           y = floor(index / 2) * 8
         }
         id    = index + 1
+        links = panel.links
         title = panel.title
         type  = panel.type
         options = merge(

@@ -7,7 +7,20 @@
   "fiscalYearStartMonth": 0,
   "graphTooltip": 0,
   "id": null,
-  "links": [],
+  "links": [
+    {
+      "asDropdown": false,
+      "icon": "external link",
+      "includeVars": true,
+      "keepTime": true,
+      "tags": [],
+      "targetBlank": true,
+      "title": "Runbook",
+      "tooltip": "Open the NutsNews Grafana Cloud observability runbook.",
+      "type": "link",
+      "url": "https://github.com/ramideltoro/nutsnews-infra/blob/main/runbooks/GRAFANA_CLOUD_OBSERVABILITY.md"
+    }
+  ],
   "liveNow": false,
   "panels": ${panels_json},
   "refresh": "1m",
@@ -71,6 +84,91 @@
         "skipUrlSync": false,
         "sort": 1,
         "type": "query"
+      },
+      {
+        "allValue": ".*",
+        "current": {
+          "selected": false,
+          "text": "All",
+          "value": ".*"
+        },
+        "hide": 0,
+        "includeAll": true,
+        "label": "Host",
+        "multi": false,
+        "name": "host",
+        "options": [],
+        "query": "backend.nutsnews.com,vps.nutsnews.com",
+        "skipUrlSync": false,
+        "type": "custom"
+      },
+      {
+        "allValue": ".*",
+        "current": {
+          "selected": false,
+          "text": "All",
+          "value": ".*"
+        },
+        "hide": 0,
+        "includeAll": true,
+        "label": "RabbitMQ vhost",
+        "multi": false,
+        "name": "vhost",
+        "options": [],
+        "query": "nutsnews-worker-uplift",
+        "skipUrlSync": false,
+        "type": "custom"
+      },
+      {
+        "allValue": ".*",
+        "current": {
+          "selected": false,
+          "text": "All",
+          "value": ".*"
+        },
+        "hide": 0,
+        "includeAll": true,
+        "label": "Stage",
+        "multi": true,
+        "name": "stage",
+        "options": [],
+        "query": "fetch,canonicalization,enrichment,approval,translation,persistence,publication",
+        "skipUrlSync": false,
+        "type": "custom"
+      },
+      {
+        "allValue": ".*",
+        "current": {
+          "selected": false,
+          "text": "All",
+          "value": ".*"
+        },
+        "hide": 0,
+        "includeAll": true,
+        "label": "Queue",
+        "multi": true,
+        "name": "queue",
+        "options": [],
+        "query": "nutsnews.worker.fetch.v1,nutsnews.worker.fetch.v1.retry-30s,nutsnews.worker.fetch.v1.retry-5m,nutsnews.worker.fetch.v1.retry-30m,nutsnews.worker.fetch.v1.dlq,nutsnews.worker.canonicalization.v1,nutsnews.worker.canonicalization.v1.retry-30s,nutsnews.worker.canonicalization.v1.retry-5m,nutsnews.worker.canonicalization.v1.retry-30m,nutsnews.worker.canonicalization.v1.dlq,nutsnews.worker.enrichment.v1,nutsnews.worker.enrichment.v1.retry-30s,nutsnews.worker.enrichment.v1.retry-5m,nutsnews.worker.enrichment.v1.retry-30m,nutsnews.worker.enrichment.v1.dlq,nutsnews.worker.approval.v1,nutsnews.worker.approval.v1.retry-30s,nutsnews.worker.approval.v1.retry-5m,nutsnews.worker.approval.v1.retry-30m,nutsnews.worker.approval.v1.dlq,nutsnews.worker.translation.v1,nutsnews.worker.translation.v1.retry-30s,nutsnews.worker.translation.v1.retry-5m,nutsnews.worker.translation.v1.retry-30m,nutsnews.worker.translation.v1.dlq,nutsnews.worker.persistence.v1,nutsnews.worker.persistence.v1.retry-30s,nutsnews.worker.persistence.v1.retry-5m,nutsnews.worker.persistence.v1.retry-30m,nutsnews.worker.persistence.v1.dlq,nutsnews.worker.publication.v1,nutsnews.worker.publication.v1.retry-30s,nutsnews.worker.publication.v1.retry-5m,nutsnews.worker.publication.v1.retry-30m,nutsnews.worker.publication.v1.dlq",
+        "skipUrlSync": false,
+        "type": "custom"
+      },
+      {
+        "allValue": ".*",
+        "current": {
+          "selected": false,
+          "text": "All",
+          "value": ".*"
+        },
+        "hide": 0,
+        "includeAll": true,
+        "label": "Service",
+        "multi": true,
+        "name": "service",
+        "options": [],
+        "query": "rabbitmq,scheduler,fetcher,canonicalizer,enrichment,approval,translation,persistence,publication",
+        "skipUrlSync": false,
+        "type": "custom"
       }
     ]
   },
