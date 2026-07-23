@@ -29,7 +29,7 @@ Grafana management/service-account credentials stay only in ramideltoro/nutsnews
 
 Backend dashboards use `grafana_dashboard.backend_observability["<dashboard_uid>"]`, and backend alert rules are owned by `grafana_rule_group.backend_guardrails`. The source catalog is `terraform/grafana-cloud/catalog/backend-observability.json`.
 
-Do not remove existing backend Grafana resources until import and query/alert verification pass. If a protected apply proves a catalog UID is missing remotely, set that dashboard's `importExisting` field to `false` with the apply evidence so OpenTofu creates the missing dashboard from source instead of failing import. The `Grafana Cloud Apply` workflow writes the `grafana-cloud-post-apply-verification` artifact after checking the backend folder, dashboards, alert rules, Prometheus query data, and Loki query data.
+Do not remove existing backend Grafana resources until import and query/alert verification pass. If a protected apply proves a catalog UID is missing remotely, set that dashboard's `importExisting` field to `false` with the apply evidence so OpenTofu creates the missing dashboard from source instead of failing import. The `Grafana Cloud Apply` workflow writes the `grafana-cloud-post-apply-verification` artifact after checking the backend folder, dashboards, alert rules, Prometheus query data, and backend host/source Loki query data.
 
 ## Remote State Bootstrap
 
@@ -200,7 +200,7 @@ If the backend secret is missing, stop and configure remote state before applyin
 2. Run `Grafana Cloud Plan`; the import blocks should map the existing backend folder, dashboards, and rule group to the infra OpenTofu addresses.
 3. Resolve any duplicate UID, missing object, or refresh-only drift result before merge.
 4. Run `Grafana Cloud Apply` from `main`.
-5. Verify the post-apply report shows backend dashboards, 11 backend alert rules, backend Prometheus query results, and backend Loki log lines.
+5. Verify the post-apply report shows backend dashboards, 11 backend alert rules, backend Prometheus query results, and backend host/source Loki log lines.
 6. Only after that verification passes, retire backend direct provisioning and remove backend-scoped Grafana management credentials. Leave backend telemetry write credentials in place.
 
 ### Rollback
