@@ -29,7 +29,7 @@ Grafana management/service-account credentials stay only in ramideltoro/nutsnews
 
 Backend dashboards use `grafana_dashboard.backend_observability["<dashboard_uid>"]`, and backend alert rules are owned by `grafana_rule_group.backend_guardrails`. The source catalog is `terraform/grafana-cloud/catalog/backend-observability.json`.
 
-Do not remove existing backend Grafana resources until import and query/alert verification pass. The `Grafana Cloud Apply` workflow writes the `grafana-cloud-post-apply-verification` artifact after checking the backend folder, dashboards, alert rules, Prometheus query data, and Loki query data.
+Do not remove existing backend Grafana resources until import and query/alert verification pass. If a protected apply proves a catalog UID is missing remotely, set that dashboard's `importExisting` field to `false` with the apply evidence so OpenTofu creates the missing dashboard from source instead of failing import. The `Grafana Cloud Apply` workflow writes the `grafana-cloud-post-apply-verification` artifact after checking the backend folder, dashboards, alert rules, Prometheus query data, and Loki query data.
 
 ## Remote State Bootstrap
 

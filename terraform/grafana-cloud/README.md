@@ -11,7 +11,7 @@ Grafana management/service-account credentials stay only in ramideltoro/nutsnews
 | VPS observability | `vps.nutsnews.com` | `nutsnews-observability` | `grafana_folder.observability` | `ramideltoro/nutsnews-infra` |
 | Backend observability | `backend.nutsnews.com` | `nutsnews-backend-ops` | `grafana_folder.backend_observability` | `ramideltoro/nutsnews-infra` |
 
-Backend dashboards are managed at `grafana_dashboard.backend_observability["<dashboard_uid>"]`, and the backend alert group is managed at `grafana_rule_group.backend_guardrails`. The backend catalog in `catalog/backend-observability.json` preserves the UIDs already used by the previous direct API provisioning path so OpenTofu can import existing objects instead of creating duplicate dashboards or alert rules.
+Backend dashboards are managed at `grafana_dashboard.backend_observability["<dashboard_uid>"]`, and the backend alert group is managed at `grafana_rule_group.backend_guardrails`. The backend catalog in `catalog/backend-observability.json` preserves the UIDs already used by the previous direct API provisioning path so OpenTofu can import existing objects instead of creating duplicate dashboards or alert rules. A catalog dashboard may set `importExisting` to `false` only when a protected apply proves the UID is missing remotely; OpenTofu then creates that missing dashboard from the same catalog.
 
 Do not remove existing backend Grafana resources until import and query/alert verification pass. The protected apply workflow uploads `grafana-cloud-post-apply-verification`, and backend direct provisioning should remain retired only after that report shows the backend folder, dashboards, alert rules, Prometheus queries, and Loki queries are present.
 
@@ -74,7 +74,7 @@ Set `TF_VAR_synthetic_http_checks` to `{}` to disable Synthetic Monitoring resou
 The backend import blocks are declared in `imports.tf`:
 
 - `grafana_folder.backend_observability` imports `nutsnews-backend-ops`.
-- `grafana_dashboard.backend_observability[each.key]` imports each dashboard by UID from `catalog/backend-observability.json`.
+- `grafana_dashboard.backend_observability[each.key]` imports each existing dashboard by UID from `catalog/backend-observability.json`; catalog entries with `importExisting = false` are created from source instead of imported.
 - `grafana_rule_group.backend_guardrails` imports `nutsnews-backend-ops:NutsNews Backend Guardrails`.
 
 Run the protected `Grafana Cloud Plan` workflow first. It performs a normal plan and a refresh-only drift check against remote state. If drift is reported, reconcile it before applying.

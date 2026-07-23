@@ -52,12 +52,26 @@ for token in (
 for uid in dashboard_uids:
     require(uid in json.dumps(CATALOG), f"backend catalog missing dashboard UID {uid}")
 
+source_created_dashboards = [
+    dashboard for dashboard in dashboards if dashboard.get("importExisting") is False
+]
+require(len(source_created_dashboards) == 1, "exactly one backend dashboard may be source-created instead of imported")
+require(
+    [dashboard["uid"] for dashboard in source_created_dashboards] == ["nutsnews-backend-postgres-failover"],
+    "only the missing backend PostgreSQL failover dashboard may be source-created instead of imported",
+)
+require(
+    "Grafana Cloud Apply run 29984664724" in source_created_dashboards[0].get("missingRemoteObjectReason", ""),
+    "source-created dashboard must document the apply evidence for the missing remote object",
+)
+
 for uid in alert_uids:
     require(uid in json.dumps(CATALOG), f"backend catalog missing alert UID {uid}")
 
 require('to = grafana_folder.backend_observability' in IMPORTS_TF, "backend folder import block missing")
 require('id = "nutsnews-backend-ops"' in IMPORTS_TF, "backend folder import id missing")
 require('for_each = local.backend_dashboard_import_ids' in IMPORTS_TF, "dashboard import must use catalog-driven for_each")
+require('if try(dashboard.importExisting, true)' in IMPORTS_TF, "dashboard import ids must skip explicitly source-created missing dashboards")
 require('to       = grafana_dashboard.backend_observability[each.key]' in IMPORTS_TF, "dashboard import target missing")
 require('id       = each.key' in IMPORTS_TF, "dashboard import ids must be dashboard UIDs")
 require(
