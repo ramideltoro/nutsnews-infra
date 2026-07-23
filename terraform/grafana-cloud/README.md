@@ -1,6 +1,19 @@
 # Grafana Cloud Observability
 
-This OpenTofu module manages Grafana Cloud folders, dashboards, quota guardrail alert rules, log-pipeline alert rules, and optional Synthetic Monitoring HTTP checks for the NutsNews VPS.
+This OpenTofu module manages Grafana Cloud folders, dashboards, quota guardrail alert rules, log-pipeline alert rules, backend host observability imports, and optional Synthetic Monitoring HTTP checks for NutsNews hosts.
+
+## Ownership
+
+Grafana management/service-account credentials stay only in ramideltoro/nutsnews-infra. Host repositories may keep only telemetry write credentials needed by their collectors, such as Prometheus remote_write and Loki push credentials. nutsnews-backend is a telemetry producer and collector owner; it is not the Grafana resource provisioner after this handoff.
+
+| Scope | Host | Folder UID | OpenTofu address | Owning repository |
+| --- | --- | --- | --- | --- |
+| VPS observability | `vps.nutsnews.com` | `nutsnews-observability` | `grafana_folder.observability` | `ramideltoro/nutsnews-infra` |
+| Backend observability | `backend.nutsnews.com` | `nutsnews-backend-ops` | `grafana_folder.backend_observability` | `ramideltoro/nutsnews-infra` |
+
+Backend dashboards are managed at `grafana_dashboard.backend_observability["<dashboard_uid>"]`, and the backend alert group is managed at `grafana_rule_group.backend_guardrails`. The backend catalog in `catalog/backend-observability.json` preserves the UIDs already used by the previous direct API provisioning path so OpenTofu can import existing objects instead of creating duplicate dashboards or alert rules.
+
+Do not remove existing backend Grafana resources until import and query/alert verification pass. The protected apply workflow uploads `grafana-cloud-post-apply-verification`, and backend direct provisioning should remain retired only after that report shows the backend folder, dashboards, alert rules, Prometheus queries, and Loki queries are present.
 
 ## State
 
@@ -21,6 +34,8 @@ Supply these values through protected GitHub environment secrets or local enviro
 - `TF_VAR_usage_datasource_uid`
 
 The service account token should be scoped to manage Grafana folders, dashboards, alert rules, and Synthetic Monitoring checks. Telemetry write tokens are separate and belong to the Ansible-managed Alloy deployment.
+
+Backend telemetry write credentials remain in `ramideltoro/nutsnews-backend` for the backend Alloy deployment. Do not add `GRAFANA_URL` or a Grafana service account token back to the backend repository; use this infra module and the protected `production-vps` environment for Grafana resource management.
 
 ## Optional Synthetic Checks
 
@@ -47,6 +62,20 @@ synthetic_http_checks = {
 Keep real targets in protected variables or untracked local tfvars. The module requires a 15-minute or slower interval and blocks apply when the projected monthly API executions exceed 70% of the configured free-tier assumption.
 
 Set `TF_VAR_synthetic_http_checks` to `{}` to disable Synthetic Monitoring resources while keeping dashboards and quota alerts managed.
+
+## Backend Import Handoff
+
+The backend import blocks are declared in `imports.tf`:
+
+- `grafana_folder.backend_observability` imports `nutsnews-backend-ops`.
+- `grafana_dashboard.backend_observability[each.key]` imports each dashboard by UID from `catalog/backend-observability.json`.
+- `grafana_rule_group.backend_guardrails` imports `nutsnews-backend-ops:NutsNews Backend Guardrails`.
+
+Run the protected `Grafana Cloud Plan` workflow first. It performs a normal plan and a refresh-only drift check against remote state. If drift is reported, reconcile it before applying.
+
+After merge, run `Grafana Cloud Apply` from `main`. The workflow applies the remote-state-backed plan and then runs `scripts/verify_post_apply.py --require-query-data`. Treat a failed verification as a blocked handoff: keep the legacy backend resources intact, fix the missing import/query/alert condition, and rerun plan/apply.
+
+Rollback is GitOps-based: revert the infra PR on `main`, run `Grafana Cloud Plan`, confirm the plan does not destroy protected folders/dashboards/rule groups unexpectedly, and then run `Grafana Cloud Apply`. The managed folders, dashboards, and rule groups use `prevent_destroy` so destructive rollback requires an explicit reviewed code change.
 
 ## Free-Tier Assumptions
 

@@ -154,3 +154,25 @@ jobs:
           tofu -chdir=terraform/grafana-cloud validate -no-color
           tofu -chdir=terraform/grafana-cloud plan -input=false -no-color -out="$RUNNER_TEMP/grafana-cloud.tfplan"
           tofu -chdir=terraform/grafana-cloud apply -input=false -no-color "$RUNNER_TEMP/grafana-cloud.tfplan"
+
+      - name: Verify Grafana Cloud resources and telemetry
+        shell: bash
+        env:
+          TF_VAR_grafana_url: ${{ secrets.NUTSNEWS_GRAFANA_CLOUD_URL }}
+          TF_VAR_grafana_service_account_token: ${{ secrets.NUTSNEWS_GRAFANA_CLOUD_SERVICE_ACCOUNT_TOKEN }}
+          TF_VAR_prometheus_datasource_uid: ${{ secrets.NUTSNEWS_GRAFANA_CLOUD_PROMETHEUS_DATASOURCE_UID }}
+          TF_VAR_loki_datasource_uid: ${{ secrets.NUTSNEWS_GRAFANA_CLOUD_LOKI_DATASOURCE_UID }}
+        run: |
+          set -euo pipefail
+
+          python3 terraform/grafana-cloud/scripts/verify_post_apply.py \
+            --require-query-data \
+            --output "$RUNNER_TEMP/grafana-cloud-post-apply-verification.json"
+
+      - name: Upload Grafana Cloud verification report
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
+        with:
+          name: grafana-cloud-post-apply-verification
+          path: ${{ runner.temp }}/grafana-cloud-post-apply-verification.json
+          if-no-files-found: ignore

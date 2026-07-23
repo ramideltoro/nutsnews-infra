@@ -1,12 +1,25 @@
+output "folder_uids" {
+  description = "Grafana folder UIDs keyed by host ownership scope."
+  value = {
+    vps     = grafana_folder.observability.uid
+    backend = grafana_folder.backend_observability.uid
+  }
+}
+
 output "folder_uid" {
-  description = "Grafana folder UID for NutsNews observability assets."
+  description = "Backward-compatible Grafana folder UID for NutsNews VPS observability assets."
   value       = grafana_folder.observability.uid
 }
 
 output "dashboard_urls" {
-  description = "Managed dashboard URLs keyed by dashboard name."
+  description = "Managed dashboard URLs keyed by host ownership scope and dashboard name."
   value = {
-    for key, dashboard in grafana_dashboard.observability : key => dashboard.url
+    vps = {
+      for key, dashboard in grafana_dashboard.observability : key => dashboard.url
+    }
+    backend = {
+      for key, dashboard in grafana_dashboard.backend_observability : key => dashboard.url
+    }
   }
 }
 

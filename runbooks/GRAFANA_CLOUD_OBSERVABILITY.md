@@ -1,6 +1,6 @@
 # Grafana Cloud Observability Runbook
 
-Use this runbook to enable Grafana Cloud observability for the NutsNews VPS through GitOps-managed Ansible and OpenTofu.
+Use this runbook to enable Grafana Cloud observability for NutsNews hosts through GitOps-managed Ansible and OpenTofu.
 
 ## What This Adds
 
@@ -12,9 +12,23 @@ Use this runbook to enable Grafana Cloud observability for the NutsNews VPS thro
 - Journald, auth, Caddy JSON access/error logs, app/service, backup, reporting, and Ops Portal logs with redaction and rate controls.
 - Low-cardinality NutsNews status metrics derived from the read-only Ops Portal status JSON.
 - Grafana Cloud folders, dashboards, and quota guardrail alert rules managed by OpenTofu.
+- Imported backend Grafana dashboards and alert rules that keep the existing backend UIDs.
 - Optional low-frequency Synthetic Monitoring HTTP checks when targets and probe IDs are supplied outside Git.
 
 The VPS side remains read-only and agent-based. This change does not add portal mutation buttons, arbitrary shell access, or broad workflow dispatch command execution.
+
+## Centralized Grafana Ownership
+
+Grafana management/service-account credentials stay only in ramideltoro/nutsnews-infra. Host repositories keep telemetry write credentials only when their collectors need them. nutsnews-backend is a telemetry producer and collector owner; it is not the Grafana resource provisioner after the import handoff.
+
+| Scope | Host | Folder UID | OpenTofu address | Owning repository |
+| --- | --- | --- | --- | --- |
+| VPS observability | `vps.nutsnews.com` | `nutsnews-observability` | `grafana_folder.observability` | `ramideltoro/nutsnews-infra` |
+| Backend observability | `backend.nutsnews.com` | `nutsnews-backend-ops` | `grafana_folder.backend_observability` | `ramideltoro/nutsnews-infra` |
+
+Backend dashboards use `grafana_dashboard.backend_observability["<dashboard_uid>"]`, and backend alert rules are owned by `grafana_rule_group.backend_guardrails`. The source catalog is `terraform/grafana-cloud/catalog/backend-observability.json`.
+
+Do not remove existing backend Grafana resources until import and query/alert verification pass. The `Grafana Cloud Apply` workflow writes the `grafana-cloud-post-apply-verification` artifact after checking the backend folder, dashboards, alert rules, Prometheus query data, and Loki query data.
 
 ## Remote State Bootstrap
 
@@ -92,6 +106,8 @@ Add these to the same environment before running Grafana Cloud OpenTofu plan/app
 
 The service account token should be scoped to manage Grafana folders, dashboards, alert rules, and Synthetic Monitoring checks. Keep Terraform state remote; do not commit state, tfvars, backend coordinates, tenant IDs, endpoints, usernames, or tokens.
 
+Do not store `GRAFANA_URL` or `GRAFANA_SERVICE_ACCOUNT_TOKEN` in `ramideltoro/nutsnews-backend` after the handoff. Backend telemetry write credentials such as `GRAFANA_CLOUD_PROMETHEUS_URL`, `GRAFANA_CLOUD_PROMETHEUS_USERNAME`, `GRAFANA_CLOUD_PROMETHEUS_PASSWORD`, `GRAFANA_CLOUD_LOKI_URL`, `GRAFANA_CLOUD_LOKI_USERNAME`, and `GRAFANA_CLOUD_LOKI_PASSWORD` remain backend-scoped because the backend host uses them to ship metrics and logs.
+
 Optional Synthetic Monitoring secrets:
 
 - `NUTSNEWS_GRAFANA_SYNTHETIC_MONITORING_ACCESS_TOKEN`: Synthetic Monitoring API token. Required when synthetic probe IDs and enabled HTTP checks are configured.
@@ -166,14 +182,27 @@ Do not chmod `/run/containerd/containerd.sock`, make it world-readable, or run A
 
 1. Open the `Grafana Cloud Plan` workflow.
 2. Run it from the PR branch or from `main` after the protected secrets are configured.
-3. Confirm OpenTofu fmt, validate, and plan output.
+3. Confirm OpenTofu fmt, validate, plan output, and the refresh-only drift check.
 4. Merge the PR after required checks pass.
 5. Open the `Grafana Cloud Apply` workflow on `main`.
 6. Type `grafana-cloud` in `confirm_apply`.
 7. Approve the `production-vps` Environment gate.
-8. Review the final OpenTofu apply output and dashboard URLs.
+8. Review the final OpenTofu apply output, dashboard URLs, and the `grafana-cloud-post-apply-verification` artifact.
 
 If the backend secret is missing, stop and configure remote state before applying. Do not use local state from a GitHub Actions runner for production Grafana assets.
+
+### Backend Import Sequence
+
+1. Confirm the backend folder UID is `nutsnews-backend-ops` and the alert group name is `NutsNews Backend Guardrails`.
+2. Run `Grafana Cloud Plan`; the import blocks should map the existing backend folder, dashboards, and rule group to the infra OpenTofu addresses.
+3. Resolve any duplicate UID, missing object, or refresh-only drift result before merge.
+4. Run `Grafana Cloud Apply` from `main`.
+5. Verify the post-apply report shows backend dashboards, 11 backend alert rules, backend Prometheus query results, and backend Loki log lines.
+6. Only after that verification passes, retire backend direct provisioning and remove backend-scoped Grafana management credentials. Leave backend telemetry write credentials in place.
+
+### Rollback
+
+Rollback is a reviewed GitOps revert. Revert the infra PR on `main`, rerun `Grafana Cloud Plan`, inspect the normal plan and drift check, and run `Grafana Cloud Apply` only if the plan is expected. The managed folders, dashboards, and alert rule groups use `prevent_destroy`, so any destructive rollback requires an explicit reviewed code change that removes that protection.
 
 ## Enable Alloy On The VPS
 
