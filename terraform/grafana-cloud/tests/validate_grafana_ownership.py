@@ -17,6 +17,7 @@ MAIN_TF = (ROOT / "main.tf").read_text(encoding="utf-8")
 ALERTS_TF = (ROOT / "alerts.tf").read_text(encoding="utf-8")
 PLAN_WORKFLOW = (REPO / ".github/workflows/grafana-cloud-plan.yml").read_text(encoding="utf-8")
 APPLY_WORKFLOW = (REPO / ".github/workflows/grafana-cloud-apply.yml").read_text(encoding="utf-8")
+VERIFY_SCRIPT = (ROOT / "scripts/verify_post_apply.py").read_text(encoding="utf-8")
 README = (ROOT / "README.md").read_text(encoding="utf-8")
 RUNBOOK = (REPO / "runbooks/GRAFANA_CLOUD_OBSERVABILITY.md").read_text(encoding="utf-8")
 
@@ -87,6 +88,14 @@ require("Review and reconcile before apply" in PLAN_WORKFLOW, "drift workflow fa
 require("verify_post_apply.py" in APPLY_WORKFLOW, "Grafana apply workflow must run post-apply verification")
 require("--require-query-data" in APPLY_WORKFLOW, "post-apply verification must require live query data")
 require("grafana-cloud-post-apply-verification" in APPLY_WORKFLOW, "verification report artifact missing")
+require(
+    '"backend_host_logs": \'{host="backend.nutsnews.com"}\'' in VERIFY_SCRIPT,
+    "post-apply Loki verification must require backend host logs",
+)
+require(
+    '"vps_nutsnews_logs": \'{service_namespace="nutsnews"}\'' not in VERIFY_SCRIPT,
+    "post-apply Loki verification must not rely on the stale namespace-only VPS log sample",
+)
 
 for text, name in ((README, "module README"), (RUNBOOK, "runbook")):
     require("nutsnews-backend is a telemetry producer" in text, f"{name} must record backend producer ownership")

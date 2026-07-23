@@ -47,7 +47,7 @@ PROMETHEUS_QUERIES = {
 }
 
 LOKI_QUERIES = {
-    "vps_nutsnews_logs": '{service_namespace="nutsnews"}',
+    "backend_host_logs": '{host="backend.nutsnews.com"}',
     "backend_journal": '{host="backend.nutsnews.com",source="journal"}',
 }
 
