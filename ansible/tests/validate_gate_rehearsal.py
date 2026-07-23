@@ -95,6 +95,8 @@ for required in (
     "Verify released Docker image over SSH",
     "Verify released public health identity",
     "Run safe production app smoke surfaces",
+    "Run production admin backend operation smoke",
+    "NUTSNEWS_BACKEND_API_TOKEN",
 ):
     require(required in baseline_job, f"Protected apply missing required gate/app verification: {required}.")
 

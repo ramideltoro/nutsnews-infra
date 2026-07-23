@@ -506,7 +506,9 @@ jobs:
           NUTSNEWS_VERCEL_TOKEN: ${{ secrets.NUTSNEWS_VERCEL_TOKEN }}
           NUTSNEWS_VERCEL_PROJECT_ID: ${{ secrets.NUTSNEWS_VERCEL_PROJECT_ID }}
           NUTSNEWS_VERCEL_TEAM_ID: ${{ secrets.NUTSNEWS_VERCEL_TEAM_ID }}
+          NUTSNEWS_BACKEND_API_TOKEN: ${{ secrets.NUTSNEWS_BACKEND_API_TOKEN }}
           NUTSNEWS_FAILOVER_STATUS_HMAC_SECRET: ${{ secrets.NUTSNEWS_FAILOVER_STATUS_HMAC_SECRET }}
+          APP_RELEASE: ${{ needs.verify-production-eligibility.outputs.app_release }}
           ENABLE_CLOUDFLARE_DDNS: ${{ inputs.enable_cloudflare_ddns }}
           ENABLE_GRAFANA_ALLOY: ${{ inputs.enable_grafana_alloy }}
           ENABLE_STAGING_ACCESS: ${{ inputs.enable_staging_access }}
@@ -574,6 +576,11 @@ jobs:
                 missing=1
               fi
             done
+          fi
+
+          if [[ "$APP_RELEASE" == "true" && -z "$NUTSNEWS_BACKEND_API_TOKEN" ]]; then
+            echo "Missing required production-vps environment secret: NUTSNEWS_BACKEND_API_TOKEN" >&2
+            missing=1
           fi
 
           if [[ -n "$NUTSNEWS_FAILOVER_STATUS_HMAC_SECRET" ]]; then
@@ -1349,7 +1356,10 @@ jobs:
           repository: ramideltoro/nutsnews
           ref: ${{ inputs.release_smoke_helper_ref }}
           path: nutsnews-current-smoke
-          sparse-checkout: scripts/dual_target_web_smoke.mjs
+          sparse-checkout: |
+            api-contracts/admin-backend-operations.json
+            scripts/admin_backend_operation_smoke.mjs
+            scripts/dual_target_web_smoke.mjs
           sparse-checkout-cone-mode: false
           persist-credentials: false
 
@@ -1359,8 +1369,15 @@ jobs:
         run: |
           set -euo pipefail
           install -m 0644 \
+            nutsnews-current-smoke/scripts/admin_backend_operation_smoke.mjs \
+            nutsnews-source/scripts/admin_backend_operation_smoke.mjs
+          install -m 0644 \
             nutsnews-current-smoke/scripts/dual_target_web_smoke.mjs \
             nutsnews-source/scripts/dual_target_web_smoke.mjs
+          install -m 0644 \
+            nutsnews-current-smoke/api-contracts/admin-backend-operations.json \
+            nutsnews-source/api-contracts/admin-backend-operations.json
+          node --check nutsnews-source/scripts/admin_backend_operation_smoke.mjs
           node --check nutsnews-source/scripts/dual_target_web_smoke.mjs
 
       - name: Run safe production app smoke surfaces
@@ -1386,6 +1403,36 @@ jobs:
             --expected-config-generation "production-${RELEASE_BUILD_ID}-${RELEASE_MIGRATION_HEAD}" \
             --expected-production-writes-paused "$PRODUCTION_WRITES_PAUSED" \
             --production-safe-surfaces
+
+      - name: Run production admin backend operation smoke
+        if: inputs.release_source_commit != ''
+        shell: bash
+        working-directory: nutsnews-source
+        env:
+          NUTSNEWS_BACKEND_API_URL: https://backend.nutsnews.com/api/app/db
+          NUTSNEWS_BACKEND_API_TOKEN: ${{ secrets.NUTSNEWS_BACKEND_API_TOKEN }}
+          NUTSNEWS_DATABASE_PROVIDER_MODE: backend_postgres_primary
+        run: |
+          set -euo pipefail
+          if [[ -z "$NUTSNEWS_BACKEND_API_TOKEN" ]]; then
+            echo "Missing required production-vps environment secret: NUTSNEWS_BACKEND_API_TOKEN" >&2
+            exit 1
+          fi
+          smoke_log="$RUNNER_TEMP/production-admin-backend-operation-smoke.txt"
+          node scripts/admin_backend_operation_smoke.mjs | tee "$smoke_log"
+          operation_count="$(grep -c '^ok load-admin-' "$smoke_log")"
+          {
+            echo "## Production admin backend operation smoke"
+            echo
+            echo "- Backend API route: \`${NUTSNEWS_BACKEND_API_URL%/}/{operation}\`"
+            echo "- Provider mode: \`${NUTSNEWS_DATABASE_PROVIDER_MODE}\`"
+            echo "- Operations passed: \`${operation_count}\`"
+            while IFS= read -r line; do
+              if [[ "$line" == ok\ load-admin-* ]]; then
+                echo "- \`${line}\`"
+              fi
+            done < "$smoke_log"
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Remove temporary credentials and sync material
         if: always()

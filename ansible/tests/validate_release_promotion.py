@@ -367,6 +367,11 @@ for required in (
     "Checkout current app smoke helper",
     "Install current app smoke helper",
     "Run safe production app smoke surfaces",
+    "Run production admin backend operation smoke",
+    "NUTSNEWS_BACKEND_API_TOKEN",
+    "scripts/admin_backend_operation_smoke.mjs",
+    "api-contracts/admin-backend-operations.json",
+    "https://backend.nutsnews.com/api/app/db",
     "PRODUCTION_WRITES_PAUSED: ${{ inputs.production_writes_paused }}",
     "--expected-production-writes-paused",
     "--production-safe-surfaces",
@@ -378,6 +383,8 @@ assert protected_workflow.count("PRODUCTION_WRITES_PAUSED: ${{ inputs.production
 )
 assert "release_smoke_helper_ref must be a full lowercase SHA when set." in protected_workflow
 assert "nutsnews-current-smoke/scripts/dual_target_web_smoke.mjs" in protected_workflow
+assert "nutsnews-current-smoke/scripts/admin_backend_operation_smoke.mjs" in protected_workflow
+assert "nutsnews-current-smoke/api-contracts/admin-backend-operations.json" in protected_workflow
 assert 'release_deployment_target" != "production-vps"' in protected_workflow
 assert "RELEASE_IMAGE_DEPLOYMENT_TARGET=production-vps" in protected_workflow
 assert "RELEASE_HEALTH_DEPLOYMENT_TARGET=vps" in protected_workflow
@@ -386,6 +393,11 @@ assert 'payload?.deploymentTarget === healthDeploymentTarget' in protected_workf
 assert 'response.headers.get("x-nutsnews-deployment-target") === healthDeploymentTarget' in protected_workflow
 assert "--expected-deployment-target production-vps" in protected_workflow
 assert "--expected-health-deployment-target vps" in protected_workflow
+assert (
+    protected_workflow.index("Run safe production app smoke surfaces")
+    < protected_workflow.index("Run production admin backend operation smoke")
+    < protected_workflow.index("Remove temporary credentials and sync material")
+), "Protected apply must run admin backend operation smoke after released public smoke and before cleanup/success."
 
 assert "NUTSNEWS_APP_IMAGE_TAG" not in promotion_workflow
 assert "repository_dispatch:" not in promotion_workflow
