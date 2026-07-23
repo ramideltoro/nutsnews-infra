@@ -61,9 +61,12 @@ expected_source_created_uids = [
     "nutsnews-backend-postgres-failover",
     "nutsnews-worker-uplift-rabbitmq-overview",
     "nutsnews-worker-uplift-rabbitmq-queues",
-    "nutsnews-worker-uplift-rabbitmq-resources",
+    "nutsnews-worker-uplift-rmq-resources",
 ]
 require(source_created_uids == expected_source_created_uids, "backend source-created dashboards must be the approved catalog-owned dashboards")
+
+for uid in dashboard_uids:
+    require(len(uid) <= 40, f"Grafana dashboard UID exceeds the 40-character API limit: {uid}")
 require(
     source_created_dashboards[0]["uid"] == "nutsnews-backend-postgres-failover",
     "the existing backend PostgreSQL failover exception must remain first in the source-created dashboard list",

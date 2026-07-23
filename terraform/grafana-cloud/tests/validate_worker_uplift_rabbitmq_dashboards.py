@@ -43,7 +43,7 @@ QUEUES = tuple(
 DASHBOARD_UIDS = (
     "nutsnews-worker-uplift-rabbitmq-overview",
     "nutsnews-worker-uplift-rabbitmq-queues",
-    "nutsnews-worker-uplift-rabbitmq-resources",
+    "nutsnews-worker-uplift-rmq-resources",
 )
 
 
@@ -79,6 +79,7 @@ require(len(all_panels) == 79, "backend catalog must stay within the approved 79
 
 for uid in DASHBOARD_UIDS:
     item = dashboard(uid)
+    require(len(uid) <= 40, f"{uid} exceeds Grafana's 40-character dashboard UID limit")
     require(item.get("importExisting") is False, f"{uid} must be source-created by infra OpenTofu")
     require("ramideltoro/nutsnews-worker#89" in item.get("missingRemoteObjectReason", ""), f"{uid} must document #89 ownership")
     require(item.get("description"), f"{uid} must include a dashboard description")
@@ -135,7 +136,7 @@ for title in (
 ):
     require(title in queue_titles, f"queue drilldown dashboard missing {title}")
 
-resource_titles = {panel["title"] for panel in dashboard("nutsnews-worker-uplift-rabbitmq-resources")["panels"]}
+resource_titles = {panel["title"] for panel in dashboard("nutsnews-worker-uplift-rmq-resources")["panels"]}
 for title in (
     "RabbitMQ Connections",
     "RabbitMQ Channels",
