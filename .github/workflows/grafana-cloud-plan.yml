@@ -39,6 +39,7 @@ jobs:
           set -euo pipefail
           tofu fmt -check -recursive terraform/grafana-cloud
           python3 terraform/grafana-cloud/tests/validate_dashboard_definitions.py
+          python3 terraform/grafana-cloud/tests/validate_grafana_ownership.py
           tofu -chdir=terraform/grafana-cloud init -backend=false -input=false
           tofu -chdir=terraform/grafana-cloud validate -no-color
 
@@ -160,3 +161,35 @@ jobs:
 
           tofu -chdir=terraform/grafana-cloud init -input=false -backend-config="$RUNNER_TEMP/grafana-backend.hcl"
           tofu -chdir=terraform/grafana-cloud plan -input=false -no-color
+
+      - name: Run Grafana Cloud drift check
+        shell: bash
+        env:
+          TF_VAR_grafana_url: ${{ secrets.NUTSNEWS_GRAFANA_CLOUD_URL }}
+          TF_VAR_grafana_service_account_token: ${{ secrets.NUTSNEWS_GRAFANA_CLOUD_SERVICE_ACCOUNT_TOKEN }}
+          TF_VAR_prometheus_datasource_uid: ${{ secrets.NUTSNEWS_GRAFANA_CLOUD_PROMETHEUS_DATASOURCE_UID }}
+          TF_VAR_loki_datasource_uid: ${{ secrets.NUTSNEWS_GRAFANA_CLOUD_LOKI_DATASOURCE_UID }}
+          TF_VAR_usage_datasource_uid: ${{ secrets.NUTSNEWS_GRAFANA_CLOUD_USAGE_DATASOURCE_UID }}
+          TF_VAR_synthetic_monitoring_probe_ids: ${{ secrets.NUTSNEWS_GRAFANA_SYNTHETIC_PROBE_IDS_JSON || '[]' }}
+          TF_VAR_synthetic_http_checks: ${{ secrets.NUTSNEWS_GRAFANA_SYNTHETIC_HTTP_CHECKS_JSON || '{}' }}
+          GRAFANA_SM_ACCESS_TOKEN: ${{ secrets.NUTSNEWS_GRAFANA_SYNTHETIC_MONITORING_ACCESS_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          set +e
+          tofu -chdir=terraform/grafana-cloud plan -refresh-only -detailed-exitcode -input=false -no-color
+          exit_code="$?"
+          set -e
+
+          case "$exit_code" in
+            0)
+              echo "No Grafana Cloud drift detected."
+              ;;
+            2)
+              echo "Grafana Cloud drift detected. Review and reconcile before apply." >&2
+              exit 2
+              ;;
+            *)
+              exit "$exit_code"
+              ;;
+          esac

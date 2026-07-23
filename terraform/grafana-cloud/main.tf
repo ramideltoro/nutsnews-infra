@@ -3,6 +3,8 @@ resource "grafana_folder" "observability" {
   uid   = "nutsnews-observability"
 
   lifecycle {
+    prevent_destroy = true
+
     precondition {
       condition     = local.synthetic_monthly_api_executions <= local.synthetic_monthly_api_guardrail
       error_message = "Configured Synthetic Monitoring checks exceed 70% of the current free API execution assumption. Reduce checks, probes, or frequency before applying."
@@ -25,4 +27,8 @@ resource "grafana_dashboard" "observability" {
     title                     = each.value.title
     uid                       = each.value.uid
   })
+
+  lifecycle {
+    prevent_destroy = true
+  }
 }

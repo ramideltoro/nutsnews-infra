@@ -3,6 +3,10 @@ resource "grafana_rule_group" "quota_guardrails" {
   folder_uid       = grafana_folder.observability.uid
   interval_seconds = 300
 
+  lifecycle {
+    prevent_destroy = true
+  }
+
   dynamic "rule" {
     for_each = {
       for item in local.quota_alert_rules : item.key => item
@@ -140,6 +144,10 @@ resource "grafana_rule_group" "log_pipeline" {
   name             = "NutsNews log pipeline health"
   folder_uid       = grafana_folder.observability.uid
   interval_seconds = 300
+
+  lifecycle {
+    prevent_destroy = true
+  }
 
   dynamic "rule" {
     for_each = local.log_pipeline_alert_rules
