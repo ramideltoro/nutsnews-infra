@@ -37,6 +37,39 @@ queries. Queue and service panels include Grafana Explore links to filtered
 Loki logs. Trace links are intentionally absent because traces remain deferred
 under the approved worker-uplift telemetry policy.
 
+## Worker-Uplift Alerts And SLOs
+
+Issue `ramideltoro/nutsnews-worker#90` adds the source-created
+`NutsNews Worker-Uplift Pipeline SLOs` dashboard and the
+`NutsNews Worker-Uplift RabbitMQ Guardrails` alert group to the backend ops
+folder. The worker-uplift RabbitMQ alert and SLO catalog is
+`catalog/worker-uplift-rabbitmq-alerts.json`; OpenTofu owns it through
+`grafana_rule_group.worker_uplift_guardrails` and the existing backend dashboard
+resource.
+
+The alert catalog covers broker down, private canary failure, Alloy
+scrape/write loss, no consumers while work exists, sustained backlog or
+oldest-age pressure, publish/ack imbalance, unacked growth, DLQs, retry and
+redelivery pressure, connection churn, broker memory/disk alarms, low disk,
+file descriptor pressure, stale recovery proof, repeated restarts, and
+multi-window SLO burn-rate alerts. Every rule carries severity, owner, route,
+service, queue, threshold, recovery window, runbook URL, and maintenance
+suppression metadata.
+
+The SLO dashboard exposes broker availability, private canary success and
+latency, stage success/latency, feed freshness, retry/DLQ budget, final
+publication success, alert state, canary fixtures, and recovery proof age. The
+stage, feed freshness, and final publication queries intentionally remain
+`NoData=OK` until the worker services in later issues emit those metrics.
+
+Use the backend `Backend RabbitMQ Canary` workflow from #91 to exercise alert
+firing and recovery with fixed drills such as `network-interruption`,
+`invalid-credentials`, `consumer-loss`, `disk-watermark`, `full-queue`,
+`poison-message`, and `grafana-connectivity-loss`. The drill path must not
+publish production articles, expose private AMQP endpoints, disable legacy
+ingestion/failover, or mutate contact points. Recover by running a normal
+canary after each fixture and waiting for the Grafana recovery window.
+
 ## State
 
 The repo did not previously have a remote Terraform/OpenTofu backend pattern. This module declares a partial `s3` backend and intentionally commits no backend coordinates, state files, tfvars, Grafana URLs, tenant IDs, usernames, or tokens.
@@ -121,4 +154,5 @@ python3 terraform/grafana-cloud/tests/validate_dashboard_definitions.py
 python3 terraform/grafana-cloud/tests/validate_grafana_ownership.py
 python3 terraform/grafana-cloud/tests/validate_worker_uplift_telemetry_scope.py
 python3 terraform/grafana-cloud/tests/validate_worker_uplift_rabbitmq_dashboards.py
+python3 terraform/grafana-cloud/tests/validate_worker_uplift_alerts_slos.py
 ```
