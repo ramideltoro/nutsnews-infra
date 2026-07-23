@@ -206,12 +206,13 @@ locals {
     grafana_cloud_usage_quota = {
       uid         = "nutsnews-grafana-cloud-usage-quota"
       title       = "NutsNews Grafana Cloud Usage Quota"
-      description = "Free-tier usage assumptions, current Grafana Cloud usage metrics, and quota guardrails."
+      description = "Current Grafana Cloud usage and live platform-limit guardrails."
       panels = [
-        { title = "Metrics usage versus free assumption", type = "timeseries", datasource = "usage", unit = "percentunit", width = 12, height = 8, expr = "max(grafanacloud_instance_metrics_usage) / ${var.free_metrics_active_series_monthly}" },
-        { title = "Logs usage versus free assumption", type = "timeseries", datasource = "usage", unit = "percentunit", width = 12, height = 8, expr = "max(grafanacloud_logs_instance_usage) / ${var.free_logs_ingested_gb_monthly}" },
-        { title = "Logs active streams versus Cloud limit", type = "timeseries", datasource = "usage", unit = "percentunit", width = 12, height = 8, expr = "max(grafanacloud_logs_instance_active_streams) / max(grafanacloud_logs_instance_limits{limit_name=\"max_global_streams_per_user\"})" },
-        { title = "Published Grafana Cloud limits", type = "timeseries", datasource = "usage", unit = "short", width = 12, height = 8, expr = "grafanacloud_instance_metrics_limits or grafanacloud_logs_instance_limits" },
+        { title = "Metrics usage versus live active-series limit", type = "timeseries", datasource = "usage", unit = "percentunit", width = 12, height = 8, expr = "max(grafanacloud_instance_metrics_usage) / max(grafanacloud_instance_metrics_limits{limit_name=\"max_global_series_per_user\"})" },
+        { title = "Logs active streams versus live stream limit", type = "timeseries", datasource = "usage", unit = "percentunit", width = 12, height = 8, expr = "max(grafanacloud_logs_instance_active_streams) / max(grafanacloud_logs_instance_limits{limit_name=\"max_global_streams_per_user\"})" },
+        { title = "Logs ingest rate versus live rate limit", type = "timeseries", datasource = "usage", unit = "percentunit", width = 12, height = 8, expr = "max(grafanacloud_logs_instance_bytes_received_per_second) / (max(grafanacloud_logs_instance_limits{limit_name=\"ingestion_rate_mb\"}) * 1024 * 1024)" },
+        { title = "Traces ingest rate versus live rate limit", type = "timeseries", datasource = "usage", unit = "percentunit", width = 12, height = 8, expr = "max(grafanacloud_traces_instance_bytes_received_per_second) / max(grafanacloud_traces_instance_limits{limit_name=\"ingestion_rate_limit_bytes\"})" },
+        { title = "Published Grafana Cloud limits", type = "timeseries", datasource = "usage", unit = "short", width = 12, height = 8, expr = "grafanacloud_instance_metrics_limits or grafanacloud_logs_instance_limits or grafanacloud_traces_instance_limits" },
       ]
     }
   }
@@ -360,28 +361,42 @@ locals {
 
   quota_alert_sources = {
     metrics_active_series = {
-      title = "Grafana Cloud metrics usage"
-      expr  = "max(grafanacloud_instance_metrics_usage) / ${var.free_metrics_active_series_monthly}"
-    }
-    logs_ingested = {
-      title = "Grafana Cloud logs usage"
-      expr  = "max(grafanacloud_logs_instance_usage) / ${var.free_logs_ingested_gb_monthly}"
+      title         = "Grafana Cloud metrics active-series usage"
+      expr          = "max(grafanacloud_instance_metrics_usage) / max(grafanacloud_instance_metrics_limits{limit_name=\"max_global_series_per_user\"})"
+      no_data_state = "NoData"
+      description   = "Grafana Cloud metrics active-series usage is above the live max_global_series_per_user limit guardrail."
     }
     logs_active_streams = {
-      title = "Grafana Cloud logs active streams"
-      expr  = "max(grafanacloud_logs_instance_active_streams) / max(grafanacloud_logs_instance_limits{limit_name=\"max_global_streams_per_user\"})"
+      title         = "Grafana Cloud logs active streams"
+      expr          = "max(grafanacloud_logs_instance_active_streams) / max(grafanacloud_logs_instance_limits{limit_name=\"max_global_streams_per_user\"})"
+      no_data_state = "NoData"
+      description   = "Grafana Cloud Logs active streams are above the live max_global_streams_per_user guardrail."
+    }
+    logs_ingestion_rate = {
+      title         = "Grafana Cloud logs ingestion rate"
+      expr          = "max(grafanacloud_logs_instance_bytes_received_per_second) / (max(grafanacloud_logs_instance_limits{limit_name=\"ingestion_rate_mb\"}) * 1024 * 1024)"
+      no_data_state = "NoData"
+      description   = "Grafana Cloud Logs ingestion rate is above the live ingestion_rate_mb guardrail."
+    }
+    traces_ingestion_rate = {
+      title         = "Grafana Cloud traces ingestion rate"
+      expr          = "max(grafanacloud_traces_instance_bytes_received_per_second) / max(grafanacloud_traces_instance_limits{limit_name=\"ingestion_rate_limit_bytes\"})"
+      no_data_state = "OK"
+      description   = "Grafana Cloud Traces ingestion appeared even though worker-uplift trace export is deferred; keep traces disabled unless separately approved."
     }
   }
 
   quota_alert_rules = flatten([
     for source_key, source in local.quota_alert_sources : [
       for threshold_name, threshold in local.quota_alert_thresholds : {
-        key        = "${source_key}_${threshold_name}"
-        title      = "${source.title} above ${threshold_name}%"
-        expr       = source.expr
-        threshold  = threshold
-        severity   = threshold >= 0.95 ? "critical" : threshold >= 0.85 ? "warning" : "info"
-        for_period = threshold >= 0.95 ? "5m" : "15m"
+        key           = "${source_key}_${threshold_name}"
+        title         = "${source.title} above ${threshold_name}%"
+        expr          = source.expr
+        threshold     = threshold
+        severity      = threshold >= 0.95 ? "critical" : threshold >= 0.85 ? "warning" : "info"
+        for_period    = threshold >= 0.95 ? "5m" : "15m"
+        no_data_state = source.no_data_state
+        description   = source.description
       }
     ]
   ])

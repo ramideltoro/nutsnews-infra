@@ -13,6 +13,7 @@ Use this runbook to enable Grafana Cloud observability for NutsNews hosts throug
 - Low-cardinality NutsNews status metrics derived from the read-only Ops Portal status JSON.
 - Grafana Cloud folders, dashboards, and quota guardrail alert rules managed by OpenTofu.
 - Imported backend Grafana dashboards and alert rules that keep the existing backend UIDs.
+- Source-controlled worker-uplift telemetry scope for required metrics/logs, deferred traces/exemplars, and bounded labels before production traffic.
 - Optional low-frequency Synthetic Monitoring HTTP checks when targets and probe IDs are supplied outside Git.
 
 The VPS side remains read-only and agent-based. This change does not add portal mutation buttons, arbitrary shell access, or broad workflow dispatch command execution.
@@ -153,6 +154,8 @@ Grafana can change these limits. Check the live pricing page before enabling mor
 
 Grafana Cloud publishes usage and limit metrics in the `grafanacloud-usage` datasource. The dashboard and alerts use those metrics where available: https://grafana.com/docs/grafana-cloud/cost-management-and-billing/manage-invoices/understand-your-invoice/usage-limits/
 
+Metrics, logs, and traces guardrails must use live `grafanacloud_*_usage` and `grafanacloud_*_limits` ratios. Do not reintroduce hard-coded metrics or logs free-plan constants for alert thresholds. The worker-uplift policy in `terraform/grafana-cloud/catalog/worker-uplift-telemetry-scope.json` keeps full trace export and exemplars deferred; correlation IDs remain structured log fields, not metric or Loki stream labels.
+
 Synthetic Monitoring execution estimate:
 
 ```text
@@ -258,6 +261,7 @@ Use quota metrics:
 ```promql
 grafanacloud_instance_metrics_limits
 grafanacloud_logs_instance_limits
+grafanacloud_traces_instance_limits
 ```
 
 Expected dashboards are in the `NutsNews Observability` folder:

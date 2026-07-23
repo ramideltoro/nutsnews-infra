@@ -68,18 +68,6 @@ variable "quota_alert_contact_route" {
   default     = "default"
 }
 
-variable "free_metrics_active_series_monthly" {
-  description = "Current Grafana Cloud Free metrics active-series assumption. Check Grafana pricing before changing."
-  type        = number
-  default     = 10000
-}
-
-variable "free_logs_ingested_gb_monthly" {
-  description = "Current Grafana Cloud Free logs ingest assumption in GB/month. Check Grafana pricing before changing."
-  type        = number
-  default     = 50
-}
-
 variable "free_synthetic_api_executions_monthly" {
   description = "Current Grafana Cloud Free Synthetic Monitoring API execution assumption."
   type        = number

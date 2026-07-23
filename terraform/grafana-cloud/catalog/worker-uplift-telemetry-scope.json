@@ -1,0 +1,331 @@
+{
+  "policyId": "nutsnews.worker-uplift.telemetry-scope.v1",
+  "trackingIssue": "ramideltoro/nutsnews-worker#144",
+  "approvedAtUtc": "2026-07-23T00:00:00Z",
+  "status": "approved-source-controlled-policy",
+  "productionPathEnabled": false,
+  "sourceOfTruth": {
+    "contractsPackage": "@ramideltoro/nutsnews-worker-contracts@0.3.0",
+    "topologySnapshot": "ramideltoro/nutsnews-worker-contracts/docs/compatibility/contract-snapshot.v0.3.0.json",
+    "docsRunbook": "ramideltoro/nutsnews-docs/NUTSNEWS_WORKER_UPLIFT_TELEMETRY_SCOPE.md"
+  },
+  "grafanaBudget": {
+    "approvedIncrementalMonthlySpendUsd": 0,
+    "paidTelemetryRequiresOwnerApproval": true,
+    "quotaGuardrails": [0.7, 0.85, 0.95],
+    "guardrailSource": "Use the grafanacloud-usage datasource and divide grafanacloud_*_usage metrics by matching grafanacloud_*_limits metrics. Do not use committed free-plan constants for metrics, logs, traces, or exemplars guardrails."
+  },
+  "signalMatrix": [
+    {
+      "telemetryClass": "rabbitmq_metrics",
+      "decision": "required",
+      "destination": "grafana_cloud_metrics",
+      "pipeline": "Alloy Prometheus scrape or exporter scrape on the backend host, then prometheus.remote_write.",
+      "credentialSecrets": [
+        "NUTSNEWS_GRAFANA_CLOUD_METRICS_URL",
+        "NUTSNEWS_GRAFANA_CLOUD_METRICS_USERNAME",
+        "NUTSNEWS_GRAFANA_CLOUD_ACCESS_POLICY_TOKEN"
+      ],
+      "rollbackSwitches": [
+        "WORKER_TELEMETRY_METRICS_ENABLED=false",
+        "enable_grafana_alloy=false"
+      ]
+    },
+    {
+      "telemetryClass": "worker_metrics",
+      "decision": "required",
+      "destination": "grafana_cloud_metrics",
+      "pipeline": "Worker services expose Prometheus metrics on private listeners; Alloy scrapes and remote-writes them.",
+      "credentialSecrets": [
+        "NUTSNEWS_GRAFANA_CLOUD_METRICS_URL",
+        "NUTSNEWS_GRAFANA_CLOUD_METRICS_USERNAME",
+        "NUTSNEWS_GRAFANA_CLOUD_ACCESS_POLICY_TOKEN"
+      ],
+      "rollbackSwitches": [
+        "WORKER_TELEMETRY_METRICS_ENABLED=false",
+        "enable_grafana_alloy=false"
+      ]
+    },
+    {
+      "telemetryClass": "structured_logs",
+      "decision": "required",
+      "destination": "grafana_cloud_logs",
+      "pipeline": "Service JSON logs and RabbitMQ service logs flow through Alloy loki.source, loki.process redaction, rate limits, buffering, and loki.write.",
+      "credentialSecrets": [
+        "NUTSNEWS_GRAFANA_CLOUD_LOGS_URL",
+        "NUTSNEWS_GRAFANA_CLOUD_LOGS_USERNAME",
+        "NUTSNEWS_GRAFANA_CLOUD_ACCESS_POLICY_TOKEN"
+      ],
+      "rollbackSwitches": [
+        "WORKER_TELEMETRY_LOG_LEVEL=warn",
+        "WORKER_TELEMETRY_LOGS_ENABLED=false",
+        "enable_grafana_alloy=false"
+      ]
+    },
+    {
+      "telemetryClass": "traces",
+      "decision": "deferred",
+      "destination": "none",
+      "pipeline": "No Grafana Cloud Tempo export, OTLP endpoint, or traces credential is provisioned by this policy.",
+      "allowedInitialSampleRatio": 0,
+      "futureMaximumInitialSampleRatio": 0.01,
+      "futureEnablementRequirements": [
+        "New reviewed infra PR",
+        "Trace quota alerts green for seven consecutive days",
+        "WORKER_TELEMETRY_TRACES_ENABLED=true",
+        "WORKER_TELEMETRY_TRACE_SAMPLE_RATIO<=0.01",
+        "traces:write credential scoped to the Grafana stack"
+      ],
+      "rollbackSwitches": [
+        "WORKER_TELEMETRY_TRACES_ENABLED=false",
+        "WORKER_TELEMETRY_TRACE_SAMPLE_RATIO=0"
+      ]
+    },
+    {
+      "telemetryClass": "exemplars",
+      "decision": "deferred",
+      "destination": "none",
+      "pipeline": "No exemplars are exported until traces are explicitly approved.",
+      "allowedInitialSampleRatio": 0,
+      "rollbackSwitches": [
+        "WORKER_TELEMETRY_EXEMPLARS_ENABLED=false"
+      ]
+    },
+    {
+      "telemetryClass": "profiles",
+      "decision": "forbidden",
+      "destination": "none",
+      "pipeline": "No profiling signal is approved for worker uplift.",
+      "rollbackSwitches": [
+        "Do not provision a profiles write endpoint or credential."
+      ]
+    },
+    {
+      "telemetryClass": "article_or_model_payloads",
+      "decision": "forbidden",
+      "destination": "none",
+      "pipeline": "Article bodies, summaries, model prompts, model outputs, credentials, and production token material must not be sent to metrics, logs, traces, or exemplars.",
+      "rollbackSwitches": [
+        "Disable the emitting service and treat payload leakage as a privacy incident."
+      ]
+    }
+  ],
+  "labels": {
+    "allowedMetricLabels": [
+      "environment",
+      "host",
+      "service",
+      "version",
+      "queue",
+      "outcome"
+    ],
+    "allowedLokiStreamLabels": [
+      "environment",
+      "host",
+      "service",
+      "version",
+      "queue",
+      "outcome"
+    ],
+    "forbiddenMetricAndStreamLabelFragments": [
+      "article",
+      "feed",
+      "message",
+      "idempotency",
+      "trace",
+      "span",
+      "correlation",
+      "causation",
+      "payload",
+      "url",
+      "path",
+      "user",
+      "ip",
+      "token",
+      "secret",
+      "prompt",
+      "model_output"
+    ],
+    "structuredLogFieldsOnly": [
+      "correlationId",
+      "causationId",
+      "messageId",
+      "idempotencyKey",
+      "traceparent",
+      "tracestate"
+    ]
+  },
+  "redaction": {
+    "requiredBeforeExport": true,
+    "dropOrRedactFields": [
+      "authorization",
+      "cookie",
+      "set-cookie",
+      "password",
+      "token",
+      "secret",
+      "apiKey",
+      "serviceRoleKey",
+      "databaseUrl",
+      "articleBody",
+      "summaryBody",
+      "modelPrompt",
+      "modelOutput",
+      "rawHtml",
+      "rawFeedXml"
+    ],
+    "maximumLogLineBytes": 8192,
+    "debugAndTraceLogs": "drop-in-production"
+  },
+  "retention": {
+    "grafanaCloud": "Use the live Grafana Cloud retention_period limit reported by grafanacloud_logs_instance_limits and grafanacloud_traces_instance_limits. Do not request custom retention or Cloud Logs Export for worker uplift.",
+    "localBuffering": "Transient Alloy and service buffers only; do not use local buffers as archives.",
+    "payloadStorage": "Durable payload references stay in service-owned storage, not telemetry."
+  },
+  "topologyCoverage": {
+    "backendHosts": [
+      "backend.nutsnews.com",
+      "vps.nutsnews.com"
+    ],
+    "services": [
+      "scheduler",
+      "fetcher",
+      "canonicalizer",
+      "enrichment",
+      "approval",
+      "translation",
+      "persistence",
+      "publication"
+    ],
+    "routes": [
+      {
+        "stage": "fetch",
+        "producer": "scheduler",
+        "consumer": "fetcher",
+        "mainQueue": "nutsnews.worker.fetch.v1",
+        "retryQueues": [
+          "nutsnews.worker.fetch.v1.retry-30s",
+          "nutsnews.worker.fetch.v1.retry-5m",
+          "nutsnews.worker.fetch.v1.retry-30m"
+        ],
+        "terminalDlq": "nutsnews.worker.fetch.v1.dlq"
+      },
+      {
+        "stage": "canonicalization",
+        "producer": "fetcher",
+        "consumer": "canonicalizer",
+        "mainQueue": "nutsnews.worker.canonicalization.v1",
+        "retryQueues": [
+          "nutsnews.worker.canonicalization.v1.retry-30s",
+          "nutsnews.worker.canonicalization.v1.retry-5m",
+          "nutsnews.worker.canonicalization.v1.retry-30m"
+        ],
+        "terminalDlq": "nutsnews.worker.canonicalization.v1.dlq"
+      },
+      {
+        "stage": "enrichment",
+        "producer": "canonicalizer",
+        "consumer": "enrichment",
+        "mainQueue": "nutsnews.worker.enrichment.v1",
+        "retryQueues": [
+          "nutsnews.worker.enrichment.v1.retry-30s",
+          "nutsnews.worker.enrichment.v1.retry-5m",
+          "nutsnews.worker.enrichment.v1.retry-30m"
+        ],
+        "terminalDlq": "nutsnews.worker.enrichment.v1.dlq"
+      },
+      {
+        "stage": "approval",
+        "producer": "enrichment",
+        "consumer": "approval",
+        "mainQueue": "nutsnews.worker.approval.v1",
+        "retryQueues": [
+          "nutsnews.worker.approval.v1.retry-30s",
+          "nutsnews.worker.approval.v1.retry-5m",
+          "nutsnews.worker.approval.v1.retry-30m"
+        ],
+        "terminalDlq": "nutsnews.worker.approval.v1.dlq"
+      },
+      {
+        "stage": "translation",
+        "producer": "approval",
+        "consumer": "translation",
+        "mainQueue": "nutsnews.worker.translation.v1",
+        "retryQueues": [
+          "nutsnews.worker.translation.v1.retry-30s",
+          "nutsnews.worker.translation.v1.retry-5m",
+          "nutsnews.worker.translation.v1.retry-30m"
+        ],
+        "terminalDlq": "nutsnews.worker.translation.v1.dlq"
+      },
+      {
+        "stage": "persistence",
+        "producer": "translation",
+        "consumer": "persistence",
+        "mainQueue": "nutsnews.worker.persistence.v1",
+        "retryQueues": [
+          "nutsnews.worker.persistence.v1.retry-30s",
+          "nutsnews.worker.persistence.v1.retry-5m",
+          "nutsnews.worker.persistence.v1.retry-30m"
+        ],
+        "terminalDlq": "nutsnews.worker.persistence.v1.dlq"
+      },
+      {
+        "stage": "publication",
+        "producer": "persistence",
+        "consumer": "publication",
+        "mainQueue": "nutsnews.worker.publication.v1",
+        "retryQueues": [
+          "nutsnews.worker.publication.v1.retry-30s",
+          "nutsnews.worker.publication.v1.retry-5m",
+          "nutsnews.worker.publication.v1.retry-30m"
+        ],
+        "terminalDlq": "nutsnews.worker.publication.v1.dlq"
+      }
+    ]
+  },
+  "cardinalityAndVolumeEstimate": {
+    "queueClassCounts": {
+      "stageQueues": 7,
+      "retryQueues": 21,
+      "terminalDlqs": 7,
+      "totalRabbitmqQueues": 35
+    },
+    "activeSeriesCeilings": {
+      "rabbitmqQueueSeries": 700,
+      "workerServiceSeries": 600,
+      "workerHistogramSeries": 700,
+      "backendHostSeriesHeadroom": 2000,
+      "vpsHostSeriesHeadroom": 1000,
+      "totalWorkerUpliftAndHostCeiling": 5000
+    },
+    "monthlyLogCeilingsGb": {
+      "workerServicesNormal": 2.0,
+      "rabbitmqAndBroker": 1.0,
+      "backendHostTotalIncludingWorker": 5.0,
+      "vpsHostExistingBaseline": 2.0
+    },
+    "estimateAssumptions": [
+      "Every main, retry, and terminal DLQ is represented by the bounded queue label.",
+      "Every service is represented by the bounded service label.",
+      "Outcome values are limited to success, retry, dlq, dropped, timeout, validation_error, dependency_error, and canceled.",
+      "Normal service logging target is 120 JSON lines per service-hour or lower; emergency burst cap is 600 lines per service-hour.",
+      "Log lines larger than 8192 bytes are dropped or truncated before Loki write."
+    ]
+  },
+  "telemetryLossAlerts": {
+    "required": [
+      "Grafana Alloy Loki dropped log entries",
+      "Grafana Alloy Loki write retries",
+      "Worker metrics scrape missing for any required service",
+      "RabbitMQ queue depth metric missing for any main, retry, or DLQ queue"
+    ],
+    "response": "Treat dropped telemetry as degraded observability. Stop new production traffic if required worker metrics or structured logs are absent during shadow qualification."
+  },
+  "noSurpriseSpendResponse": {
+    "at70Percent": "Freeze new telemetry classes, review usage/quota dashboard, and confirm worker uplift remains inside the approved $0 incremental spend.",
+    "at85Percent": "Disable optional debug fields, lower worker log verbosity, reduce scrape cardinality, and keep traces/exemplars disabled.",
+    "at95Percent": "Stop or roll back the offending telemetry signal through the rollback switch before adding production traffic.",
+    "overBudget": "Keep production uplift disabled until owner approval changes the budget or telemetry volume is reduced."
+  }
+}

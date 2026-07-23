@@ -16,13 +16,13 @@ resource "grafana_rule_group" "quota_guardrails" {
       name           = rule.value.title
       for            = rule.value.for_period
       condition      = "C"
-      no_data_state  = "NoData"
+      no_data_state  = rule.value.no_data_state
       exec_err_state = "Error"
       is_paused      = false
 
       annotations = {
         summary     = rule.value.title
-        description = "Grafana Cloud usage is above the configured free-tier guardrail assumption. Check the Usage / Quota dashboard before enabling additional telemetry."
+        description = "${rule.value.description} Check the Usage / Quota dashboard before enabling additional telemetry."
       }
 
       labels = {
