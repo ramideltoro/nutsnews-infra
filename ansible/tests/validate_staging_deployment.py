@@ -21,6 +21,7 @@ GATEWAY = ROOT / "scripts/staging_gateway_request.py"
 GATEWAY_RESULT = ROOT / "scripts/staging_gateway_result.py"
 REVIEWED_INFRA = ROOT / "scripts/resolve_reviewed_infra_commit.py"
 WORKFLOW = REPO / ".github/workflows/nutsnews-staging-deploy.yml"
+PROTECTED_APPLY_WORKFLOW = REPO / ".github/workflows/protected-ansible-apply.yml"
 QUALIFICATION_WORKFLOW = REPO / ".github/workflows/nutsnews-staging-qualification.yml"
 STAGING_ANSIBLE_REQUIREMENTS = REPO / ".github/requirements/staging-ansible.txt"
 PLAYBOOK = ROOT / "playbooks/deploy-staging.yml"
@@ -609,6 +610,7 @@ with tempfile.TemporaryDirectory() as temp_dir:
     current_commit = run_git("rev-parse", "HEAD")
 
     runs_file = git_repo / "runs.json"
+    artifacts_file = git_repo / "artifacts.json"
     github_output = git_repo / "github-output"
     runs_file.write_text(
         json.dumps(
@@ -623,6 +625,16 @@ with tempfile.TemporaryDirectory() as temp_dir:
                         "head_sha": current_commit,
                         "display_title": "Protected Ansible Apply (check)",
                         "html_url": "https://github.com/ramideltoro/nutsnews-infra/actions/runs/300",
+                    },
+                    {
+                        "id": 250,
+                        "status": "completed",
+                        "conclusion": "success",
+                        "event": "workflow_dispatch",
+                        "head_branch": "main",
+                        "head_sha": current_commit,
+                        "display_title": "Protected Ansible Apply (apply)",
+                        "html_url": "https://github.com/ramideltoro/nutsnews-infra/actions/runs/250",
                     },
                     {
                         "id": 200,
@@ -649,12 +661,35 @@ with tempfile.TemporaryDirectory() as temp_dir:
         ),
         encoding="utf-8",
     )
+    artifacts_file.write_text(
+        json.dumps(
+            {
+                "artifacts": [
+                    {
+                        "id": 900,
+                        "name": f"staging-reviewed-infra-{reviewed_commit}",
+                        "expired": False,
+                        "workflow_run": {
+                            "id": 200,
+                            "head_branch": "main",
+                            "head_sha": reviewed_commit,
+                            "repository_id": 1,
+                            "head_repository_id": 1,
+                        },
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
     subprocess.run(
         [
             sys.executable,
             str(REVIEWED_INFRA),
             "--runs-file",
             str(runs_file),
+            "--artifacts-file",
+            str(artifacts_file),
             "--current-commit",
             current_commit,
             "--repository-root",
@@ -696,12 +731,35 @@ with tempfile.TemporaryDirectory() as temp_dir:
         ),
         encoding="utf-8",
     )
+    artifacts_file.write_text(
+        json.dumps(
+            {
+                "artifacts": [
+                    {
+                        "id": 901,
+                        "name": f"staging-reviewed-infra-{divergent_commit}",
+                        "expired": False,
+                        "workflow_run": {
+                            "id": 400,
+                            "head_branch": "main",
+                            "head_sha": divergent_commit,
+                            "repository_id": 1,
+                            "head_repository_id": 1,
+                        },
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
     non_ancestor = subprocess.run(
         [
             sys.executable,
             str(REVIEWED_INFRA),
             "--runs-file",
             str(runs_file),
+            "--artifacts-file",
+            str(artifacts_file),
             "--current-commit",
             current_commit,
             "--repository-root",
@@ -723,6 +781,8 @@ with tempfile.TemporaryDirectory() as temp_dir:
             str(REVIEWED_INFRA),
             "--runs-file",
             str(runs_file),
+            "--artifacts-file",
+            str(artifacts_file),
             "--current-commit",
             current_commit,
             "--repository-root",
@@ -735,9 +795,10 @@ with tempfile.TemporaryDirectory() as temp_dir:
         text=True,
     )
     assert no_apply.returncode != 0
-    assert "No successful protected infrastructure apply" in no_apply.stderr
+    assert "No attested successful staging-boundary infrastructure apply" in no_apply.stderr
 
 workflow = WORKFLOW.read_text(encoding="utf-8")
+protected_apply_workflow = PROTECTED_APPLY_WORKFLOW.read_text(encoding="utf-8")
 qualification_workflow = QUALIFICATION_WORKFLOW.read_text(encoding="utf-8")
 staging_ansible_requirements = STAGING_ANSIBLE_REQUIREMENTS.read_text(encoding="utf-8")
 playbook = PLAYBOOK.read_text(encoding="utf-8")
@@ -865,12 +926,24 @@ assert "environment: staging-vps" not in workflow.split("jobs:", 1)[1].split("de
 assert "production-vps" not in workflow
 assert "nutsnews-production-release" not in workflow
 assert "actions/workflows/protected-ansible-apply.yml/runs" in workflow
+assert "actions/artifacts?per_page=100" in workflow
 assert '--infra-commit "$GITHUB_SHA"' not in workflow
 assert "group: nutsnews-staging-deploy" in workflow
 assert workflow.index("Verify trusted source commit and OCI provenance") < workflow.index("environment: staging-vps")
 preflight_workflow = workflow.split("deploy:", 1)[0]
 assert "NUTSNEWS_STAGING_AUTH_GOOGLE_ID" not in preflight_workflow
 assert "NUTSNEWS_STAGING_AUTH_GOOGLE_SECRET" not in preflight_workflow
+
+for required in (
+    "Record staging-boundary infrastructure attestation",
+    "Upload staging-boundary infrastructure attestation",
+    "inputs.run_mode == 'apply' && inputs.enable_staging_access == 'true'",
+    "staging-reviewed-infra-${{ github.sha }}",
+    "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
+):
+    assert required in protected_apply_workflow, (
+        f"Protected apply workflow is missing staging-boundary attestation: {required}"
+    )
 
 for required in (
     "hosts: nutsnews_staging_vps",
