@@ -114,6 +114,8 @@ jobs:
           CF_ACCESS_CLIENT_SECRET: ${{ secrets.NUTSNEWS_STAGING_ACCESS_CLIENT_SECRET }}
           GH_TOKEN: ${{ github.token }}
           GITHUB_TOKEN: ${{ github.token }}
+          NUTSNEWS_STAGING_BACKEND_API_URL: https://backend.nutsnews.com/api/app/db
+          NUTSNEWS_STAGING_BACKEND_API_TOKEN: ${{ secrets.NUTSNEWS_STAGING_BACKEND_API_TOKEN }}
           NUTSNEWS_SUPABASE_URL: ${{ secrets.NUTSNEWS_STAGING_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.NUTSNEWS_STAGING_SUPABASE_SERVICE_ROLE_KEY }}
           NUTSNEWS_TEST_USER_EMAIL: ${{ secrets.NUTSNEWS_STAGING_TEST_USER_EMAIL }}

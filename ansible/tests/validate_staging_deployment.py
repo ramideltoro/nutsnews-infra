@@ -840,6 +840,14 @@ for required in (
 assert (
     'NUTSNEWS_ADMIN_TEST_AUTH_BYPASS_EXPECTED: "true"' in qualification_workflow
 ), "Staging qualification must require the protected admin dashboard auth-bypass sweep."
+assert (
+    "NUTSNEWS_STAGING_BACKEND_API_URL: https://backend.nutsnews.com/api/app/db"
+    in qualification_workflow
+), "Staging qualification must target the reviewed backend database API."
+assert (
+    "NUTSNEWS_STAGING_BACKEND_API_TOKEN: ${{ secrets.NUTSNEWS_STAGING_BACKEND_API_TOKEN }}"
+    in qualification_workflow
+), "Staging qualification must use the isolated staging-tests backend API token."
 
 assert staging_ansible_requirements == "ansible-core==2.21.2\n"
 for required in (
