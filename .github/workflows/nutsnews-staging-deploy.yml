@@ -16,6 +16,7 @@ on:
         type: string
 
 permissions:
+  actions: read
   contents: read
 
 concurrency:
@@ -29,7 +30,10 @@ jobs:
     timeout-minutes: 15
     outputs:
       deployment_id: ${{ steps.candidate.outputs.deployment_id }}
+      infra_commit: ${{ steps.reviewed_infra.outputs.infra_commit }}
       source_commit: ${{ steps.candidate.outputs.source_commit }}
+      protected_apply_run_id: ${{ steps.reviewed_infra.outputs.protected_apply_run_id }}
+      protected_apply_run_url: ${{ steps.reviewed_infra.outputs.protected_apply_run_url }}
       image_repository: ${{ steps.candidate.outputs.image_repository }}
       image_digest: ${{ steps.candidate.outputs.image_digest }}
       build_id: ${{ steps.candidate.outputs.build_id }}
@@ -42,7 +46,24 @@ jobs:
       - name: Checkout reviewed staging automation
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
         with:
+          fetch-depth: 0
           persist-credentials: false
+
+      - name: Resolve protected-applied infrastructure commit
+        id: reviewed_infra
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh api \
+            "repos/${GITHUB_REPOSITORY}/actions/workflows/protected-ansible-apply.yml/runs?event=workflow_dispatch&status=success&per_page=100" \
+            > "$RUNNER_TEMP/protected-apply-runs.json"
+          python3 ansible/scripts/resolve_reviewed_infra_commit.py \
+            --runs-file "$RUNNER_TEMP/protected-apply-runs.json" \
+            --current-commit "$GITHUB_SHA" \
+            --repository-root "$GITHUB_WORKSPACE" \
+            --github-output "$GITHUB_OUTPUT"
 
       - name: Verify trusted source commit and OCI provenance
         id: candidate
@@ -66,6 +87,8 @@ jobs:
           DEPLOYMENT_ID: ${{ steps.candidate.outputs.deployment_id }}
           SOURCE_COMMIT: ${{ steps.candidate.outputs.source_commit }}
           IMAGE_DIGEST: ${{ steps.candidate.outputs.image_digest }}
+          REVIEWED_INFRA_COMMIT: ${{ steps.reviewed_infra.outputs.infra_commit }}
+          PROTECTED_APPLY_RUN_URL: ${{ steps.reviewed_infra.outputs.protected_apply_run_url }}
         run: |
           set -euo pipefail
           {
@@ -73,6 +96,8 @@ jobs:
             echo
             echo "- Deployment ID: \`${DEPLOYMENT_ID}\`"
             echo "- Source commit: \`${SOURCE_COMMIT}\`"
+            echo "- Reviewed infrastructure commit: \`${REVIEWED_INFRA_COMMIT}\`"
+            echo "- Protected apply: ${PROTECTED_APPLY_RUN_URL}"
             echo "- Requested digest: \`${IMAGE_DIGEST}\`"
             echo "- Staging environment secrets and SSH were not available to this job."
           } >> "$GITHUB_STEP_SUMMARY"
@@ -114,6 +139,7 @@ jobs:
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
         with:
           persist-credentials: false
+          ref: ${{ needs.preflight.outputs.infra_commit }}
 
       - name: Revalidate preflight outputs into a private candidate file
         shell: bash
@@ -247,23 +273,24 @@ jobs:
           NUTSNEWS_STAGING_APP_ENVS_JSON: ${{ secrets.NUTSNEWS_STAGING_APP_ENVS_JSON }}
           NUTSNEWS_STAGING_AUTH_GOOGLE_ID: ${{ secrets.NUTSNEWS_STAGING_AUTH_GOOGLE_ID }}
           NUTSNEWS_STAGING_AUTH_GOOGLE_SECRET: ${{ secrets.NUTSNEWS_STAGING_AUTH_GOOGLE_SECRET }}
+          REVIEWED_INFRA_COMMIT: ${{ needs.preflight.outputs.infra_commit }}
           STAGING_DEPLOYMENT_ID: ${{ needs.preflight.outputs.deployment_id }}
         run: |
           set -euo pipefail
           umask 077
-          config_generation="staging-${STAGING_DEPLOYMENT_ID}-${GITHUB_SHA:0:12}"
+          config_generation="staging-${STAGING_DEPLOYMENT_ID}-${REVIEWED_INFRA_COMMIT:0:12}"
           printf 'config_generation=%s\n' "$config_generation" >> "$GITHUB_OUTPUT"
           for operation in check apply; do
             python3 ansible/scripts/staging_gateway_request.py \
               --operation "$operation" \
               --candidate-file "$RUNNER_TEMP/nutsnews-staging-candidate.json" \
-              --infra-commit "$GITHUB_SHA" \
+              --infra-commit "$REVIEWED_INFRA_COMMIT" \
               --output "$RUNNER_TEMP/nutsnews-staging-${operation}.json"
           done
           python3 ansible/scripts/staging_gateway_request.py \
             --operation verify \
             --candidate-file "$RUNNER_TEMP/nutsnews-staging-candidate.json" \
-            --infra-commit "$GITHUB_SHA" \
+            --infra-commit "$REVIEWED_INFRA_COMMIT" \
             --config-generation "$config_generation" \
             --output "$RUNNER_TEMP/nutsnews-staging-verify.json"
 
@@ -340,11 +367,12 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           CONFIG_GENERATION: ${{ steps.staging_vars.outputs.config_generation }}
+          REVIEWED_INFRA_COMMIT: ${{ needs.preflight.outputs.infra_commit }}
         run: |
           set -euo pipefail
           python3 ansible/scripts/staging_deployment_audit.py \
             --candidate-file "$RUNNER_TEMP/nutsnews-staging-candidate.json" \
-            --infra-commit "$GITHUB_SHA" \
+            --infra-commit "$REVIEWED_INFRA_COMMIT" \
             --config-generation "$CONFIG_GENERATION" \
             --github-run-id "$GITHUB_RUN_ID" \
             --phase deployment \
@@ -451,12 +479,13 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           DEPLOYMENT_ID: ${{ steps.deployment.outputs.deployment_id }}
           CONFIG_GENERATION: ${{ steps.staging_vars.outputs.config_generation }}
+          REVIEWED_INFRA_COMMIT: ${{ needs.preflight.outputs.infra_commit }}
           JOB_OUTCOME: ${{ job.status }}
         run: |
           set -euo pipefail
           python3 ansible/scripts/staging_deployment_audit.py \
             --candidate-file "$RUNNER_TEMP/nutsnews-staging-candidate.json" \
-            --infra-commit "$GITHUB_SHA" \
+            --infra-commit "$REVIEWED_INFRA_COMMIT" \
             --config-generation "$CONFIG_GENERATION" \
             --github-run-id "$GITHUB_RUN_ID" \
             --phase status \
