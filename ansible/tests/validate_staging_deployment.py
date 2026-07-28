@@ -19,6 +19,7 @@ VALIDATOR = ROOT / "scripts/validate_staging_candidate.py"
 WRITE_VARS = ROOT / "scripts/write_staging_ansible_vars.py"
 GATEWAY = ROOT / "scripts/staging_gateway_request.py"
 GATEWAY_RESULT = ROOT / "scripts/staging_gateway_result.py"
+REVIEWED_INFRA = ROOT / "scripts/resolve_reviewed_infra_commit.py"
 WORKFLOW = REPO / ".github/workflows/nutsnews-staging-deploy.yml"
 QUALIFICATION_WORKFLOW = REPO / ".github/workflows/nutsnews-staging-qualification.yml"
 STAGING_ANSIBLE_REQUIREMENTS = REPO / ".github/requirements/staging-ansible.txt"
@@ -582,6 +583,160 @@ def provenance_fetch(url: str, _headers: dict[str, str] | None = None) -> object
 
 module.verify_oci_provenance(valid, provenance_fetch)
 
+with tempfile.TemporaryDirectory() as temp_dir:
+    git_repo = Path(temp_dir)
+
+    def run_git(*arguments: str) -> str:
+        result = subprocess.run(
+            ["git", *arguments],
+            cwd=git_repo,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        return result.stdout.strip()
+
+    run_git("init", "--quiet")
+    run_git("config", "user.name", "Staging Validator")
+    run_git("config", "user.email", "staging-validator@example.invalid")
+    tracked_file = git_repo / "reviewed.txt"
+    tracked_file.write_text("reviewed\n", encoding="utf-8")
+    run_git("add", "reviewed.txt")
+    run_git("commit", "--quiet", "-m", "reviewed")
+    reviewed_commit = run_git("rev-parse", "HEAD")
+    tracked_file.write_text("current\n", encoding="utf-8")
+    run_git("commit", "--quiet", "-am", "current")
+    current_commit = run_git("rev-parse", "HEAD")
+
+    runs_file = git_repo / "runs.json"
+    github_output = git_repo / "github-output"
+    runs_file.write_text(
+        json.dumps(
+            {
+                "workflow_runs": [
+                    {
+                        "id": 300,
+                        "status": "completed",
+                        "conclusion": "success",
+                        "event": "workflow_dispatch",
+                        "head_branch": "main",
+                        "head_sha": current_commit,
+                        "display_title": "Protected Ansible Apply (check)",
+                        "html_url": "https://github.com/ramideltoro/nutsnews-infra/actions/runs/300",
+                    },
+                    {
+                        "id": 200,
+                        "status": "completed",
+                        "conclusion": "success",
+                        "event": "workflow_dispatch",
+                        "head_branch": "main",
+                        "head_sha": reviewed_commit,
+                        "display_title": "Protected Ansible Apply (apply)",
+                        "html_url": "https://github.com/ramideltoro/nutsnews-infra/actions/runs/200",
+                    },
+                    {
+                        "id": 100,
+                        "status": "completed",
+                        "conclusion": "success",
+                        "event": "workflow_dispatch",
+                        "head_branch": "feature",
+                        "head_sha": reviewed_commit,
+                        "display_title": "Protected Ansible Apply (apply)",
+                        "html_url": "https://github.com/ramideltoro/nutsnews-infra/actions/runs/100",
+                    },
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    subprocess.run(
+        [
+            sys.executable,
+            str(REVIEWED_INFRA),
+            "--runs-file",
+            str(runs_file),
+            "--current-commit",
+            current_commit,
+            "--repository-root",
+            str(git_repo),
+            "--github-output",
+            str(github_output),
+        ],
+        check=True,
+    )
+    resolved_outputs = github_output.read_text(encoding="utf-8")
+    assert f"infra_commit={reviewed_commit}\n" in resolved_outputs
+    assert "protected_apply_run_id=200\n" in resolved_outputs
+    assert (
+        "protected_apply_run_url=https://github.com/ramideltoro/nutsnews-infra/actions/runs/200\n"
+        in resolved_outputs
+    )
+
+    run_git("checkout", "--quiet", "--detach", reviewed_commit)
+    tracked_file.write_text("diverged\n", encoding="utf-8")
+    run_git("commit", "--quiet", "-am", "diverged")
+    divergent_commit = run_git("rev-parse", "HEAD")
+    run_git("checkout", "--quiet", "--detach", current_commit)
+    runs_file.write_text(
+        json.dumps(
+            {
+                "workflow_runs": [
+                    {
+                        "id": 400,
+                        "status": "completed",
+                        "conclusion": "success",
+                        "event": "workflow_dispatch",
+                        "head_branch": "main",
+                        "head_sha": divergent_commit,
+                        "display_title": "Automated VPS release test",
+                        "html_url": "https://github.com/ramideltoro/nutsnews-infra/actions/runs/400",
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    non_ancestor = subprocess.run(
+        [
+            sys.executable,
+            str(REVIEWED_INFRA),
+            "--runs-file",
+            str(runs_file),
+            "--current-commit",
+            current_commit,
+            "--repository-root",
+            str(git_repo),
+            "--github-output",
+            str(github_output),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert non_ancestor.returncode != 0
+    assert "not an ancestor" in non_ancestor.stderr
+
+    runs_file.write_text(json.dumps({"workflow_runs": []}), encoding="utf-8")
+    no_apply = subprocess.run(
+        [
+            sys.executable,
+            str(REVIEWED_INFRA),
+            "--runs-file",
+            str(runs_file),
+            "--current-commit",
+            current_commit,
+            "--repository-root",
+            str(git_repo),
+            "--github-output",
+            str(github_output),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert no_apply.returncode != 0
+    assert "No successful protected infrastructure apply" in no_apply.stderr
+
 workflow = WORKFLOW.read_text(encoding="utf-8")
 qualification_workflow = QUALIFICATION_WORKFLOW.read_text(encoding="utf-8")
 staging_ansible_requirements = STAGING_ANSIBLE_REQUIREMENTS.read_text(encoding="utf-8")
@@ -613,6 +768,10 @@ for required in (
     "nutsnews_staging_deploy@65.75.202.112",
     "Prove the deployment key rejects arbitrary commands",
     "staging_deployment_audit.py",
+    "resolve_reviewed_infra_commit.py",
+    "actions: read",
+    "ref: ${{ needs.preflight.outputs.infra_commit }}",
+    "REVIEWED_INFRA_COMMIT",
     "always() && !cancelled()",
 ):
     assert required in workflow, f"Staging workflow is missing required guardrail: {required}"
@@ -705,6 +864,8 @@ assert "python3 -c 'import json,sys; assert json.load" not in apply_step
 assert "environment: staging-vps" not in workflow.split("jobs:", 1)[1].split("deploy:", 1)[0]
 assert "production-vps" not in workflow
 assert "nutsnews-production-release" not in workflow
+assert "actions/workflows/protected-ansible-apply.yml/runs" in workflow
+assert '--infra-commit "$GITHUB_SHA"' not in workflow
 assert "group: nutsnews-staging-deploy" in workflow
 assert workflow.index("Verify trusted source commit and OCI provenance") < workflow.index("environment: staging-vps")
 preflight_workflow = workflow.split("deploy:", 1)[0]
