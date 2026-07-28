@@ -74,7 +74,7 @@ required_titles = {
     "NutsNews worker-uplift RabbitMQ broker down",
     "NutsNews worker-uplift RabbitMQ canary failed",
     "NutsNews worker-uplift Alloy metrics write loss",
-    "NutsNews worker-uplift work exists with no consumers",
+    "NutsNews worker-uplift main queue has zero consumers",
     "NutsNews worker-uplift backlog or oldest age sustained",
     "NutsNews worker-uplift publish and ack imbalance",
     "NutsNews worker-uplift unacked messages growing",
@@ -139,6 +139,20 @@ require(required_categories.issubset(alert_categories), f"catalog missing alert 
 require(required_titles.issubset(alert_titles), f"catalog missing required alert titles: {sorted(required_titles - alert_titles)}")
 require("nn-wu-slo-broker-burn" in alert_uids, "broker SLO burn alert UID missing")
 require("nn-wu-slo-retry-dlq-burn" in alert_uids, "retry/DLQ SLO burn alert UID missing")
+
+consumer_alert = next(alert for alert in alerts if alert["uid"] == "nn-wu-rmq-no-consumers")
+require(
+    "max by (queue)" in consumer_alert["expr"],
+    "consumer-loss alert must evaluate each main queue independently",
+)
+require(
+    "rabbitmq_detailed_queue_messages_ready" not in consumer_alert["expr"],
+    "consumer-loss alert must detect zero consumers even when the queue is empty",
+)
+require(
+    "group_left" in consumer_alert["expr"],
+    "consumer-loss alert must retain per-queue series while supporting the protected drill fixture",
+)
 
 for alert in alerts:
     require(alert["severity"] in {"critical", "warning"}, f"{alert['uid']} has unsupported severity")

@@ -48,7 +48,8 @@ folder. The worker-uplift RabbitMQ alert and SLO catalog is
 resource.
 
 The alert catalog covers broker down, private canary failure, Alloy
-scrape/write loss, no consumers while work exists, sustained backlog or
+scrape/write loss, zero consumers on any main queue even when that queue is
+empty, sustained backlog or
 oldest-age pressure, publish/ack imbalance, unacked growth, DLQs, retry and
 redelivery pressure, connection churn, broker memory/disk alarms, low disk,
 file descriptor pressure, stale recovery proof, repeated restarts, and
