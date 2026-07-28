@@ -60,7 +60,8 @@ Grafana objects:
   (`grafana_rule_group.worker_uplift_guardrails`)
 
 The alert group covers broker down, private canary failure, Alloy scrape/write
-loss, no consumers while work exists, sustained backlog or oldest-age pressure,
+loss, zero consumers on any main queue even when that queue is empty, sustained
+backlog or oldest-age pressure,
 publish/ack imbalance, unacked growth, DLQs, excessive retry/redelivery,
 connection churn, memory/disk alarms, low disk, file descriptor pressure, stale
 recovery proof, repeated restarts, and SLO burn-rate alerts.
@@ -92,7 +93,7 @@ recovery without exposing RabbitMQ publicly:
 | --- | --- |
 | `network-interruption` | broker down, broker availability burn |
 | `invalid-credentials` | canary failure, connection churn, descriptor-pressure triage |
-| `consumer-loss` | no consumers while work exists, unacked growth |
+| `consumer-loss` | zero consumers on a main queue, unacked growth |
 | `disk-watermark` | memory/disk alarm, low disk |
 | `full-queue` | sustained backlog/oldest age, stage latency/freshness warning |
 | `poison-message` | DLQ, retry/DLQ burn, final publication warning |
