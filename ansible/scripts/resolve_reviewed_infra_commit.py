@@ -25,6 +25,7 @@ class ResolutionError(ValueError):
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--runs-file", type=Path, required=True)
+    parser.add_argument("--artifacts-file", type=Path, required=True)
     parser.add_argument("--current-commit", required=True)
     parser.add_argument("--repository-root", type=Path, required=True)
     parser.add_argument("--github-output", type=Path, required=True)
@@ -37,9 +38,37 @@ def _is_apply_title(title: object) -> bool:
     )
 
 
-def resolve_run(payload: object) -> tuple[str, int, str]:
+def resolve_run(payload: object, artifacts_payload: object) -> tuple[str, int, str]:
     if not isinstance(payload, dict) or not isinstance(payload.get("workflow_runs"), list):
         raise ResolutionError("Protected apply response must contain workflow_runs.")
+    if not isinstance(artifacts_payload, dict) or not isinstance(
+        artifacts_payload.get("artifacts"), list
+    ):
+        raise ResolutionError("Infrastructure artifact response must contain artifacts.")
+
+    attestations: set[tuple[int, str]] = set()
+    for artifact in artifacts_payload["artifacts"]:
+        if (
+            not isinstance(artifact, dict)
+            or artifact.get("expired") is not False
+            or not isinstance(artifact.get("id"), int)
+            or artifact["id"] <= 0
+            or not isinstance(artifact.get("workflow_run"), dict)
+        ):
+            continue
+        workflow_run = artifact["workflow_run"]
+        run_id = workflow_run.get("id")
+        head_sha = workflow_run.get("head_sha")
+        if (
+            isinstance(run_id, int)
+            and run_id > 0
+            and isinstance(head_sha, str)
+            and FULL_SHA.fullmatch(head_sha) is not None
+            and workflow_run.get("head_branch") == "main"
+            and workflow_run.get("repository_id") == workflow_run.get("head_repository_id")
+            and artifact.get("name") == f"staging-reviewed-infra-{head_sha}"
+        ):
+            attestations.add((run_id, head_sha))
 
     candidates: list[tuple[int, str, str]] = []
     for run in payload["workflow_runs"]:
@@ -57,6 +86,7 @@ def resolve_run(payload: object) -> tuple[str, int, str]:
             or not _is_apply_title(run.get("display_title"))
             or not isinstance(head_sha, str)
             or FULL_SHA.fullmatch(head_sha) is None
+            or (run_id, head_sha) not in attestations
         ):
             continue
 
@@ -66,7 +96,9 @@ def resolve_run(payload: object) -> tuple[str, int, str]:
         candidates.append((run_id, head_sha, expected_url))
 
     if not candidates:
-        raise ResolutionError("No successful protected infrastructure apply on main was found.")
+        raise ResolutionError(
+            "No attested successful staging-boundary infrastructure apply on main was found."
+        )
     run_id, head_sha, run_url = max(candidates, key=lambda candidate: candidate[0])
     return head_sha, run_id, run_url
 
@@ -112,7 +144,8 @@ def main() -> int:
     args = parse_args()
     try:
         payload: Any = json.loads(args.runs_file.read_text(encoding="utf-8"))
-        reviewed_commit, run_id, run_url = resolve_run(payload)
+        artifacts_payload: Any = json.loads(args.artifacts_file.read_text(encoding="utf-8"))
+        reviewed_commit, run_id, run_url = resolve_run(payload, artifacts_payload)
         validate_commit_lineage(
             args.repository_root.resolve(),
             reviewed_commit,

@@ -59,8 +59,12 @@ jobs:
           gh api \
             "repos/${GITHUB_REPOSITORY}/actions/workflows/protected-ansible-apply.yml/runs?event=workflow_dispatch&status=success&per_page=100" \
             > "$RUNNER_TEMP/protected-apply-runs.json"
+          gh api \
+            "repos/${GITHUB_REPOSITORY}/actions/artifacts?per_page=100" \
+            > "$RUNNER_TEMP/protected-apply-artifacts.json"
           python3 ansible/scripts/resolve_reviewed_infra_commit.py \
             --runs-file "$RUNNER_TEMP/protected-apply-runs.json" \
+            --artifacts-file "$RUNNER_TEMP/protected-apply-artifacts.json" \
             --current-commit "$GITHUB_SHA" \
             --repository-root "$GITHUB_WORKSPACE" \
             --github-output "$GITHUB_OUTPUT"

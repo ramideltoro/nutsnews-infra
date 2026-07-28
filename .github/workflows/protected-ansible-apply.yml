@@ -1262,6 +1262,25 @@ jobs:
 
           exit "$ansible_status"
 
+      - name: Record staging-boundary infrastructure attestation
+        if: inputs.run_mode == 'apply' && inputs.enable_staging_access == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf 'infra_commit=%s\nworkflow_run_id=%s\n' \
+            "$GITHUB_SHA" \
+            "$GITHUB_RUN_ID" \
+            > "$RUNNER_TEMP/staging-reviewed-infra-commit"
+
+      - name: Upload staging-boundary infrastructure attestation
+        if: inputs.run_mode == 'apply' && inputs.enable_staging_access == 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: staging-reviewed-infra-${{ github.sha }}
+          path: ${{ runner.temp }}/staging-reviewed-infra-commit
+          if-no-files-found: error
+          retention-days: 90
+
       - name: Verify released Docker image over SSH
         if: inputs.release_source_commit != ''
         shell: bash
