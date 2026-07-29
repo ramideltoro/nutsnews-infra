@@ -228,6 +228,9 @@ assert "verify-rollback" in protected_workflow
 assert "rollback_failed_image_digest:" in protected_workflow
 assert "rollback_reason:" in protected_workflow
 assert "rollback_confirmation:" in protected_workflow
+assert "fixed_recorded_rollback = (" in protected_workflow
+assert '== "rollback-recorded-last-known-good"' in protected_workflow
+assert 'if truthy("SYNC_VERCEL_PRODUCTION") or fixed_recorded_rollback' in protected_workflow
 assert "validate_production_rollback.py" in workflow_safety
 
 print("Fixed production rollback guardrails passed.")
