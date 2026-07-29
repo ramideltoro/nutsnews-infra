@@ -160,7 +160,7 @@ jobs:
             --ref main \
             --field run_mode=apply \
             --field confirm_apply=vps.nutsnews.com \
-            --field sync_vercel_production=false \
+            --field sync_vercel_production=true \
             --field enable_cloudflare_ddns=false \
             --field enable_grafana_alloy=false \
             --field enable_staging_access=true \
