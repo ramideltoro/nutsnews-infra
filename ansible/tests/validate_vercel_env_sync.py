@@ -60,8 +60,9 @@ require(
 )
 require(
     '"vps_service_foundation_nutsnews_deployment_environments": (' in WORKFLOW
-    and '["production"] if truthy("SYNC_VERCEL_PRODUCTION") else []' in WORKFLOW,
-    "Production runtime materialization must be disabled when the reviewed Vercel sync is disabled.",
+    and 'if truthy("SYNC_VERCEL_PRODUCTION") or fixed_recorded_rollback' in WORKFLOW
+    and '== "rollback-recorded-last-known-good"' in WORKFLOW,
+    "Production runtime materialization must require reviewed Vercel sync or an exact fixed rollback confirmation.",
 )
 require(
     '"AUTH_URL": admin_canonical_origin' in WORKFLOW
