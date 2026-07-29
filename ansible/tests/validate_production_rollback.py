@@ -217,6 +217,8 @@ for required in (
     "--field rollback_reason",
     "--field rollback_confirmation=rollback-recorded-last-known-good",
     "--field sync_vercel_production=true",
+    "--field release_smoke_helper_ref",
+    "repos/ramideltoro/nutsnews/commits/main",
     "NUTSNEWS_INFRA_RELEASE_TOKEN",
     "environment: production-vps",
 ):
