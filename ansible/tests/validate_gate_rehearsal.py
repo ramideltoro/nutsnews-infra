@@ -168,6 +168,7 @@ for required in (
     "rollback_nutsnews_release.py",
     "gh workflow run protected-ansible-apply.yml",
     "--field sync_vercel_production=true",
+    "--field release_smoke_helper_ref",
     "--field enable_staging_access=true",
 ):
     require(required in ROLLBACK, f"Fixed rollback workflow missing guardrail: {required}.")

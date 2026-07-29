@@ -143,6 +143,7 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.NUTSNEWS_INFRA_RELEASE_TOKEN }}
+          NUTSNEWS_APP_RELEASE_TOKEN: ${{ secrets.NUTSNEWS_APP_RELEASE_TOKEN }}
           RESTORED_SOURCE_COMMIT: ${{ steps.rollback.outputs.restored_source_commit }}
           RESTORED_IMAGE_DIGEST: ${{ steps.rollback.outputs.restored_image_digest }}
           RESTORED_BUILD_ID: ${{ steps.rollback.outputs.restored_build_id }}
@@ -155,6 +156,14 @@ jobs:
         run: |
           set -euo pipefail
           dispatch_started_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          smoke_helper_ref="$(
+            GH_TOKEN="$NUTSNEWS_APP_RELEASE_TOKEN" \
+              gh api repos/ramideltoro/nutsnews/commits/main --jq .sha
+          )"
+          if [[ ! "$smoke_helper_ref" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "Current NutsNews smoke helper ref must be a full lowercase SHA." >&2
+            exit 1
+          fi
           gh workflow run protected-ansible-apply.yml \
             --repo "$GITHUB_REPOSITORY" \
             --ref main \
@@ -171,6 +180,7 @@ jobs:
             --field release_migration_head="$RESTORED_MIGRATION_HEAD" \
             --field release_schema_version="$RESTORED_SCHEMA_VERSION" \
             --field release_supabase_project_ref="$RESTORED_SUPABASE_PROJECT_REF" \
+            --field release_smoke_helper_ref="$smoke_helper_ref" \
             --field rollback_failed_image_digest="$FAILED_IMAGE_DIGEST" \
             --field rollback_reason="$ROLLBACK_REASON" \
             --field rollback_confirmation=rollback-recorded-last-known-good
