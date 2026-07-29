@@ -216,6 +216,7 @@ for required in (
     "--field rollback_failed_image_digest",
     "--field rollback_reason",
     "--field rollback_confirmation=rollback-recorded-last-known-good",
+    "--field sync_vercel_production=true",
     "NUTSNEWS_INFRA_RELEASE_TOKEN",
     "environment: production-vps",
 ):
