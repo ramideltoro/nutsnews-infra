@@ -54,6 +54,7 @@ NUTSNEWS_DNS_FAILOVER_ZONE_ID
 NUTSNEWS_DNS_FAILOVER_RECORDS_JSON
 NUTSNEWS_DNS_FAILOVER_ADMIN_TOKEN
 NUTSNEWS_CLOUDFLARE_USAGE_API_TOKEN
+NUTSNEWS_CLOUDFLARE_BILLING_API_TOKEN
 ```
 
 Use separate tokens when possible:
@@ -63,6 +64,10 @@ Use separate tokens when possible:
 - Analytics proof token: Account Analytics Read only. It is used by the
   protected workflow to query aggregate Analytics Engine event counts and is
   never added to the Worker runtime.
+- Analytics activation token: Billing Read and Billing Write for the target
+  account only. It is used only by the explicitly confirmed
+  `enable-analytics-engine` workflow mode and is never added to the Worker
+  runtime.
 
 `NUTSNEWS_DNS_FAILOVER_RECORDS_JSON` stores the apex and www DNS record ids without printing them in logs:
 
@@ -125,7 +130,30 @@ run_mode: plan
 dns_writes_enabled: false
 confirm_apply:
 confirm_dns_writes:
+confirm_analytics_engine_enable:
 ```
+
+If Cloudflare reports error `10089` because the account capability has never
+been enabled, activate the zero-price Analytics Engine subscription through
+the same protected workflow. This is a one-time, idempotent account capability
+change. It does not deploy the Worker, edit a binding, touch DNS, change a
+route or cron, or mutate Durable Object state:
+
+```text
+run_mode: enable-analytics-engine
+dns_writes_enabled: false
+confirm_apply:
+confirm_dns_writes:
+confirm_analytics_engine_enable: enable-analytics-engine-for-nutsnews
+```
+
+The activation step requests the Cloudflare
+`beta_analytics_engine_api` rate plan with an explicit zero price, verifies the
+resulting subscription is active and zero-price, and uploads
+`cloudflare-analytics-engine-activation-proof`. The artifact omits account,
+subscription, billing-profile, payment, and secret values. Do not activate the
+capability manually in the dashboard or call the subscriptions API outside
+this protected workflow.
 
 Apply the Worker without enabling automatic DNS writes:
 
@@ -134,6 +162,7 @@ run_mode: apply
 dns_writes_enabled: false
 confirm_apply: dns-failover.nutsnews.com
 confirm_dns_writes:
+confirm_analytics_engine_enable:
 ```
 
 Enable or refresh automatic DNS writes only through the protected apply
@@ -144,6 +173,7 @@ run_mode: apply
 dns_writes_enabled: true
 confirm_apply: dns-failover.nutsnews.com
 confirm_dns_writes: enable-dns-writes-for-nutsnews.com
+confirm_analytics_engine_enable:
 ```
 
 When writes are disabled, the Durable Object can still schedule checks and report state, but automatic failover and failback DNS writes are suppressed. Manual failover and manual failback endpoints still require the admin bearer token and explicit confirmation bodies.
