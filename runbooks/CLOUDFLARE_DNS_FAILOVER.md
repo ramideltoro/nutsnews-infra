@@ -120,6 +120,13 @@ accept the workflow conclusion alone or treat an earlier empty schedule sample
 as final; inspect the uploaded proof and require `minute_watchdog_present:
 true`.
 
+Wrangler `secret put` creates and immediately deploys a new Worker version.
+After refreshing the runtime secrets, the protected apply workflow explicitly
+runs `wrangler triggers deploy` from the reviewed Wrangler configuration so
+the once-per-minute watchdog remains source-controlled and cannot be omitted
+by the secret-version deployments. This operation changes no DNS record,
+route, Durable Object state, or automatic-write policy.
+
 If analytics is unavailable, continue DNS failover operation and investigate
 the sanitized `analytics_status`. Never make health checks, failover/failback,
 manual controls, or alarms depend on analytics availability. Roll back only
