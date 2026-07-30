@@ -73,13 +73,23 @@ def summarize_bindings(settings: dict) -> dict:
 
 
 def summarize_schedules(schedules: dict) -> dict:
+    result = schedules.get("result")
+    if isinstance(result, dict):
+        raw_values = result.get("schedules")
+        response_shape_valid = isinstance(raw_values, list)
+    else:
+        # Retain compatibility with the former response shape returned by the API.
+        raw_values = result
+        response_shape_valid = isinstance(raw_values, list)
+    if not response_shape_valid:
+        raw_values = []
     values = [
         str(item.get("cron", ""))
-        for item in schedules.get("result", [])
+        for item in raw_values
         if isinstance(item, dict)
     ]
     return {
-        "query_succeeded": schedules.get("success") is True,
+        "query_succeeded": schedules.get("success") is True and response_shape_valid,
         "crons": values,
         "minute_watchdog_present": "* * * * *" in values,
     }

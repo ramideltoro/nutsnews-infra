@@ -77,14 +77,43 @@ class FailoverAnalyticsProofTests(unittest.TestCase):
         self.assertEqual(populated["sampled_event_count"], 3)
 
     def test_schedule_summary_requires_minute_watchdog(self):
-        pending = analytics.summarize_schedules({"success": True, "result": []})
+        pending = analytics.summarize_schedules(
+            {"success": True, "result": {"schedules": []}}
+        )
         self.assertTrue(pending["query_succeeded"])
         self.assertFalse(pending["minute_watchdog_present"])
 
         propagated = analytics.summarize_schedules(
-            {"success": True, "result": [{"cron": "* * * * *"}]}
+            {
+                "success": True,
+                "result": {
+                    "schedules": [
+                        {
+                            "cron": "* * * * *",
+                            "created_on": "not-recorded",
+                            "modified_on": "not-recorded",
+                        }
+                    ]
+                },
+            }
         )
         self.assertTrue(propagated["minute_watchdog_present"])
+        self.assertEqual(propagated["crons"], ["* * * * *"])
+        self.assertNotIn("created_on", str(propagated))
+
+    def test_schedule_summary_accepts_legacy_list_shape(self):
+        summary = analytics.summarize_schedules(
+            {"success": True, "result": [{"cron": "* * * * *"}]}
+        )
+        self.assertTrue(summary["query_succeeded"])
+        self.assertTrue(summary["minute_watchdog_present"])
+
+    def test_schedule_summary_rejects_unknown_shape(self):
+        summary = analytics.summarize_schedules(
+            {"success": True, "result": {"unexpected": []}}
+        )
+        self.assertFalse(summary["query_succeeded"])
+        self.assertFalse(summary["minute_watchdog_present"])
 
     def test_graphql_errors_fail_closed_without_copying_messages(self):
         summary = analytics.summarize_graphql(
