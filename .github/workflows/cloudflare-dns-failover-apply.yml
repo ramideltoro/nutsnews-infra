@@ -4,12 +4,13 @@ on:
   workflow_dispatch:
     inputs:
       run_mode:
-        description: Plan or apply the Cloudflare DNS failover Worker.
+        description: Plan, enable Analytics Engine, or apply the Cloudflare DNS failover Worker.
         required: true
         default: plan
         type: choice
         options:
           - plan
+          - enable-analytics-engine
           - apply
       dns_writes_enabled:
         description: Enable automatic apex/www DNS writes after deploy.
@@ -29,6 +30,11 @@ on:
         required: false
         default: ""
         type: string
+      confirm_analytics_engine_enable:
+        description: For account activation only, type enable-analytics-engine-for-nutsnews.
+        required: false
+        default: ""
+        type: string
 
 permissions:
   contents: read
@@ -39,7 +45,7 @@ concurrency:
 
 jobs:
   failover:
-    name: Protected Cloudflare DNS failover plan/apply
+    name: Protected Cloudflare DNS failover operation
     runs-on: ubuntu-latest
     timeout-minutes: 20
     environment: cloudflare-admin
@@ -52,6 +58,7 @@ jobs:
           DNS_WRITES_ENABLED: ${{ inputs.dns_writes_enabled }}
           CONFIRM_APPLY: ${{ inputs.confirm_apply }}
           CONFIRM_DNS_WRITES: ${{ inputs.confirm_dns_writes }}
+          CONFIRM_ANALYTICS_ENGINE_ENABLE: ${{ inputs.confirm_analytics_engine_enable }}
         run: |
           set -euo pipefail
           if [[ "$GITHUB_REF" != "refs/heads/main" ]]; then
@@ -60,6 +67,10 @@ jobs:
           fi
           if [[ "$RUN_MODE" == "apply" && "$CONFIRM_APPLY" != "dns-failover.nutsnews.com" ]]; then
             echo "Apply requires confirm_apply to be exactly dns-failover.nutsnews.com." >&2
+            exit 1
+          fi
+          if [[ "$RUN_MODE" == "enable-analytics-engine" && "$CONFIRM_ANALYTICS_ENGINE_ENABLE" != "enable-analytics-engine-for-nutsnews" ]]; then
+            echo "Analytics Engine activation requires confirm_analytics_engine_enable=enable-analytics-engine-for-nutsnews." >&2
             exit 1
           fi
           if [[ "$RUN_MODE" != "apply" && "$DNS_WRITES_ENABLED" == "true" ]]; then
@@ -92,17 +103,30 @@ jobs:
           DNS_RECORDS_JSON: ${{ secrets.NUTSNEWS_DNS_FAILOVER_RECORDS_JSON }}
           ADMIN_TOKEN: ${{ secrets.NUTSNEWS_DNS_FAILOVER_ADMIN_TOKEN }}
           ANALYTICS_API_TOKEN: ${{ secrets.NUTSNEWS_CLOUDFLARE_USAGE_API_TOKEN }}
+          BILLING_API_TOKEN: ${{ secrets.NUTSNEWS_CLOUDFLARE_BILLING_API_TOKEN }}
         run: |
           set -euo pipefail
           missing=0
-          for name in CLOUDFLARE_ACCOUNT_ID CLOUDFLARE_API_TOKEN DNS_API_TOKEN DNS_ZONE_ID DNS_RECORDS_JSON ADMIN_TOKEN; do
+          for name in CLOUDFLARE_ACCOUNT_ID CLOUDFLARE_API_TOKEN; do
             if [[ -z "${!name}" ]]; then
               echo "Missing required cloudflare-admin Environment secret: $name" >&2
               missing=1
             fi
           done
+          if [[ "$RUN_MODE" != "enable-analytics-engine" ]]; then
+            for name in DNS_API_TOKEN DNS_ZONE_ID DNS_RECORDS_JSON ADMIN_TOKEN; do
+              if [[ -z "${!name}" ]]; then
+                echo "Missing required cloudflare-admin Environment secret: $name" >&2
+                missing=1
+              fi
+            done
+          fi
           if [[ "$RUN_MODE" == "apply" && -z "$ANALYTICS_API_TOKEN" ]]; then
             echo "Missing required cloudflare-admin Environment secret: ANALYTICS_API_TOKEN" >&2
+            missing=1
+          fi
+          if [[ "$RUN_MODE" == "enable-analytics-engine" && -z "$BILLING_API_TOKEN" ]]; then
+            echo "Missing required cloudflare-admin Environment secret: BILLING_API_TOKEN" >&2
             missing=1
           fi
           if [[ "$missing" != "0" ]]; then
@@ -116,6 +140,10 @@ jobs:
             -s cloudflare/dns-failover/tests \
             -p "test_*.py"
           python3 ansible/tests/validate_cloudflare_dns_failover.py
+
+          if [[ "$RUN_MODE" == "enable-analytics-engine" ]]; then
+            exit 0
+          fi
 
           node --input-type=module <<'NODE'
           const records = JSON.parse(process.env.DNS_RECORDS_JSON);
@@ -153,6 +181,28 @@ jobs:
             --dry-run \
             --outdir "$RUNNER_TEMP/dns-failover-dry-run" \
             --config cloudflare/dns-failover/wrangler.toml
+
+      - name: Enable account Analytics Engine capability
+        if: inputs.run_mode == 'enable-analytics-engine'
+        shell: bash
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.NUTSNEWS_CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_BILLING_API_TOKEN: ${{ secrets.NUTSNEWS_CLOUDFLARE_BILLING_API_TOKEN }}
+          CONFIRM_ANALYTICS_ENGINE_ENABLE: ${{ inputs.confirm_analytics_engine_enable }}
+        run: |
+          set -euo pipefail
+          python3 cloudflare/dns-failover/scripts/enable_analytics_engine.py \
+            --output "$RUNNER_TEMP/analytics-engine-activation-proof.json" \
+            --confirm "$CONFIRM_ANALYTICS_ENGINE_ENABLE"
+
+      - name: Upload value-free Analytics Engine activation proof
+        if: inputs.run_mode == 'enable-analytics-engine' && always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: cloudflare-analytics-engine-activation-proof
+          path: ${{ runner.temp }}/analytics-engine-activation-proof.json
+          if-no-files-found: error
+          retention-days: 30
 
       - name: Deploy Worker code
         if: inputs.run_mode == 'apply'
@@ -220,6 +270,10 @@ jobs:
           RUN_MODE: ${{ inputs.run_mode }}
           DNS_WRITES_ENABLED: ${{ inputs.dns_writes_enabled }}
         run: |
+          activation_requested=false
+          if [[ "$RUN_MODE" == "enable-analytics-engine" ]]; then
+            activation_requested=true
+          fi
           {
             echo "## Cloudflare DNS failover"
             echo
@@ -232,4 +286,5 @@ jobs:
             echo "- Analytics binding: \`FAILOVER_ANALYTICS\`"
             echo "- Analytics dataset: \`nutsnews_dns_failover_v1\`"
             echo "- Analytics verification changes state: \`false\`"
+            echo "- Account Analytics Engine activation requested: \`${activation_requested}\`"
           } >> "$GITHUB_STEP_SUMMARY"

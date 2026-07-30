@@ -18,6 +18,8 @@ ENTRYPOINT = WORKER_DIR / "src/index.mjs"
 TESTS = WORKER_DIR / "tests/core.test.mjs"
 ANALYTICS_PROOF = WORKER_DIR / "scripts/verify_failover_analytics.py"
 ANALYTICS_TESTS = WORKER_DIR / "tests/test_analytics_proof.py"
+ANALYTICS_ACTIVATION = WORKER_DIR / "scripts/enable_analytics_engine.py"
+ANALYTICS_ACTIVATION_TESTS = WORKER_DIR / "tests/test_analytics_activation.py"
 CI_WORKFLOW = ROOT / ".github/workflows/cloudflare-dns-failover-ci.yml"
 APPLY_WORKFLOW = ROOT / ".github/workflows/cloudflare-dns-failover-apply.yml"
 STATUS_SECRET_WORKFLOW = ROOT / ".github/workflows/cloudflare-failover-status-secret-apply.yml"
@@ -39,6 +41,8 @@ entrypoint = read(ENTRYPOINT)
 tests = read(TESTS)
 analytics_proof = read(ANALYTICS_PROOF)
 analytics_tests = read(ANALYTICS_TESTS)
+analytics_activation = read(ANALYTICS_ACTIVATION)
+analytics_activation_tests = read(ANALYTICS_ACTIVATION_TESTS)
 ci_workflow = read(CI_WORKFLOW)
 apply_workflow = read(APPLY_WORKFLOW)
 status_secret_workflow = read(STATUS_SECRET_WORKFLOW)
@@ -123,6 +127,18 @@ for phrase in (
     )
 
 for phrase in (
+    'RATE_PLAN_ID = "beta_analytics_engine_api"',
+    '"price": 0',
+    "activation_performed",
+    "subscription_identifier_recorded",
+    "dns_or_worker_state_changed",
+):
+    require(
+        phrase in analytics_activation + analytics_activation_tests,
+        f"Protected Analytics Engine activation coverage missing {phrase}.",
+    )
+
+for phrase in (
     "none:failure_threshold_not_met",
     "pending:vps_failure_threshold:vercel",
     "pending:vps_recovered:vps",
@@ -151,6 +167,10 @@ for phrase in (
     "wrangler@4.113.0 deploy",
     "wrangler@4.113.0 secret put",
     "NUTSNEWS_CLOUDFLARE_USAGE_API_TOKEN",
+    "NUTSNEWS_CLOUDFLARE_BILLING_API_TOKEN",
+    "enable-analytics-engine-for-nutsnews",
+    "enable_analytics_engine.py",
+    "cloudflare-analytics-engine-activation-proof",
     "verify_failover_analytics.py",
     "cloudflare-dns-failover-analytics-proof",
     "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
@@ -202,11 +222,15 @@ for phrase in (
     "nutsnews-production",
     "NUTSNEWS_DNS_FAILOVER_RECORDS_JSON",
     "NUTSNEWS_CLOUDFLARE_USAGE_API_TOKEN",
+    "NUTSNEWS_CLOUDFLARE_BILLING_API_TOKEN",
     "FAILOVER_ANALYTICS",
     "nutsnews_dns_failover_v1",
     "best-effort",
     "three months",
     "Account Analytics Read",
+    "Billing Read and Billing Write",
+    "enable-analytics-engine",
+    "enable-analytics-engine-for-nutsnews",
     "After #396, with writes enabled and VPS primary active",
 ):
     require(phrase in runbook, f"Runbook missing required phrase: {phrase}")
