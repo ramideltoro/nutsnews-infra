@@ -25,6 +25,21 @@ Use three separate trust boundaries:
 Never put deploy SSH or app runtime secrets in `staging-tests`, provider-admin
 credentials in either staging environment, or test users in `staging-vps`.
 
+The staging auto-idle service stops both isolated staging Compose projects after
+qualification expires but retains their reviewed root-owned definitions and
+environment files. The next successful fixed staging apply restarts the
+existing `nutsnews-staging-access` project from those retained files and waits
+up to 60 seconds for its health check before live boundary verification. No
+Access secret is copied into the `staging-vps` GitHub Environment. Missing or
+incorrect file ownership, a Compose failure, or an unhealthy verifier fails the
+release closed with a sanitized error code; production is not promoted.
+
+Rollback is to revert the infrastructure change through a pull request and run
+Protected Ansible Apply again. That restores the earlier fail-closed behavior:
+an auto-idled staging deployment remains unavailable until the protected
+staging Access boundary is explicitly enabled, while production remains
+unchanged.
+
 The browser authorization cookie uses `SameSite=Lax`, the narrowest Cloudflare
 Access setting compatible with the top-level cross-site return from the
 staging application's Google OAuth flow. `SameSite=Strict` is not permitted:
