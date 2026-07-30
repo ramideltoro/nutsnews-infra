@@ -172,6 +172,7 @@ for phrase in (
     "enable_analytics_engine.py",
     "cloudflare-analytics-engine-activation-proof",
     "verify_failover_analytics.py",
+    "--wait-seconds 900",
     "cloudflare-dns-failover-analytics-proof",
     "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
 ):
@@ -231,6 +232,8 @@ for phrase in (
     "Billing Read and Billing Write",
     "enable-analytics-engine",
     "enable-analytics-engine-for-nutsnews",
+    "up to 15 minutes",
+    "minute_watchdog_present",
     "After #396, with writes enabled and VPS primary active",
 ):
     require(phrase in runbook, f"Runbook missing required phrase: {phrase}")

@@ -76,6 +76,16 @@ class FailoverAnalyticsProofTests(unittest.TestCase):
         self.assertTrue(populated["positive_event_count"])
         self.assertEqual(populated["sampled_event_count"], 3)
 
+    def test_schedule_summary_requires_minute_watchdog(self):
+        pending = analytics.summarize_schedules({"success": True, "result": []})
+        self.assertTrue(pending["query_succeeded"])
+        self.assertFalse(pending["minute_watchdog_present"])
+
+        propagated = analytics.summarize_schedules(
+            {"success": True, "result": [{"cron": "* * * * *"}]}
+        )
+        self.assertTrue(propagated["minute_watchdog_present"])
+
     def test_graphql_errors_fail_closed_without_copying_messages(self):
         summary = analytics.summarize_graphql(
             {"errors": [{"message": "sensitive upstream detail"}], "data": None}

@@ -251,8 +251,8 @@ jobs:
           set -euo pipefail
           python3 cloudflare/dns-failover/scripts/verify_failover_analytics.py \
             --output "$RUNNER_TEMP/failover-analytics-proof.json" \
-            --wait-seconds 120 \
-            --poll-seconds 10
+            --wait-seconds 900 \
+            --poll-seconds 15
 
       - name: Upload value-free analytics proof
         if: inputs.run_mode == 'apply' && always()
