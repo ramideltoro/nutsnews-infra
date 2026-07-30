@@ -93,6 +93,98 @@
           vars:  # noqa var-naming[no-role-prefix]
             nutsnews_environment: "{{ vps_service_foundation_nutsnews_environments.staging }}"
           when: not ansible_check_mode
+
+        - name: Inspect retained root-owned staging Access files
+          ansible.builtin.stat:
+            path: "{{ item.path }}"
+          loop:
+            - path: "{{ vps_service_foundation_nutsnews_staging_access_dir }}"
+              kind: directory
+              mode: "0750"
+            - path: "{{ vps_service_foundation_nutsnews_staging_access_compose_file }}"
+              kind: file
+              mode: "0644"
+            - path: "{{ vps_service_foundation_nutsnews_staging_access_gateway_file }}"
+              kind: file
+              mode: "0755"
+            - path: "{{ vps_service_foundation_nutsnews_staging_access_env_file }}"
+              kind: file
+              mode: "0600"
+          register: retained_staging_access_files
+          no_log: true
+
+        - name: Assert retained staging Access files are safe to reuse
+          ansible.builtin.assert:
+            that:
+              - item.stat.exists | default(false)
+              - >-
+                (item.item.kind == 'directory' and item.stat.isdir | default(false))
+                or (item.item.kind == 'file' and item.stat.isreg | default(false))
+              - item.stat.pw_name | default('') == 'root'
+              - item.stat.gr_name | default('') == 'root'
+              - item.stat.mode | default('') == item.item.mode
+            fail_msg: >-
+              The retained staging Access runtime must remain root-owned with
+              its reviewed file modes before an auto-idled release can restore it.
+          loop: "{{ retained_staging_access_files.results }}"
+          no_log: true
+
+        - name: Restore auto-idled staging Access verifier
+          ansible.builtin.command:
+            argv:
+              - docker
+              - compose
+              - --project-name
+              - "{{ vps_service_foundation_nutsnews_staging_access_project }}"
+              - --project-directory
+              - "{{ vps_service_foundation_nutsnews_staging_access_dir }}"
+              - --env-file
+              - "{{ vps_service_foundation_nutsnews_staging_access_env_file }}"
+              - -f
+              - "{{ vps_service_foundation_nutsnews_staging_access_compose_file }}"
+              - up
+              - -d
+              - --remove-orphans
+          environment:
+            NUTSNEWS_STAGING_ACCESS_ENV_FILE: "{{ vps_service_foundation_nutsnews_staging_access_env_file }}"
+          register: restored_staging_access
+          changed_when: >-
+            'Created' in restored_staging_access.stdout
+            or 'Created' in restored_staging_access.stderr
+            or 'Recreated' in restored_staging_access.stdout
+            or 'Recreated' in restored_staging_access.stderr
+            or 'Started' in restored_staging_access.stdout
+            or 'Started' in restored_staging_access.stderr
+          no_log: true
+          when: not ansible_check_mode
+
+        - name: Wait for restored staging Access verifier health
+          ansible.builtin.command:
+            argv:
+              - docker
+              - inspect
+              - --format
+              - "{{ '{{.State.Running}}|{{.State.Health.Status}}' }}"
+              - nutsnews-staging-access-verifier
+          register: restored_staging_access_health
+          changed_when: false
+          failed_when: false
+          retries: 30
+          delay: 2
+          until:
+            - restored_staging_access_health.rc == 0
+            - restored_staging_access_health.stdout is search('(?i)true\\|healthy')
+          when: not ansible_check_mode
+
+        - name: Assert restored staging Access verifier health
+          ansible.builtin.assert:
+            that:
+              - restored_staging_access_health.rc == 0
+              - restored_staging_access_health.stdout is search('(?i)true\\|healthy')
+            fail_msg: >-
+              The auto-idled staging Access verifier must be healthy before
+              the fixed staging release can enter live boundary verification.
+          when: not ansible_check_mode
       always:
         - name: Release the staging host mutation lock
           ansible.builtin.command:

@@ -963,15 +963,41 @@ for required in (
     "nutsnews-app-staging",
     "nutsnews-edge-staging",
     "Acquire the staging host mutation lock",
+    "Inspect retained root-owned staging Access files",
+    "Assert retained staging Access files are safe to reuse",
+    "Restore auto-idled staging Access verifier",
+    "Wait for restored staging Access verifier health",
+    "Assert restored staging Access verifier health",
     "Release the staging host mutation lock",
 ):
     assert required in playbook, f"Staging-only play is missing {required}"
 
 assert "public: true" not in playbook
 
+for required in (
+    "vps_service_foundation_nutsnews_staging_access_project",
+    "vps_service_foundation_nutsnews_staging_access_dir",
+    "vps_service_foundation_nutsnews_staging_access_compose_file",
+    "vps_service_foundation_nutsnews_staging_access_gateway_file",
+    "vps_service_foundation_nutsnews_staging_access_env_file",
+    "NUTSNEWS_STAGING_ACCESS_ENV_FILE",
+    "nutsnews-staging-access-verifier",
+    "retries: 30",
+    "delay: 2",
+    "no_log: true",
+):
+    assert required in playbook, f"Auto-idled staging Access recovery is missing {required}"
+
 assert (
     playbook.index("tasks_from: staging_defaults.yml")
     < playbook.index("Refuse anything except the fixed staging inventory alias")
+)
+assert (
+    playbook.index("Verify only the staging container state")
+    < playbook.index("Inspect retained root-owned staging Access files")
+    < playbook.index("Restore auto-idled staging Access verifier")
+    < playbook.index("Wait for restored staging Access verifier health")
+    < playbook.index("Release the staging host mutation lock")
 )
 assert "nutsnews-app'" in playbook
 assert "vps_baseline_vps" not in playbook
