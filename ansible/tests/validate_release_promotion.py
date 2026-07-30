@@ -387,12 +387,12 @@ assert "nutsnews-current-smoke/scripts/admin_backend_operation_smoke.mjs" in pro
 assert "nutsnews-current-smoke/api-contracts/admin-backend-operations.json" in protected_workflow
 assert 'release_deployment_target" != "production-vps"' in protected_workflow
 assert "RELEASE_IMAGE_DEPLOYMENT_TARGET=production-vps" in protected_workflow
-assert "RELEASE_HEALTH_DEPLOYMENT_TARGET=production-vps" in protected_workflow
-assert 'healthDeploymentTarget !== "production-vps"' in protected_workflow
+assert "RELEASE_HEALTH_DEPLOYMENT_TARGET=vps" in protected_workflow
+assert 'healthDeploymentTarget !== "vps"' in protected_workflow
 assert 'payload?.deploymentTarget === healthDeploymentTarget' in protected_workflow
 assert 'response.headers.get("x-nutsnews-deployment-target") === healthDeploymentTarget' in protected_workflow
 assert "--expected-deployment-target production-vps" in protected_workflow
-assert "--expected-health-deployment-target production-vps" in protected_workflow
+assert "--expected-health-deployment-target vps" in protected_workflow
 assert (
     protected_workflow.index("Run safe production app smoke surfaces")
     < protected_workflow.index("Run production admin backend operation smoke")

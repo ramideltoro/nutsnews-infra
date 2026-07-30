@@ -400,8 +400,9 @@ jobs:
             exit 1
           fi
           printf 'RELEASE_IMAGE_DEPLOYMENT_TARGET=production-vps\n' >> "$GITHUB_ENV"
-          # Public health and readiness identity both report the production VPS runtime.
-          printf 'RELEASE_HEALTH_DEPLOYMENT_TARGET=production-vps\n' >> "$GITHUB_ENV"
+          # /healthz is built once into the shared VPS image. Runtime readiness
+          # and public config separately prove the production-vps environment.
+          printf 'RELEASE_HEALTH_DEPLOYMENT_TARGET=vps\n' >> "$GITHUB_ENV"
           echo "Verified reviewed infrastructure target and public app health target contract."
 
       - name: Validate dispatch inputs
@@ -1328,7 +1329,7 @@ jobs:
           if (
             !/^[0-9a-f]{40}$/.test(sourceCommit) ||
             !/^\d+-\d+$/.test(buildId) ||
-            healthDeploymentTarget !== "production-vps"
+            healthDeploymentTarget !== "vps"
           ) {
             throw new Error("Automated release health verification received invalid expected identity values.");
           }
@@ -1422,7 +1423,7 @@ jobs:
             --expected-source-commit "$RELEASE_SOURCE_COMMIT" \
             --expected-build-id "$RELEASE_BUILD_ID" \
             --expected-deployment-target production-vps \
-            --expected-health-deployment-target production-vps \
+            --expected-health-deployment-target vps \
             --expected-runtime-env production \
             --expected-image-digest "$RELEASE_IMAGE_DIGEST" \
             --expected-config-generation "production-${RELEASE_BUILD_ID}-${RELEASE_MIGRATION_HEAD}" \
