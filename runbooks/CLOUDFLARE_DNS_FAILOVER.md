@@ -113,6 +113,13 @@ uploads `cloudflare-dns-failover-analytics-proof`. The value-free JSON proves:
 - verification performs no state change and records no secret, account, zone,
   DNS-record, or payload value.
 
+Cloudflare documents that Cron Trigger changes can take up to 15 minutes to
+propagate. The protected proof therefore polls both the deployed schedule
+inventory and Analytics Engine event query for that bounded interval. Do not
+accept the workflow conclusion alone or treat an earlier empty schedule sample
+as final; inspect the uploaded proof and require `minute_watchdog_present:
+true`.
+
 If analytics is unavailable, continue DNS failover operation and investigate
 the sanitized `analytics_status`. Never make health checks, failover/failback,
 manual controls, or alarms depend on analytics availability. Roll back only

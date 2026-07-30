@@ -164,10 +164,6 @@ def main() -> int:
             f"{api_base}/workers/scripts/{SCRIPT_NAME}/settings",
             token=deploy_token,
         )
-        schedules = request_json(
-            f"{api_base}/workers/scripts/{SCRIPT_NAME}/schedules",
-            token=deploy_token,
-        )
     except urllib.error.HTTPError as error:
         proof = {
             "schema_version": 1,
@@ -182,7 +178,11 @@ def main() -> int:
         return 1
 
     binding_summary = summarize_bindings(settings)
-    schedule_summary = summarize_schedules(schedules)
+    schedule_summary = {
+        "query_succeeded": False,
+        "crons": [],
+        "minute_watchdog_present": False,
+    }
     window_start = checked_at - timedelta(minutes=20)
     query_summary = {
         "query_succeeded": False,
@@ -193,6 +193,19 @@ def main() -> int:
     }
     deadline = time.monotonic() + max(0, args.wait_seconds)
     while True:
+        try:
+            schedules = request_json(
+                f"{api_base}/workers/scripts/{SCRIPT_NAME}/schedules",
+                token=deploy_token,
+            )
+            schedule_summary = summarize_schedules(schedules)
+        except urllib.error.HTTPError as error:
+            schedule_summary = {
+                "query_succeeded": False,
+                "crons": [],
+                "minute_watchdog_present": False,
+                "http_status": error.code,
+            }
         try:
             response = request_json(
                 GRAPHQL_URL,
@@ -210,9 +223,12 @@ def main() -> int:
                 "latest_event_minute_utc": None,
                 "http_status": error.code,
             }
-        if query_summary["positive_event_count"] or time.monotonic() >= deadline:
+        if (
+            schedule_summary["minute_watchdog_present"]
+            and query_summary["positive_event_count"]
+        ) or time.monotonic() >= deadline:
             break
-        print("Analytics event not visible yet; retrying.", flush=True)
+        print("Deployed schedule/event proof not complete yet; retrying.", flush=True)
         time.sleep(max(1, args.poll_seconds))
 
     passed = all(
