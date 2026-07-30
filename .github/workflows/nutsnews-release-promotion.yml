@@ -553,33 +553,18 @@ jobs:
             set +e
             gh pr checks "$PR_URL" --json name,bucket > "$checks_file" 2> "$checks_error_file"
             checks_exit=$?
+            check_state="$(
+              python3 ansible/scripts/classify_promotion_checks.py \
+                --checks-file "$checks_file" \
+                --error-file "$checks_error_file" \
+                --exit-code "$checks_exit"
+            )"
+            classifier_exit=$?
             set -e
 
-            if [[ ! -s "$checks_file" ]]; then
-              if grep -Fq 'no checks reported' "$checks_error_file"; then
-                check_state="waiting"
-              else
-                cat "$checks_error_file" >&2
-                exit "$checks_exit"
-              fi
-            else
-              check_state="$(python3 - "$checks_file" <<'PY'
-          import json
-          import sys
-
-          with open(sys.argv[1], encoding="utf-8") as checks_file:
-              checks = json.load(checks_file)
-
-          if not checks:
-              print("waiting")
-          elif any(check.get("bucket") in {"fail", "cancel"} for check in checks):
-              print("failed")
-          elif all(check.get("bucket") in {"pass", "skipping"} for check in checks):
-              print("passed")
-          else:
-              print("waiting")
-          PY
-              )"
+            if [[ "$classifier_exit" -ne 0 ]]; then
+              cat "$checks_error_file" >&2
+              exit "$classifier_exit"
             fi
 
             case "$check_state" in
@@ -596,6 +581,15 @@ jobs:
                   exit 1
                 fi
                 echo "Waiting for promotion checks to register and pass."
+                sleep 10
+                ;;
+              retry)
+                if (( SECONDS >= deadline )); then
+                  echo "Promotion checks could not be read before the timeout." >&2
+                  exit 1
+                fi
+                echo "GitHub returned a transient error while reading promotion checks; retrying." >&2
+                cat "$checks_error_file" >&2
                 sleep 10
                 ;;
               *)
