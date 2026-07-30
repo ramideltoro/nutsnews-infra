@@ -14,6 +14,10 @@ crons = ["* * * * *"]
 name = "DNS_FAILOVER"
 class_name = "DnsFailoverController"
 
+[[analytics_engine_datasets]]
+binding = "FAILOVER_ANALYTICS"
+dataset = "nutsnews_dns_failover_v1"
+
 [exports.DnsFailoverController]
 type = "durable-object"
 storage = "sqlite"

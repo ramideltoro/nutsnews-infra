@@ -3,12 +3,14 @@ import test from "node:test";
 import {
   DNS_STATE,
   applyDnsUpdateSuccess,
+  buildFailoverAnalyticsPoint,
   classifyDnsRecords,
   consumeTestHealthOverride,
   createTestHealthOverride,
   evaluateFailover,
   publicTestHealthOverrideStatus,
   readConfig,
+  writeFailoverAnalytics,
 } from "../src/core.mjs";
 
 const env = {
@@ -202,4 +204,56 @@ test("test health override expires without forcing stale failures", () => {
   assert.equal(expired.health, null);
   assert.equal(expired.override, null);
   assert.equal(publicTestHealthOverrideStatus(override, nowMs + 16_000).active, false);
+});
+
+test("failover analytics uses a fixed value-free schema", () => {
+  const point = buildFailoverAnalyticsPoint({
+    eventType: "controller_check",
+    source: "alarm",
+    state: {
+      activeDnsTarget: DNS_STATE.PRIMARY,
+      consecutiveFailureCount: 0,
+      consecutiveRecoveryCount: 4,
+      lastDnsAction: "none:vps_already_primary",
+      lastHealthStatus: "healthy",
+      manualLock: false,
+    },
+  });
+
+  assert.deepEqual(point, {
+    indexes: ["nutsnews-dns-failover"],
+    blobs: [
+      "controller_check",
+      "alarm",
+      "healthy",
+      "vps",
+      "none:vps_already_primary",
+      "unlocked",
+      "ok",
+    ],
+    doubles: [1, 0, 4, 0],
+  });
+  assert.equal(JSON.stringify(point).includes("record"), false);
+  assert.equal(JSON.stringify(point).includes("token"), false);
+});
+
+test("analytics writes are best effort and cannot fail the controller", () => {
+  const points = [];
+  assert.deepEqual(
+    writeFailoverAnalytics(
+      { writeDataPoint: (point) => points.push(point) },
+      { source: "manual-check", state: { lastHealthStatus: "healthy" } },
+    ),
+    { status: "written" },
+  );
+  assert.equal(points.length, 1);
+  assert.deepEqual(writeFailoverAnalytics(undefined), { status: "unavailable" });
+  assert.deepEqual(
+    writeFailoverAnalytics({
+      writeDataPoint() {
+        throw new Error("analytics unavailable");
+      },
+    }),
+    { status: "failed" },
+  );
 });

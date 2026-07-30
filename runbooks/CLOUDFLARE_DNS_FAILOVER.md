@@ -16,6 +16,8 @@ During normal operation, normal visitor requests do not execute this Worker. The
 - Expected readiness target: `production-vps`
 - Failure threshold: 3 consecutive VPS readiness failures
 - Recovery threshold: 1 successful VPS readiness check while DNS is on Vercel
+- Analytics Engine binding: `FAILOVER_ANALYTICS`
+- Analytics Engine dataset: `nutsnews_dns_failover_v1`
 
 The Cron Trigger is only a minute-level watchdog/bootstrap. It forwards to the named Durable Object, which calls `setAlarm()` and owns the recurring 15-second loop. The Durable Object alarm performs the readiness check, reads the current DNS state, updates counters, writes DNS only when allowed, persists state, logs a sanitized event, and schedules the next alarm.
 
@@ -51,12 +53,16 @@ NUTSNEWS_DNS_FAILOVER_DNS_API_TOKEN
 NUTSNEWS_DNS_FAILOVER_ZONE_ID
 NUTSNEWS_DNS_FAILOVER_RECORDS_JSON
 NUTSNEWS_DNS_FAILOVER_ADMIN_TOKEN
+NUTSNEWS_CLOUDFLARE_USAGE_API_TOKEN
 ```
 
 Use separate tokens when possible:
 
 - Deploy token: Workers Scripts edit permission for the target account.
 - Runtime DNS token: minimum Cloudflare DNS edit scope for the `nutsnews.com` zone.
+- Analytics proof token: Account Analytics Read only. It is used by the
+  protected workflow to query aggregate Analytics Engine event counts and is
+  never added to the Worker runtime.
 
 `NUTSNEWS_DNS_FAILOVER_RECORDS_JSON` stores the apex and www DNS record ids without printing them in logs:
 
@@ -68,6 +74,45 @@ Use separate tokens when possible:
 ```
 
 Do not paste tokens, private headers, or sensitive origin details into issues, logs, docs, or shell history.
+
+## Failover Analytics
+
+`FAILOVER_ANALYTICS` is a best-effort, non-blocking Analytics Engine writer.
+Cloudflare handles `writeDataPoint()` asynchronously; the controller does not
+await it. An absent binding or write exception produces only a sanitized
+`analytics_status` log field and cannot alter health classification, DNS state,
+threshold counters, manual lock, alarms, or a DNS action.
+
+Each controller check uses a fixed, value-free schema:
+
+- `index1`: constant service key `nutsnews-dns-failover`;
+- `blob1..7`: event type, check source, health state, active target class,
+  action class, manual-lock state, and error-present state;
+- `double1..4`: event count, consecutive failures, consecutive recoveries, and
+  manual-lock numeric state.
+
+The dataset never receives API tokens, account/zone identifiers, record ids,
+record contents, request headers, origins, or feed/article payloads. Cloudflare
+retains Workers Analytics Engine data for three months. Query access is limited
+to the protected workflow token with Account Analytics Read.
+
+After an apply, the workflow waits for the cron/alarm to emit an event and
+uploads `cloudflare-dns-failover-analytics-proof`. The value-free JSON proves:
+
+- deployed binding names and types include `FAILOVER_ANALYTICS` as
+  `analytics_engine` and retain `DNS_FAILOVER` as
+  `durable_object_namespace`;
+- the once-per-minute cron remains deployed;
+- a Cloudflare GraphQL `workersAnalyticsEngineAdaptiveGroups` query succeeds
+  for `nutsnews_dns_failover_v1` and returns a positive aggregate event count;
+- verification performs no state change and records no secret, account, zone,
+  DNS-record, or payload value.
+
+If analytics is unavailable, continue DNS failover operation and investigate
+the sanitized `analytics_status`. Never make health checks, failover/failback,
+manual controls, or alarms depend on analytics availability. Roll back only
+through the protected apply workflow with automatic DNS writes kept at their
+current setting; do not manually edit bindings or DNS.
 
 ## Plan And Apply
 

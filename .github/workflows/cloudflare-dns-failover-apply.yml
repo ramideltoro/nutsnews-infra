@@ -84,12 +84,14 @@ jobs:
       - name: Validate Worker and protected secret names
         shell: bash
         env:
+          RUN_MODE: ${{ inputs.run_mode }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.NUTSNEWS_CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.NUTSNEWS_DNS_FAILOVER_DEPLOY_API_TOKEN }}
           DNS_API_TOKEN: ${{ secrets.NUTSNEWS_DNS_FAILOVER_DNS_API_TOKEN }}
           DNS_ZONE_ID: ${{ secrets.NUTSNEWS_DNS_FAILOVER_ZONE_ID }}
           DNS_RECORDS_JSON: ${{ secrets.NUTSNEWS_DNS_FAILOVER_RECORDS_JSON }}
           ADMIN_TOKEN: ${{ secrets.NUTSNEWS_DNS_FAILOVER_ADMIN_TOKEN }}
+          ANALYTICS_API_TOKEN: ${{ secrets.NUTSNEWS_CLOUDFLARE_USAGE_API_TOKEN }}
         run: |
           set -euo pipefail
           missing=0
@@ -99,6 +101,10 @@ jobs:
               missing=1
             fi
           done
+          if [[ "$RUN_MODE" == "apply" && -z "$ANALYTICS_API_TOKEN" ]]; then
+            echo "Missing required cloudflare-admin Environment secret: ANALYTICS_API_TOKEN" >&2
+            missing=1
+          fi
           if [[ "$missing" != "0" ]]; then
             exit "$missing"
           fi
@@ -106,6 +112,9 @@ jobs:
           node --check cloudflare/dns-failover/src/core.mjs
           node --check cloudflare/dns-failover/src/index.mjs
           node --test cloudflare/dns-failover/tests/*.test.mjs
+          python3 -m unittest discover \
+            -s cloudflare/dns-failover/tests \
+            -p "test_*.py"
           python3 ansible/tests/validate_cloudflare_dns_failover.py
 
           node --input-type=module <<'NODE'
@@ -181,6 +190,29 @@ jobs:
           put_secret ADMIN_TOKEN "$ADMIN_TOKEN"
           put_secret AUTOMATIC_DNS_WRITES_ENABLED "$DNS_WRITES_ENABLED"
 
+      - name: Verify deployed analytics binding and query
+        if: inputs.run_mode == 'apply'
+        shell: bash
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.NUTSNEWS_CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_DEPLOY_API_TOKEN: ${{ secrets.NUTSNEWS_DNS_FAILOVER_DEPLOY_API_TOKEN }}
+          CLOUDFLARE_ANALYTICS_API_TOKEN: ${{ secrets.NUTSNEWS_CLOUDFLARE_USAGE_API_TOKEN }}
+        run: |
+          set -euo pipefail
+          python3 cloudflare/dns-failover/scripts/verify_failover_analytics.py \
+            --output "$RUNNER_TEMP/failover-analytics-proof.json" \
+            --wait-seconds 120 \
+            --poll-seconds 10
+
+      - name: Upload value-free analytics proof
+        if: inputs.run_mode == 'apply' && always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: cloudflare-dns-failover-analytics-proof
+          path: ${{ runner.temp }}/failover-analytics-proof.json
+          if-no-files-found: error
+          retention-days: 30
+
       - name: Summarize deployment posture
         if: always()
         shell: bash
@@ -197,4 +229,7 @@ jobs:
             echo "- Visitor apex/www routes through this Worker: \`false\`"
             echo "- Cron watchdog: \`* * * * *\`"
             echo "- Durable Object alarm cadence: \`15 seconds\`"
+            echo "- Analytics binding: \`FAILOVER_ANALYTICS\`"
+            echo "- Analytics dataset: \`nutsnews_dns_failover_v1\`"
+            echo "- Analytics verification changes state: \`false\`"
           } >> "$GITHUB_STEP_SUMMARY"

@@ -11,6 +11,7 @@ import {
   publicStatus,
   readConfig,
   sanitizeSummary,
+  writeFailoverAnalytics,
 } from "./core.mjs";
 
 const API_BASE = "https://api.cloudflare.com/client/v4";
@@ -279,6 +280,11 @@ export class DnsFailoverController extends DurableObject {
     }
 
     await this.saveState(state);
+    const analytics = writeFailoverAnalytics(this.env.FAILOVER_ANALYTICS, {
+      eventType: "controller_check",
+      source,
+      state,
+    });
     logEvent({
       source,
       health: state.lastHealthStatus,
@@ -287,6 +293,7 @@ export class DnsFailoverController extends DurableObject {
       failure_count: state.consecutiveFailureCount,
       recovery_count: state.consecutiveRecoveryCount,
       manual_lock: state.manualLock,
+      analytics_status: analytics.status,
     });
     return { state, config };
   }
@@ -299,7 +306,17 @@ export class DnsFailoverController extends DurableObject {
       state.lastErrorSummary = sanitizeSummary(error?.message || error, "Durable Object alarm failed.");
       state.lastDnsAction = "failed:alarm";
       await this.saveState(state);
-      logEvent({ source: "alarm", dns_action: state.lastDnsAction, error: state.lastErrorSummary });
+      const analytics = writeFailoverAnalytics(this.env.FAILOVER_ANALYTICS, {
+        eventType: "controller_error",
+        source: "alarm",
+        state,
+      });
+      logEvent({
+        source: "alarm",
+        dns_action: state.lastDnsAction,
+        error: state.lastErrorSummary,
+        analytics_status: analytics.status,
+      });
     } finally {
       await this.scheduleNext();
     }
