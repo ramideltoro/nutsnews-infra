@@ -16,6 +16,8 @@ WRANGLER = WORKER_DIR / "wrangler.toml"
 CORE = WORKER_DIR / "src/core.mjs"
 ENTRYPOINT = WORKER_DIR / "src/index.mjs"
 TESTS = WORKER_DIR / "tests/core.test.mjs"
+ANALYTICS_PROOF = WORKER_DIR / "scripts/verify_failover_analytics.py"
+ANALYTICS_TESTS = WORKER_DIR / "tests/test_analytics_proof.py"
 CI_WORKFLOW = ROOT / ".github/workflows/cloudflare-dns-failover-ci.yml"
 APPLY_WORKFLOW = ROOT / ".github/workflows/cloudflare-dns-failover-apply.yml"
 STATUS_SECRET_WORKFLOW = ROOT / ".github/workflows/cloudflare-failover-status-secret-apply.yml"
@@ -35,6 +37,8 @@ wrangler = tomllib.loads(read(WRANGLER))
 core = read(CORE)
 entrypoint = read(ENTRYPOINT)
 tests = read(TESTS)
+analytics_proof = read(ANALYTICS_PROOF)
+analytics_tests = read(ANALYTICS_TESTS)
 ci_workflow = read(CI_WORKFLOW)
 apply_workflow = read(APPLY_WORKFLOW)
 status_secret_workflow = read(STATUS_SECRET_WORKFLOW)
@@ -48,6 +52,12 @@ require(wrangler["triggers"]["crons"] == ["* * * * *"], "Cron must be minute-lev
 
 bindings = wrangler["durable_objects"]["bindings"]
 require(bindings == [{"name": "DNS_FAILOVER", "class_name": "DnsFailoverController"}], "Durable Object binding changed.")
+analytics_bindings = wrangler["analytics_engine_datasets"]
+require(
+    analytics_bindings
+    == [{"binding": "FAILOVER_ANALYTICS", "dataset": "nutsnews_dns_failover_v1"}],
+    "FAILOVER_ANALYTICS must bind the approved Analytics Engine dataset.",
+)
 exports = wrangler["exports"]["DnsFailoverController"]
 require(exports == {"type": "durable-object", "storage": "sqlite"}, "Durable Object must use SQLite exports.")
 
@@ -84,11 +94,33 @@ for phrase in (
     "deleteAlarm()",
     "adminAuthorized",
     "CLOUDFLARE_DNS_API_TOKEN",
+    "FAILOVER_ANALYTICS",
+    "analytics_status",
 ):
     require(phrase in entrypoint, f"Worker entrypoint must include {phrase}.")
 
 require("AUTOMATIC_DNS_WRITES_ENABLED" in core, "Core config must parse the automatic DNS write gate.")
 require("DNS_RECORDS_JSON" in core, "Core config must parse managed DNS record configuration.")
+for phrase in (
+    "buildFailoverAnalyticsPoint",
+    "writeFailoverAnalytics",
+    'indexes: [ANALYTICS_INDEX]',
+    'return { status: "unavailable" }',
+    'return { status: "failed" }',
+):
+    require(phrase in core, f"Best-effort analytics implementation missing {phrase}.")
+
+for phrase in (
+    "workersAnalyticsEngineAdaptiveGroups",
+    "binding_names_and_types",
+    "state_changes_performed_by_verification",
+    "secret_values_recorded",
+    "positive_event_count",
+):
+    require(
+        phrase in analytics_proof + analytics_tests,
+        f"Value-free analytics proof coverage missing {phrase}.",
+    )
 
 for phrase in (
     "none:failure_threshold_not_met",
@@ -118,6 +150,10 @@ for phrase in (
     "NUTSNEWS_DNS_FAILOVER_ADMIN_TOKEN",
     "wrangler@4.113.0 deploy",
     "wrangler@4.113.0 secret put",
+    "NUTSNEWS_CLOUDFLARE_USAGE_API_TOKEN",
+    "verify_failover_analytics.py",
+    "cloudflare-dns-failover-analytics-proof",
+    "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
 ):
     require(phrase in apply_workflow, f"Apply workflow must include {phrase}.")
 
@@ -165,6 +201,12 @@ for phrase in (
     "retire-dns-failover-controller",
     "nutsnews-production",
     "NUTSNEWS_DNS_FAILOVER_RECORDS_JSON",
+    "NUTSNEWS_CLOUDFLARE_USAGE_API_TOKEN",
+    "FAILOVER_ANALYTICS",
+    "nutsnews_dns_failover_v1",
+    "best-effort",
+    "three months",
+    "Account Analytics Read",
     "After #396, with writes enabled and VPS primary active",
 ):
     require(phrase in runbook, f"Runbook missing required phrase: {phrase}")
@@ -177,6 +219,27 @@ node_result = subprocess.run(
     stderr=subprocess.STDOUT,
 )
 require(node_result.returncode == 0, "Cloudflare DNS failover node tests failed:\n" + node_result.stdout)
+
+python_result = subprocess.run(
+    [
+        sys.executable,
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "cloudflare/dns-failover/tests",
+        "-p",
+        "test_*.py",
+    ],
+    cwd=ROOT,
+    text=True,
+    stdout=subprocess.PIPE,
+    stderr=subprocess.STDOUT,
+)
+require(
+    python_result.returncode == 0,
+    "Cloudflare DNS failover analytics proof tests failed:\n" + python_result.stdout,
+)
 
 sample_records = [
     {"id": "a" * 32, "name": "nutsnews.com", "type": "CNAME"},

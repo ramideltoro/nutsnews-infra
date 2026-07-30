@@ -26,6 +26,45 @@ export const DEFAULT_TEST_HEALTH_OVERRIDE = Object.freeze({
 });
 
 const ALLOWED_RECORD_TYPES = new Set(["A", "AAAA", "CNAME"]);
+const ANALYTICS_INDEX = "nutsnews-dns-failover";
+
+export function buildFailoverAnalyticsPoint({
+  eventType = "controller_check",
+  source = "unknown",
+  state = {},
+} = {}) {
+  const normalized = normalizeState(state);
+  return {
+    indexes: [ANALYTICS_INDEX],
+    blobs: [
+      sanitizeSummary(eventType, "controller_check"),
+      sanitizeSummary(source, "unknown"),
+      sanitizeSummary(normalized.lastHealthStatus, "unknown"),
+      sanitizeSummary(normalized.activeDnsTarget, DNS_STATE.UNKNOWN),
+      sanitizeSummary(normalized.lastDnsAction, "none"),
+      normalized.manualLock ? "locked" : "unlocked",
+      normalized.lastErrorSummary ? "error" : "ok",
+    ],
+    doubles: [
+      1,
+      normalized.consecutiveFailureCount,
+      normalized.consecutiveRecoveryCount,
+      normalized.manualLock ? 1 : 0,
+    ],
+  };
+}
+
+export function writeFailoverAnalytics(dataset, event = {}) {
+  if (!dataset || typeof dataset.writeDataPoint !== "function") {
+    return { status: "unavailable" };
+  }
+  try {
+    dataset.writeDataPoint(buildFailoverAnalyticsPoint(event));
+    return { status: "written" };
+  } catch {
+    return { status: "failed" };
+  }
+}
 
 export function sanitizeSummary(value, fallback = "") {
   const text = String(value ?? fallback).replace(/\s+/g, " ").trim();

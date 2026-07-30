@@ -43,4 +43,7 @@ jobs:
           node --check cloudflare/dns-failover/src/core.mjs
           node --check cloudflare/dns-failover/src/index.mjs
           node --test cloudflare/dns-failover/tests/*.test.mjs
+          python3 -m unittest discover \
+            -s cloudflare/dns-failover/tests \
+            -p "test_*.py"
           python3 ansible/tests/validate_cloudflare_dns_failover.py
