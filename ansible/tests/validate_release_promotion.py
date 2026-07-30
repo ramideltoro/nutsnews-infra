@@ -360,7 +360,7 @@ for required in (
     "release_supabase_project_ref:",
     "Validate requested automated release identity",
     "RELEASE_IMAGE_DEPLOYMENT_TARGET",
-    "RELEASE_HEALTH_DEPLOYMENT_TARGET",
+    "RELEASE_HEALTH_DEPLOYMENT_TARGETS",
     "Verify released Docker image over SSH",
     "Verify released public health identity",
     "Checkout exact app post-production smoke suite",
@@ -387,12 +387,13 @@ assert "nutsnews-current-smoke/scripts/admin_backend_operation_smoke.mjs" in pro
 assert "nutsnews-current-smoke/api-contracts/admin-backend-operations.json" in protected_workflow
 assert 'release_deployment_target" != "production-vps"' in protected_workflow
 assert "RELEASE_IMAGE_DEPLOYMENT_TARGET=production-vps" in protected_workflow
-assert "RELEASE_HEALTH_DEPLOYMENT_TARGET=vps" in protected_workflow
-assert 'healthDeploymentTarget !== "vps"' in protected_workflow
-assert 'payload?.deploymentTarget === healthDeploymentTarget' in protected_workflow
-assert 'response.headers.get("x-nutsnews-deployment-target") === healthDeploymentTarget' in protected_workflow
+assert "RELEASE_HEALTH_DEPLOYMENT_TARGETS=vps,production-vps" in protected_workflow
+assert 'healthDeploymentTargets.has("vps")' in protected_workflow
+assert 'healthDeploymentTargets.has("production-vps")' in protected_workflow
+assert "healthDeploymentTargets.has(payloadDeploymentTarget)" in protected_workflow
+assert 'response.headers.get("x-nutsnews-deployment-target") === payloadDeploymentTarget' in protected_workflow
 assert "--expected-deployment-target production-vps" in protected_workflow
-assert "--expected-health-deployment-target vps" in protected_workflow
+assert "--expected-health-deployment-target vps,production-vps" in protected_workflow
 assert (
     protected_workflow.index("Run safe production app smoke surfaces")
     < protected_workflow.index("Run production admin backend operation smoke")

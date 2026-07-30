@@ -155,10 +155,12 @@ deployments are not rejected by the server-side fixed command as
 `unreviewed_infra_commit`.
 
 The public app `/healthz` route is a static identity check for the shared VPS
-web image and should report the image build target, `vps`; the protected
-post-apply identity and smoke checks enforce that exact value. Runtime
-readiness and public config are separate checks and should report the
-production VPS runtime identity, `production-vps`.
+web image. During a release it can report the image build target, `vps`, or
+the settled production runtime target, `production-vps`; the protected
+post-apply identity and smoke checks accept only that bounded pair and still
+require the exact source commit and build ID. Runtime readiness and public
+config are separate, uncached checks and must report the production VPS
+runtime identity, `production-vps`.
 
 The Ops Portal reads only the reviewed manifest, sanitized Docker identity, and
 last app apply marker for release-gate status. Treat `unknown`, `not configured`,

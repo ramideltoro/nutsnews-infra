@@ -400,9 +400,10 @@ jobs:
             exit 1
           fi
           printf 'RELEASE_IMAGE_DEPLOYMENT_TARGET=production-vps\n' >> "$GITHUB_ENV"
-          # /healthz is built once into the shared VPS image. Runtime readiness
-          # and public config separately prove the production-vps environment.
-          printf 'RELEASE_HEALTH_DEPLOYMENT_TARGET=vps\n' >> "$GITHUB_ENV"
+          # /healthz can expose the shared image build target until its static
+          # cache settles to the runtime target. Readiness and public config
+          # separately prove the production-vps environment.
+          printf 'RELEASE_HEALTH_DEPLOYMENT_TARGETS=vps,production-vps\n' >> "$GITHUB_ENV"
           echo "Verified reviewed infrastructure target and public app health target contract."
 
       - name: Validate dispatch inputs
@@ -1316,20 +1317,27 @@ jobs:
         env:
           RELEASE_SOURCE_COMMIT: ${{ inputs.release_source_commit }}
           RELEASE_BUILD_ID: ${{ inputs.release_build_id }}
-          RELEASE_HEALTH_DEPLOYMENT_TARGET: ${{ env.RELEASE_HEALTH_DEPLOYMENT_TARGET }}
+          RELEASE_HEALTH_DEPLOYMENT_TARGETS: ${{ env.RELEASE_HEALTH_DEPLOYMENT_TARGETS }}
         run: |
           set -euo pipefail
 
           node --input-type=module <<'NODE'
           const sourceCommit = process.env.RELEASE_SOURCE_COMMIT ?? "";
           const buildId = process.env.RELEASE_BUILD_ID ?? "";
-          const healthDeploymentTarget = process.env.RELEASE_HEALTH_DEPLOYMENT_TARGET ?? "";
+          const healthDeploymentTargets = new Set(
+            (process.env.RELEASE_HEALTH_DEPLOYMENT_TARGETS ?? "")
+              .split(",")
+              .map((value) => value.trim())
+              .filter(Boolean),
+          );
           const delay = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 
           if (
             !/^[0-9a-f]{40}$/.test(sourceCommit) ||
             !/^\d+-\d+$/.test(buildId) ||
-            healthDeploymentTarget !== "vps"
+            healthDeploymentTargets.size !== 2 ||
+            !healthDeploymentTargets.has("vps") ||
+            !healthDeploymentTargets.has("production-vps")
           ) {
             throw new Error("Automated release health verification received invalid expected identity values.");
           }
@@ -1343,16 +1351,17 @@ jobs:
                 headers: { "Cache-Control": "no-cache" },
               });
               const payload = await response.json();
+              const payloadDeploymentTarget = payload?.deploymentTarget;
               const valid =
                 response.ok &&
                 payload?.ok === true &&
                 payload?.service === "nutsnews-web" &&
                 payload?.sourceCommit === sourceCommit &&
                 payload?.buildId === buildId &&
-                payload?.deploymentTarget === healthDeploymentTarget &&
+                healthDeploymentTargets.has(payloadDeploymentTarget) &&
                 response.headers.get("x-nutsnews-source-commit") === sourceCommit &&
                 response.headers.get("x-nutsnews-build-id") === buildId &&
-                response.headers.get("x-nutsnews-deployment-target") === healthDeploymentTarget;
+                response.headers.get("x-nutsnews-deployment-target") === payloadDeploymentTarget;
               if (valid) {
                 console.log(`Verified public VPS health identity for ${sourceCommit}.`);
                 process.exit(0);
@@ -1423,7 +1432,7 @@ jobs:
             --expected-source-commit "$RELEASE_SOURCE_COMMIT" \
             --expected-build-id "$RELEASE_BUILD_ID" \
             --expected-deployment-target production-vps \
-            --expected-health-deployment-target vps \
+            --expected-health-deployment-target vps,production-vps \
             --expected-runtime-env production \
             --expected-image-digest "$RELEASE_IMAGE_DIGEST" \
             --expected-config-generation "production-${RELEASE_BUILD_ID}-${RELEASE_MIGRATION_HEAD}" \
