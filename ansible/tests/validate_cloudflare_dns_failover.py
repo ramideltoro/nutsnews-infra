@@ -166,6 +166,7 @@ for phrase in (
     "NUTSNEWS_DNS_FAILOVER_ADMIN_TOKEN",
     "wrangler@4.113.0 deploy",
     "wrangler@4.113.0 secret put",
+    "wrangler@4.113.0 triggers deploy",
     "NUTSNEWS_CLOUDFLARE_USAGE_API_TOKEN",
     "NUTSNEWS_CLOUDFLARE_BILLING_API_TOKEN",
     "enable-analytics-engine-for-nutsnews",
@@ -181,6 +182,11 @@ for phrase in (
 require("production-vps" not in apply_workflow, "Cloudflare deploy must not use VPS SSH environments.")
 require("staging-vps" not in apply_workflow, "Cloudflare deploy must not use staging SSH environments.")
 require("DNS_WRITES_ENABLED: ${{ inputs.dns_writes_enabled }}" in apply_workflow, "DNS writes input must feed only the Worker secret.")
+require(
+    apply_workflow.index("wrangler@4.113.0 triggers deploy")
+    > apply_workflow.index("put_secret AUTOMATIC_DNS_WRITES_ENABLED"),
+    "Source-controlled triggers must be reapplied after secret version deployments.",
+)
 
 for phrase in (
     "environment: cloudflare-admin",

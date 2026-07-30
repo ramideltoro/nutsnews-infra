@@ -240,6 +240,17 @@ jobs:
           put_secret ADMIN_TOKEN "$ADMIN_TOKEN"
           put_secret AUTOMATIC_DNS_WRITES_ENABLED "$DNS_WRITES_ENABLED"
 
+      - name: Reapply source-controlled Worker triggers
+        if: inputs.run_mode == 'apply'
+        shell: bash
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.NUTSNEWS_CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.NUTSNEWS_DNS_FAILOVER_DEPLOY_API_TOKEN }}
+        run: |
+          set -euo pipefail
+          npx --yes wrangler@4.113.0 triggers deploy \
+            --config cloudflare/dns-failover/wrangler.toml
+
       - name: Verify deployed analytics binding and query
         if: inputs.run_mode == 'apply'
         shell: bash
