@@ -73,8 +73,9 @@ assert "no-new-privileges=true" in app_compose
 assert "no-new-privileges:true" not in app_compose
 assert "NUTSNEWS_APP_IMAGE_TAG" not in protected_apply
 assert "RELEASE_IMAGE_DEPLOYMENT_TARGET" in protected_apply
-assert "RELEASE_HEALTH_DEPLOYMENT_TARGET" in protected_apply
-assert "payload?.deploymentTarget === healthDeploymentTarget" in protected_apply
+assert "RELEASE_HEALTH_DEPLOYMENT_TARGETS" in protected_apply
+assert "healthDeploymentTargets.has(payloadDeploymentTarget)" in protected_apply
+assert 'response.headers.get("x-nutsnews-deployment-target") === payloadDeploymentTarget' in protected_apply
 assert "NUTSNEWS_FAILOVER_STATUS_HMAC_SECRET: ${{ secrets.NUTSNEWS_FAILOVER_STATUS_HMAC_SECRET }}" in protected_apply
 assert "NUTSNEWS_FAILOVER_CONTROLLER_STATUS_URL: https://nutsnews-controller.nutsnews.workers.dev/status?mode=dashboard" in protected_apply
 assert '"NUTSNEWS_FAILOVER_STATUS_HMAC_SECRET": failover_status_hmac_secret' in protected_apply
