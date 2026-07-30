@@ -12,6 +12,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 REPO = ROOT.parent
 SCRIPT_PATH = ROOT / "scripts/promote_nutsnews_release.py"
+CHECK_CLASSIFIER_PATH = ROOT / "scripts/classify_promotion_checks.py"
 PROMOTION_WORKFLOW = REPO / ".github/workflows/nutsnews-release-promotion.yml"
 PROTECTED_WORKFLOW = REPO / ".github/workflows/protected-ansible-apply.yml"
 PAUSE_CONFIG = REPO / ".github/release-promotion-pause.yml"
@@ -21,6 +22,14 @@ spec = importlib.util.spec_from_file_location("promote_nutsnews_release", SCRIPT
 assert spec and spec.loader
 module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
+
+classifier_spec = importlib.util.spec_from_file_location(
+    "classify_promotion_checks",
+    CHECK_CLASSIFIER_PATH,
+)
+assert classifier_spec and classifier_spec.loader
+classifier = importlib.util.module_from_spec(classifier_spec)
+classifier_spec.loader.exec_module(classifier)
 
 
 def manifest(
@@ -181,6 +190,9 @@ for required in (
     "Wait for promotion checks to pass and merge",
     "id: promotion_merge",
     "gh pr checks \"$PR_URL\" --json name,bucket",
+    "ansible/scripts/classify_promotion_checks.py",
+    "GitHub returned a transient error while reading promotion checks; retrying.",
+    "Promotion checks could not be read before the timeout.",
     "Promotion checks did not pass before the timeout.",
     "gh pr merge \"$PR_URL\" --merge",
     "GH_TOKEN: ${{ secrets.NUTSNEWS_INFRA_RELEASE_TOKEN }}",
@@ -282,6 +294,30 @@ assert "SMOKE_HELPER_REF: ${{ steps.app_main.outputs.smoke_helper_ref }}" in pro
 assert "run.get(\"createdAt\", \"\") >= sys.argv[3]" in promotion_workflow, (
     "The release workflow must select only a protected apply started by its own dispatch."
 )
+
+assert classifier.classify_checks('[{"name":"ci","bucket":"pass"}]', "", 0) == "passed"
+assert classifier.classify_checks('[{"name":"ci","bucket":"skipping"}]', "", 0) == "passed"
+assert classifier.classify_checks('[{"name":"ci","bucket":"pending"}]', "", 0) == "waiting"
+assert classifier.classify_checks('[{"name":"ci","bucket":"fail"}]', "", 1) == "failed"
+assert classifier.classify_checks("", "no checks reported on the branch", 1) == "waiting"
+for transient_error in (
+    'non-200 OK status code: 502 Bad Gateway body: "<html>nginx</html>"',
+    "HTTP 503 Service Unavailable",
+    "HTTP 429 rate limit exceeded",
+    "request timed out while awaiting response headers",
+    "TLS handshake timeout",
+    "connection reset by peer",
+    "unexpected EOF",
+):
+    assert classifier.classify_checks("", transient_error, 1) == "retry", (
+        f"Transient GitHub error must be retried: {transient_error}"
+    )
+try:
+    classifier.classify_checks("", "HTTP 401 Bad credentials", 1)
+except classifier.CheckClassificationError:
+    pass
+else:
+    raise AssertionError("Authentication failures must remain fatal.")
 
 promotion_step = promotion_workflow.split(
     "- name: Create or reuse the checked release promotion pull request",
