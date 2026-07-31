@@ -21,6 +21,7 @@ Add runbooks for deployment, rollback, incident response, security changes, back
 - [VPS Backup Setup](VPS_BACKUP_SETUP.md)
 - [VPS Restore](VPS_RESTORE.md)
 - [VPS Disaster Recovery](VPS_DISASTER_RECOVERY.md)
+- [Worker-Uplift Backup And Isolated Restore Readiness](WORKER_UPLIFT_BACKUP_RESTORE_READINESS.md)
 - [Cloudflare DDNS](CLOUDFLARE_DDNS.md)
 - [Grafana Cloud Observability](GRAFANA_CLOUD_OBSERVABILITY.md)
 - [Vercel-to-VPS environment synchronization](VERCEL_VPS_ENV_SYNC.md)

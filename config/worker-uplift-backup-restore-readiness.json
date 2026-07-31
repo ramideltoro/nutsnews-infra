@@ -1,0 +1,242 @@
+{
+  "schema_version": 1,
+  "decision_id": "worker-uplift-61g-backup-restore-readiness",
+  "tracking_issue": "https://github.com/ramideltoro/nutsnews-worker/issues/162",
+  "implementation_repository": "ramideltoro/nutsnews-infra",
+  "assessed_at_utc": "2026-07-31T01:39:00Z",
+  "decision": "pass",
+  "scope": "shadow-readiness evidence only",
+  "owners": {
+    "readiness_and_alerts": "ramideltoro/nutsnews-infra",
+    "protected_backend_operations": "ramideltoro/nutsnews-backend",
+    "tracking": "ramideltoro/nutsnews-worker"
+  },
+  "guardrails": {
+    "cutover_performed": false,
+    "dns_or_failover_changed": false,
+    "legacy_ingestion_changed": false,
+    "production_data_path_used_as_restore_target": false,
+    "production_rabbitmq_broker_stopped": false,
+    "production_writes_enabled": false
+  },
+  "versions": {
+    "postgresql": {
+      "major": "18",
+      "source_commit": "2c4220467f469bffcf33574b84062e48ae521e7d",
+      "source_file": "ansible/roles/backend_baseline/defaults/main.yml"
+    },
+    "rabbitmq": {
+      "image": "rabbitmq@sha256:c427b73a15d01416346f429042125e663452e2a27e07fb3096fadb08f7033fc7",
+      "source_commit": "2c4220467f469bffcf33574b84062e48ae521e7d",
+      "source_file": "ansible/roles/backend_rabbitmq/defaults/main.yml"
+    },
+    "recovery_report_schema": 1,
+    "postgresql_proof_manifest": 1
+  },
+  "inventory": [
+    {
+      "id": "postgresql_primary_shadow_logical_snapshot",
+      "disposition": "ready",
+      "owner": "ramideltoro/nutsnews-backend protected operations",
+      "strategy": "Encrypted Restic logical snapshot restored into an isolated PostgreSQL database, followed by integrity and critical-query validation.",
+      "retention": "retained in the protected Restic repository; no cleanup is authorized by this readiness decision",
+      "rationale": "The current primary-shadow data shape is proven recoverable without writing to or replacing a production database."
+    },
+    {
+      "id": "rabbitmq_topology_and_sanitized_definitions",
+      "disposition": "ready",
+      "owner": "ramideltoro/nutsnews-backend protected operations",
+      "strategy": "Retain source-controlled topology and a scheduled sanitized definition export; restore credentials only from the protected environment.",
+      "retention": "source-controlled topology is retained in Git; sanitized exports are retained by backend recovery state and protected workflow artifacts",
+      "rationale": "Topology and non-sensitive definition metadata are sufficient to reconstruct the broker without retaining credential values."
+    },
+    {
+      "id": "rabbitmq_clean_rebuild",
+      "disposition": "ready",
+      "owner": "ramideltoro/nutsnews-backend protected operations",
+      "strategy": "Create an isolated empty broker from the pinned image and source-controlled topology, then validate permissions and representative message transfers.",
+      "retention": "the pinned image digest, topology, and drill metadata are retained as immutable source and workflow evidence",
+      "rationale": "Clean rebuild is the preferred broker recovery method because PostgreSQL outbox and reconciliation state remain authoritative."
+    },
+    {
+      "id": "rabbitmq_quiesced_volume_restore",
+      "disposition": "ready",
+      "owner": "ramideltoro/nutsnews-backend protected operations",
+      "strategy": "Copy only a stopped disposable broker data set into a second isolated volume using the same node identity and Erlang cookie, then validate topology, permissions, and message transfers.",
+      "retention": "the drill artifact is retained by the protected workflow; no production message-store snapshot was created",
+      "rationale": "The drill proves the supported quiesced-volume mechanics without mounting or changing the running broker data."
+    },
+    {
+      "id": "rabbitmq_live_message_store_hot_copy",
+      "disposition": "explicitly_unsupported",
+      "owner": "ramideltoro/nutsnews-backend recovery policy",
+      "strategy": "Use clean rebuild and PostgreSQL outbox reconciliation; use volume restore only from a deliberately quiesced snapshot.",
+      "retention": "not retained by normal Restic jobs",
+      "rationale": "A running-node message-store copy can be inconsistent. The approved source-controlled backup matrix excludes it and requires protected credential recovery."
+    }
+  ],
+  "evidence": {
+    "postgresql": {
+      "workflow": "Backend PostgreSQL Primary Shadow Restore",
+      "run_id": 30596331065,
+      "workflow_url": "https://github.com/ramideltoro/nutsnews-backend/actions/runs/30596331065",
+      "source_commit": "12ec7c9eaa17090c7ecebca7b68edfebe60e27fd",
+      "artifact": {
+        "id": 8780245456,
+        "name": "backend-postgres-backup-restore-proof",
+        "digest": "sha256:f02d1f761d910bb870e4f32d6b8a2507d8788937beb7710473fc45d9a34e02eb",
+        "report_file": "backend-postgres-backup-restore-proof.json",
+        "report_sha256": "6921c05dd0b9df54b9d5ca43e926b7a17d3bffea96546e0d12229fe86d91c79a"
+      },
+      "result": {
+        "status": "pass",
+        "snapshot_short_id": "358bd78bef3d",
+        "completed_at_utc": "2026-07-31T01:26:45Z",
+        "restore_scope": "backend_postgresql_primary_shadow_database",
+        "isolated_target": true,
+        "encrypted_repository": true,
+        "freshness_status": "pass",
+        "integrity_status": "pass",
+        "critical_query_status": "pass",
+        "restore_health_status": "pass",
+        "rpo_seconds": 10,
+        "rto_seconds": 10
+      }
+    },
+    "rabbitmq_scheduled_check": {
+      "workflow": "Backend RabbitMQ Recovery",
+      "run_id": 30596391281,
+      "workflow_url": "https://github.com/ramideltoro/nutsnews-backend/actions/runs/30596391281",
+      "source_commit": "12ec7c9eaa17090c7ecebca7b68edfebe60e27fd",
+      "artifact": {
+        "id": 8780264195,
+        "name": "backend-rabbitmq-recovery-report",
+        "digest": "sha256:32a509effb8f98123b3e24e688f124f6792b79a4055f121e33a502039cb13203",
+        "report_file": "backend-rabbitmq-recovery-report.json",
+        "report_sha256": "1beea72d282d128d7a4119e43df4e89c6f321f27eeee14df553ec6592d4a3a2e",
+        "status_file": "backend-rabbitmq-recovery-status.json",
+        "status_sha256": "a67bc9f2e4d19c94ccf3660391143e8056c00e1705abcb4cfe5b7d1093526ae2"
+      },
+      "result": {
+        "status": "healthy",
+        "started_at_utc": "2026-07-31T01:27:52Z",
+        "finished_at_utc": "2026-07-31T01:27:59Z",
+        "definition_export_status": "healthy",
+        "definition_export_duration_seconds": 0.774,
+        "definition_export_fresh_within_hours": 24,
+        "raw_export_retained": false,
+        "sensitive_fields_redacted": 16,
+        "clean_rebuild_status": "healthy",
+        "clean_rebuild_duration_seconds": 6.34,
+        "clean_rebuild_target_rto_seconds": 1800,
+        "representative_message_transfer_status": "pass"
+      }
+    },
+    "rabbitmq_stopped_volume_restore": {
+      "workflow": "Backend RabbitMQ Recovery",
+      "run_id": 30596869305,
+      "workflow_url": "https://github.com/ramideltoro/nutsnews-backend/actions/runs/30596869305",
+      "source_commit": "2c4220467f469bffcf33574b84062e48ae521e7d",
+      "artifact": {
+        "id": 8780440760,
+        "name": "backend-rabbitmq-recovery-report",
+        "digest": "sha256:053527311406a268c947b50f54d95c11eb39ce3ba15383d4f7e45332f052a30e",
+        "report_file": "backend-rabbitmq-recovery-report.json",
+        "report_sha256": "db32e866ab22111550736235928c80f8f3a0d1e93462cd0f2d12953917db62e7",
+        "status_file": "backend-rabbitmq-recovery-status.json",
+        "status_sha256": "85996036174ec4b8f8f7b3b511d16e1c4e76ac62a1ad2a58fb0063683e232ba2"
+      },
+      "result": {
+        "status": "healthy",
+        "started_at_utc": "2026-07-31T01:38:43Z",
+        "finished_at_utc": "2026-07-31T01:38:56Z",
+        "duration_seconds": 12.748,
+        "target_rto_seconds": 3600,
+        "source_broker_stopped_before_copy": true,
+        "production_message_store_snapshot_created": false,
+        "running_broker_touched": false,
+        "topology_status": "pass",
+        "permissions_status": "pass",
+        "representative_message_transfer_status": "pass",
+        "probed_stages": [
+          "fetch",
+          "canonicalization",
+          "enrichment",
+          "approval",
+          "translation",
+          "persistence",
+          "publication"
+        ],
+        "skipped_stages": []
+      }
+    },
+    "helper_deployment": {
+      "workflow": "Protected Backend Ansible Apply",
+      "check_run_id": 30596605320,
+      "apply_run_id": 30596690927,
+      "workflow_url": "https://github.com/ramideltoro/nutsnews-backend/actions/runs/30596690927",
+      "source_commit": "2c4220467f469bffcf33574b84062e48ae521e7d",
+      "deployment_scope": "rabbitmq-recovery-helper",
+      "artifact": {
+        "id": 8780422315,
+        "name": "backend-deployment-safety-reports",
+        "digest": "sha256:cc4bf70027fce86a5a3d4204a59c0de153ee70f499299cd6c879a4d522d68c26",
+        "postcheck_file": "backend-deployment-safety-post.json",
+        "postcheck_sha256": "0b3cdf4ae92643d7613a3c5786a1e6b0c7c4f7b54fbea93ae53210d619730148"
+      },
+      "result": {
+        "status": "pass",
+        "failed_tasks": 0,
+        "unreachable_hosts": 0,
+        "fixed_one_shot_executed": false,
+        "full_baseline_executed": false
+      }
+    }
+  },
+  "topology": {
+    "expected": {
+      "exchanges": 4,
+      "queues": 36,
+      "retry_queues": 21,
+      "routes": 7,
+      "users": 16
+    },
+    "sanitized_export": {
+      "bindings": 36,
+      "exchanges": 8,
+      "permissions": 16,
+      "policies": 3,
+      "queues": 37,
+      "users": 16,
+      "vhosts": 1
+    }
+  },
+  "control_status": {
+    "definition_export": "healthy",
+    "scheduled_check": "healthy",
+    "clean_rebuild_drill": "healthy",
+    "stopped_volume_restore_drill": "healthy",
+    "grafana_recovery_freshness_alert": "managed"
+  },
+  "recovery_targets": {
+    "postgresql_measured_rpo_seconds": 10,
+    "postgresql_measured_rto_seconds": 10,
+    "rabbitmq_broker_transport_rpo": "zero broker-only committed messages; PostgreSQL outbox and reconciliation state are authoritative",
+    "rabbitmq_clean_rebuild_target_rto_seconds": 1800,
+    "rabbitmq_stopped_volume_restore_target_rto_seconds": 3600
+  },
+  "residual_manual_steps": [
+    "Obtain separate incident authorization before any production restore.",
+    "Restore runtime credential values only through the protected production-backend environment.",
+    "After a real RabbitMQ rebuild, reconcile or replay authoritative PostgreSQL outbox state before resuming publishers.",
+    "For a volume restore, quiesce the source snapshot and preserve the matching node identity and Erlang cookie."
+  ],
+  "evidence_hygiene": {
+    "safe_metadata_only": true,
+    "account_identifiers_absent": true,
+    "backup_contents_absent": true,
+    "private_runtime_paths_absent": true,
+    "record_data_absent": true,
+    "sensitive_values_absent": true
+  }
+}
