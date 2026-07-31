@@ -37,6 +37,23 @@ jobs:
         shell: bash
         run: python3 .github/scripts/ci_classify_changes.py
 
+  worker-uplift-backup-restore-readiness:
+    name: Worker-uplift backup and restore readiness
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Validate value-free readiness evidence
+        shell: bash
+        run: |
+          python3 scripts/validate_worker_uplift_backup_restore_readiness.py
+          python3 -m unittest tests.test_worker_uplift_backup_restore_readiness
+
   yaml-lint:
     name: YAML lint
     needs: changes
