@@ -19,6 +19,13 @@ class CloudflareCacheRuleTests(unittest.TestCase):
         self.assertIn('media_types = ["image/avif", "image/webp"]', source)
         self.assertIn('default = { action = "bypass" }', source)
 
+    def test_router_variants_use_explicit_header_presence(self) -> None:
+        source = RULES.read_text(encoding="utf-8")
+
+        self.assertNotIn('headers[\\"next-router-state-tree\\"][0] ne \\"\\"', source)
+        for header in ("rsc", "next-router-prefetch", "next-router-state-tree"):
+            self.assertIn(f'has_key(http.request.headers, \\"{header}\\")', source)
+
 
 if __name__ == "__main__":
     unittest.main()
