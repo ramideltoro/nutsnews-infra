@@ -57,8 +57,18 @@ class SyntheticMonitoringInputsTest(unittest.TestCase):
         self.assertEqual(report["projected_monthly_api_executions"], 0)
 
     def test_rejects_projected_executions_above_guardrail(self) -> None:
-        with self.assertRaisesRegex(ValueError, "exceed 70%"):
+        with self.assertRaisesRegex(MODULE.QuotaGuardrailError, "exceed 70%") as raised:
             MODULE.validate_inputs("[1]", checks(frequency_ms=10_000), token_present=True)
+        report = raised.exception.report
+        self.assertEqual(report["status"], "fail")
+        self.assertTrue(report["value_free"])
+        self.assertEqual(report["error_code"], "synthetic_api_execution_guardrail_exceeded")
+        self.assertGreater(
+            report["projected_monthly_api_executions"],
+            report["monthly_api_execution_guardrail"],
+        )
+        self.assertNotIn("fixture", json.dumps(report))
+        self.assertNotIn("example.invalid", json.dumps(report))
 
     def test_rejects_non_https_target_without_echoing_it(self) -> None:
         bad = checks().replace("https://", "http://")

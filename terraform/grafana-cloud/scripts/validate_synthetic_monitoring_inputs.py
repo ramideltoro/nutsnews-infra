@@ -22,6 +22,14 @@ FREE_TIER_GUARDRAIL_RATIO = 0.70
 MILLISECONDS_PER_30_DAY_MONTH = 2_592_000_000
 
 
+class QuotaGuardrailError(ValueError):
+    """A value-free quota report is available even though validation failed."""
+
+    def __init__(self, message: str, report: dict[str, Any]) -> None:
+        super().__init__(message)
+        self.report = report
+
+
 def _json(raw: str, expected: type, variable_name: str) -> Any:
     try:
         value = json.loads(raw)
@@ -87,14 +95,9 @@ def validate_inputs(
         )
     )
     guardrail = round(free_api_executions_monthly * FREE_TIER_GUARDRAIL_RATIO)
-    if projected_executions > guardrail:
-        raise ValueError(
-            "Configured Synthetic Monitoring checks exceed 70% of the current free API execution assumption."
-        )
-
-    return {
+    report = {
         "schema_version": 1,
-        "status": "pass",
+        "status": "fail" if projected_executions > guardrail else "pass",
         "value_free": True,
         "probe_count": len(probes),
         "enabled_check_count": len(enabled_frequencies),
@@ -104,6 +107,13 @@ def validate_inputs(
         "projected_monthly_api_executions": projected_executions,
         "monthly_api_execution_guardrail": guardrail,
     }
+    if projected_executions > guardrail:
+        report["error_code"] = "synthetic_api_execution_guardrail_exceeded"
+        raise QuotaGuardrailError(
+            "Configured Synthetic Monitoring checks exceed 70% of the current free API execution assumption.",
+            report,
+        )
+    return report
 
 
 def parse_args() -> argparse.Namespace:
@@ -122,6 +132,14 @@ def main() -> int:
                 os.environ.get("NUTSNEWS_GRAFANA_SYNTHETIC_MONITORING_ACCESS_TOKEN", "").strip()
             ),
         )
+    except QuotaGuardrailError as exc:
+        text = json.dumps(exc.report, indent=2, sort_keys=True)
+        print(text)
+        if args.output:
+            args.output.parent.mkdir(parents=True, exist_ok=True)
+            args.output.write_text(text + "\n", encoding="utf-8")
+        print(str(exc), file=sys.stderr)
+        return 1
     except ValueError as exc:
         print(str(exc), file=sys.stderr)
         return 1
