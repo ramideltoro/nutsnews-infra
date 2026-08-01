@@ -77,7 +77,9 @@ locals {
           ignore_query_strings_order = true
           custom_key = {
             header = {
-              include        = ["accept"]
+              contains = {
+                accept = ["image/avif", "image/webp"]
+              }
               exclude_origin = false
             }
             query_string = {
