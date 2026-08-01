@@ -116,6 +116,20 @@ require(
     "Backend PostgreSQL provider token must synchronize as an explicit server-side VPS runtime secret.",
 )
 
+direct_cache_rules = {
+    "CLOUDFLARE_CACHE_PURGE_API_TOKEN": ("server_side_secret", "CLOUDFLARE_CACHE_PURGE_API_TOKEN"),
+    "CLOUDFLARE_ZONE_ID": ("safe_to_synchronize", "CLOUDFLARE_ZONE_ID"),
+    "NUTSNEWS_CACHE_REVALIDATION_SECRET": ("server_side_secret", "NUTSNEWS_CACHE_REVALIDATION_SECRET"),
+}
+for source, (category, destination) in direct_cache_rules.items():
+    rule = mapping["variables"].get(source, {})
+    require(
+        rule.get("category") == category
+        and rule.get("sync") is False
+        and rule.get("destination") == destination,
+        f"{source} must be injected from protected GitHub secrets rather than read back from Vercel.",
+    )
+
 failover_status_rule = mapping["variables"].get("NUTSNEWS_FAILOVER_STATUS_HMAC_SECRET", {})
 require(
     failover_status_rule.get("category") == "server_side_secret"

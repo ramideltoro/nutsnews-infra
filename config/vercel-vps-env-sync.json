@@ -11,15 +11,15 @@
   "variables": {
     "CLOUDFLARE_CACHE_PURGE_API_TOKEN": {
       "category": "server_side_secret",
-      "sync": true,
+      "sync": false,
       "destination": "CLOUDFLARE_CACHE_PURGE_API_TOKEN",
-      "reason": "Zone-scoped token used by the application after committed editorial edits or removals."
+      "reason": "Injected directly from the protected GitHub environments because Vercel sensitive values are intentionally non-decryptable."
     },
     "CLOUDFLARE_ZONE_ID": {
       "category": "safe_to_synchronize",
-      "sync": true,
+      "sync": false,
       "destination": "CLOUDFLARE_ZONE_ID",
-      "reason": "Cloudflare zone identifier required for targeted application cache purges."
+      "reason": "Injected alongside the protected cache-purge token so VPS configuration does not depend on Vercel secret read-back."
     },
     "ADMIN_EMAILS": {
       "category": "safe_to_synchronize",
@@ -212,9 +212,9 @@
     },
     "NUTSNEWS_CACHE_REVALIDATION_SECRET": {
       "category": "server_side_secret",
-      "sync": true,
+      "sync": false,
       "destination": "NUTSNEWS_CACHE_REVALIDATION_SECRET",
-      "reason": "Shared HMAC credential used only by the Worker and internal app cache-revalidation endpoint."
+      "reason": "Injected directly from the protected GitHub environments because Vercel sensitive values are intentionally non-decryptable."
     },
     "NUTSNEWS_BACKEND_POSTGRES_PRIMARY_CONFIRMATION": {
       "category": "safe_to_synchronize",
