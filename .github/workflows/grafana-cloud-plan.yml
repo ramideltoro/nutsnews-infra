@@ -43,6 +43,7 @@ jobs:
           python3 terraform/grafana-cloud/tests/validate_worker_uplift_telemetry_scope.py
           python3 terraform/grafana-cloud/tests/validate_worker_uplift_rabbitmq_dashboards.py
           python3 terraform/grafana-cloud/tests/validate_worker_uplift_alerts_slos.py
+          python3 terraform/grafana-cloud/tests/test_validate_synthetic_monitoring_inputs.py
           tofu -chdir=terraform/grafana-cloud init -backend=false -input=false
           tofu -chdir=terraform/grafana-cloud validate -no-color
 
@@ -105,44 +106,12 @@ jobs:
           NUTSNEWS_GRAFANA_SYNTHETIC_HTTP_CHECKS_JSON: ${{ secrets.NUTSNEWS_GRAFANA_SYNTHETIC_HTTP_CHECKS_JSON }}
         run: |
           set -euo pipefail
-
-          python3 - <<'PY'
-          import json
-          import os
-
-          probes_raw = os.environ.get("NUTSNEWS_GRAFANA_SYNTHETIC_PROBE_IDS_JSON", "").strip() or "[]"
-          checks_raw = os.environ.get("NUTSNEWS_GRAFANA_SYNTHETIC_HTTP_CHECKS_JSON", "").strip() or "{}"
-
-          try:
-              probes = json.loads(probes_raw)
-          except json.JSONDecodeError as exc:
-              raise SystemExit("NUTSNEWS_GRAFANA_SYNTHETIC_PROBE_IDS_JSON must be valid JSON when set.") from exc
-
-          try:
-              checks = json.loads(checks_raw)
-          except json.JSONDecodeError as exc:
-              raise SystemExit("NUTSNEWS_GRAFANA_SYNTHETIC_HTTP_CHECKS_JSON must be valid JSON when set.") from exc
-
-          if not isinstance(probes, list):
-              raise SystemExit("NUTSNEWS_GRAFANA_SYNTHETIC_PROBE_IDS_JSON must be a JSON array.")
-          if not isinstance(checks, dict):
-              raise SystemExit("NUTSNEWS_GRAFANA_SYNTHETIC_HTTP_CHECKS_JSON must be a JSON object.")
-
-          enabled_checks = [
-              name for name, check in checks.items()
-              if not isinstance(check, dict) or check.get("enabled", True)
-          ]
-          if probes and enabled_checks and not os.environ.get(
-              "NUTSNEWS_GRAFANA_SYNTHETIC_MONITORING_ACCESS_TOKEN", ""
-          ).strip():
-              raise SystemExit(
-                  "NUTSNEWS_GRAFANA_SYNTHETIC_MONITORING_ACCESS_TOKEN is required "
-                  "when synthetic probes and enabled HTTP checks are configured."
-              )
-
-          if not os.environ["NUTSNEWS_GRAFANA_CLOUD_URL"].startswith("https://"):
-              raise SystemExit("NUTSNEWS_GRAFANA_CLOUD_URL must start with https://.")
-          PY
+          if [[ "$NUTSNEWS_GRAFANA_CLOUD_URL" != https://* ]]; then
+            echo "NUTSNEWS_GRAFANA_CLOUD_URL must start with https://." >&2
+            exit 1
+          fi
+          python3 terraform/grafana-cloud/scripts/validate_synthetic_monitoring_inputs.py \
+            --output "$RUNNER_TEMP/grafana-cloud-input-validation.json"
 
       - name: Run Grafana Cloud plan
         shell: bash
@@ -196,3 +165,26 @@ jobs:
               exit "$exit_code"
               ;;
           esac
+
+      - name: Verify current Grafana Cloud resources and worker-uplift telemetry
+        shell: bash
+        env:
+          TF_VAR_grafana_url: ${{ secrets.NUTSNEWS_GRAFANA_CLOUD_URL }}
+          TF_VAR_grafana_service_account_token: ${{ secrets.NUTSNEWS_GRAFANA_CLOUD_SERVICE_ACCOUNT_TOKEN }}
+          TF_VAR_prometheus_datasource_uid: ${{ secrets.NUTSNEWS_GRAFANA_CLOUD_PROMETHEUS_DATASOURCE_UID }}
+          TF_VAR_loki_datasource_uid: ${{ secrets.NUTSNEWS_GRAFANA_CLOUD_LOKI_DATASOURCE_UID }}
+        run: |
+          set -euo pipefail
+          python3 terraform/grafana-cloud/scripts/verify_post_apply.py \
+            --require-query-data \
+            --output "$RUNNER_TEMP/grafana-cloud-read-only-verification.json"
+
+      - name: Upload value-free read-only evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
+        with:
+          name: grafana-cloud-read-only-evidence
+          path: |
+            ${{ runner.temp }}/grafana-cloud-input-validation.json
+            ${{ runner.temp }}/grafana-cloud-read-only-verification.json
+          if-no-files-found: error
