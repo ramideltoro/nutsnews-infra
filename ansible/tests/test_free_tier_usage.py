@@ -109,7 +109,15 @@ class CloudflareHttpClient:
                                 {"sum": {"requests": 5}},
                             ]
                         }
-                    ]
+                    ],
+                    "zones": [
+                        {
+                            "httpRequestsAdaptiveGroups": [
+                                {"count": 10, "avg": {"sampleInterval": 2}, "dimensions": {"cacheStatus": "hit"}},
+                                {"count": 4, "avg": {"sampleInterval": 2}, "dimensions": {"cacheStatus": "miss"}},
+                            ]
+                        }
+                    ],
                 }
             },
             "errors": None,
@@ -186,6 +194,10 @@ def cloudflare_quota_config(live: dict) -> list[dict]:
             "platform": "Cloudflare",
             "metrics": [
                 {"key": "workers_requests", "label": "Workers Requests", "unit": "requests/day", "limit": 100000},
+                {"key": "zone_requests", "label": "Zone Requests", "unit": "requests/day"},
+                {"key": "zone_cached_requests", "label": "Cached Zone Requests", "unit": "requests/day"},
+                {"key": "zone_origin_requests", "label": "Origin-bound Zone Requests", "unit": "requests/day"},
+                {"key": "zone_cache_hit_ratio_pct", "label": "Zone Cache Hit Ratio", "unit": "percent"},
                 {"key": "pages_builds", "label": "Pages Builds", "unit": "builds/month", "limit": 500},
             ],
             "live": live,
@@ -1031,6 +1043,7 @@ class FreeTierUsageTests(unittest.TestCase):
             "url_env": "DEMO_CLOUDFLARE_URL",
             "token_env": "DEMO_CLOUDFLARE_TOKEN",
             "account_id_env": "DEMO_CLOUDFLARE_ACCOUNT_ID",
+            "zone_id_env": "DEMO_CLOUDFLARE_ZONE_ID",
         }
         with tempfile.TemporaryDirectory() as tmpdir:
             env = {
@@ -1051,6 +1064,7 @@ class FreeTierUsageTests(unittest.TestCase):
             "url_env": "DEMO_CLOUDFLARE_URL",
             "token_env": "DEMO_CLOUDFLARE_TOKEN",
             "account_id_env": "DEMO_CLOUDFLARE_ACCOUNT_ID",
+            "zone_id_env": "DEMO_CLOUDFLARE_ZONE_ID",
         }
         client = CloudflareHttpClient()
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -1060,20 +1074,27 @@ class FreeTierUsageTests(unittest.TestCase):
                 "DEMO_CLOUDFLARE_URL": "https://api.cloudflare.com/client/v4/graphql",
                 "DEMO_CLOUDFLARE_TOKEN": "sentinel-redaction-value",
                 "DEMO_CLOUDFLARE_ACCOUNT_ID": "sentinel-account-id",
+                "DEMO_CLOUDFLARE_ZONE_ID": "sentinel-zone-id",
             }
             data = FreeTierCollector(env=env, http_client=client, now=NOW).collect()
         provider = data["providers"][0]
         usage_by_key = {metric["key"]: metric["usage"] for metric in provider["metrics"]}
         self.assertEqual(provider["status"], "live")
         self.assertEqual(usage_by_key["workers_requests"], 12)
+        self.assertEqual(usage_by_key["zone_requests"], 28)
+        self.assertEqual(usage_by_key["zone_cached_requests"], 20)
+        self.assertEqual(usage_by_key["zone_origin_requests"], 8)
+        self.assertEqual(usage_by_key["zone_cache_hit_ratio_pct"], 71.43)
         self.assertIsNone(usage_by_key["pages_builds"])
         self.assertEqual(client.urls, ["https://api.cloudflare.com/client/v4/graphql"])
         self.assertEqual(client.bodies[0]["variables"]["accountTag"], "sentinel-account-id")
+        self.assertEqual(client.bodies[0]["variables"]["zoneTag"], "sentinel-zone-id")
         self.assertEqual(client.bodies[0]["variables"]["datetimeStart"], "2026-07-07T00:00:00Z")
         self.assertEqual(client.bodies[0]["variables"]["datetimeEnd"], "2026-07-07T12:00:00Z")
         self.assertIn("Authorization", client.headers[0])
         self.assertNotIn("sentinel-redaction-value", json.dumps(data))
         self.assertNotIn("sentinel-account-id", json.dumps(data))
+        self.assertNotIn("sentinel-zone-id", json.dumps(data))
 
     def test_cloudflare_graphql_errors_are_sanitized(self) -> None:
         live = {
@@ -1081,6 +1102,7 @@ class FreeTierUsageTests(unittest.TestCase):
             "url_env": "DEMO_CLOUDFLARE_URL",
             "token_env": "DEMO_CLOUDFLARE_TOKEN",
             "account_id_env": "DEMO_CLOUDFLARE_ACCOUNT_ID",
+            "zone_id_env": "DEMO_CLOUDFLARE_ZONE_ID",
         }
         payload = {"data": None, "errors": [{"message": "permission denied"}]}
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -1090,6 +1112,7 @@ class FreeTierUsageTests(unittest.TestCase):
                 "DEMO_CLOUDFLARE_URL": "https://api.cloudflare.com/client/v4/graphql",
                 "DEMO_CLOUDFLARE_TOKEN": "sentinel-redaction-value",
                 "DEMO_CLOUDFLARE_ACCOUNT_ID": "sentinel-account-id",
+                "DEMO_CLOUDFLARE_ZONE_ID": "sentinel-zone-id",
             }
             data = FreeTierCollector(
                 env=env,
@@ -1101,6 +1124,7 @@ class FreeTierUsageTests(unittest.TestCase):
         self.assertIn("permission denied", detail)
         self.assertNotIn("sentinel-redaction-value", json.dumps(data))
         self.assertNotIn("sentinel-account-id", json.dumps(data))
+        self.assertNotIn("sentinel-zone-id", json.dumps(data))
 
     def test_stale_cached_data(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

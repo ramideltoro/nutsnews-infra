@@ -21,7 +21,7 @@ services:
     volumes:
       - type: volume
         source: app-cache
-        target: /tmp/nutsnews-cache
+        target: /app/.next/cache/images
     # Values are rendered per runtime by Ansible. Keeping them in the Compose
     # contract makes the staging ceiling enforceable by the Docker Engine.
     cpus: ${NUTSNEWS_APP_CPU_LIMIT:?NUTSNEWS_APP_CPU_LIMIT is required}
@@ -47,6 +47,36 @@ services:
       timeout: 10s
       retries: 2
       start_period: 15s
+
+  nutsnews-image-cache-pruner:
+    image: ${NUTSNEWS_APP_IMAGE:?Set NUTSNEWS_APP_IMAGE to a reviewed ghcr.io/ramideltoro/nutsnews@sha256 digest reference}
+    container_name: ${NUTSNEWS_APP_CONTAINER_NAME:?NUTSNEWS_APP_CONTAINER_NAME is required}-image-cache-pruner
+    restart: unless-stopped
+    init: true
+    network_mode: none
+    read_only: true
+    security_opt:
+      - no-new-privileges=true
+    cap_drop:
+      - ALL
+    command:
+      - node
+      - scripts/prune-next-image-cache.mjs
+      - --watch
+    volumes:
+      - type: volume
+        source: app-cache
+        target: /app/.next/cache/images
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    cpus: 0.10
+    mem_limit: 64m
+    pids_limit: 32
+    logging:
+      driver: json-file
+      options:
+        max-size: 5m
+        max-file: "2"
 
 networks:
   environment:

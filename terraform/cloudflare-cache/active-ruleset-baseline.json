@@ -1,0 +1,17 @@
+{
+  "ruleset_id": "865f91ce8f6d4ddf84c66401137a3a28",
+  "captured_at": "2026-07-31",
+  "rules": [
+    {
+      "description": "Cache NutsNews public content",
+      "expression": "(http.host in {\"nutsnews.com\" \"www.nutsnews.com\"} and (http.request.uri.path eq \"/\" or http.request.uri.path eq \"/about\" or starts_with(http.request.uri.path, \"/articles/\") or starts_with(http.request.uri.path, \"/api/articles\")))",
+      "cache": true,
+      "edge_ttl_seconds": 7200
+    },
+    {
+      "description": "Bypass monitoring routes",
+      "expression": "(http.host in {\"nutsnews.com\" \"www.nutsnews.com\"} and starts_with(http.request.uri.path, \"/monitoring\"))",
+      "cache": false
+    }
+  ]
+}

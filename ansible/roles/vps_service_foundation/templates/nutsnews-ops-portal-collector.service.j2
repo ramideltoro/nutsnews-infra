@@ -25,6 +25,7 @@ Environment="NUTSNEWS_APP_ENABLED={{ (nutsnews_environment.enabled | bool) | ter
 Environment="NUTSNEWS_APP_STAGED_ROUTE_ENABLED={{ (nutsnews_environment.staged_route_enabled | bool) | ternary('1', '0') }}"
 Environment="NUTSNEWS_APP_PUBLIC_ROUTE_ENABLED={{ (nutsnews_environment.public_route_enabled | bool) | ternary('1', '0') }}"
 Environment="NUTSNEWS_APP_CONTAINER_NAME={{ nutsnews_environment.container_name }}"
+Environment="NUTSNEWS_APP_CACHE_VOLUME_NAME={{ nutsnews_environment.cache_volume_name }}"
 Environment="NUTSNEWS_APP_CONTAINER_PORT={{ nutsnews_environment.container_port }}"
 Environment="NUTSNEWS_APP_IMAGE={{ nutsnews_environment.image }}"
 Environment="NUTSNEWS_APP_IMAGE_REPO={{ nutsnews_environment.image_repo }}"
