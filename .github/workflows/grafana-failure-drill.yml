@@ -1,0 +1,1175 @@
+name: Grafana Observability Failure Drill
+run-name: Grafana drill ${{ inputs.mode }} ${{ inputs.drill }} (${{ github.run_id }}-${{ github.run_attempt }})
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Dry-run produces a value-free plan; execute enters the protected environment.
+        required: true
+        default: dry-run
+        type: choice
+        options:
+          - dry-run
+          - execute
+      drill:
+        description: One exact bounded failure drill.
+        required: true
+        type: choice
+        options:
+          - alloy-stopped
+          - textfile-stale
+          - worker-unavailable
+          - rabbitmq-zero-consumer
+          - rabbitmq-growing-dlq
+          - postgres-relay-lag
+          - backend-readiness-failed
+          - synthetic-mismatch
+      synthetic_variant:
+        description: Assertion family for synthetic-mismatch; otherwise select not-applicable.
+        required: true
+        default: not-applicable
+        type: choice
+        options:
+          - not-applicable
+          - status
+          - body
+          - header
+      synthetic_check:
+        description: Exact approved check for synthetic-mismatch; ignored by other drills.
+        required: true
+        default: canonical_readiness
+        type: choice
+        options:
+          - canonical_articles_api
+          - canonical_homepage
+          - canonical_readiness
+          - vercel_secondary_readiness
+          - vps_readiness
+      confirm_target:
+        description: "Execute only: exact target from the source-controlled drill contract."
+        required: true
+        default: not-executing
+        type: string
+      confirmation:
+        description: "Execute only: execute-grafana-failure-drill:<target>:<drill>."
+        required: true
+        default: not-executing
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ inputs.drill == 'synthetic-mismatch' && 'grafana-cloud-apply' || 'production-vps-ansible-baseline' }}
+  queue: max
+  cancel-in-progress: false
+
+jobs:
+  audit-production-vps-policy:
+    name: Audit production-vps environment protection
+    if: ${{ github.repository == 'ramideltoro/nutsnews-infra' && github.ref == 'refs/heads/main' }}
+    permissions:
+      actions: read  # Inspect the protected environment policy audit workflow run.
+      contents: read  # Load the pinned same-repository reusable workflow.
+    uses: ./.github/workflows/production-vps-environment-policy-audit.yml
+
+  plan:
+    name: Validate bounded drill and write dry-run-first plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout reviewed drill implementation
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Validate inputs before protected secrets
+        shell: bash
+        env:
+          DRILL_MODE: ${{ inputs.mode }}
+          DRILL: ${{ inputs.drill }}
+          SYNTHETIC_VARIANT: ${{ inputs.synthetic_variant }}
+          SYNTHETIC_CHECK: ${{ inputs.synthetic_check }}
+          CONFIRM_TARGET: ${{ inputs.confirm_target }}
+          CONFIRMATION: ${{ inputs.confirmation }}
+        run: |
+          set -euo pipefail
+
+          if [[ "$GITHUB_REF" != "refs/heads/main" && "$DRILL_MODE" == "execute" ]]; then
+            echo "Failure drills may execute only from main." >&2
+            exit 1
+          fi
+
+          if [[ "$DRILL" == "synthetic-mismatch" ]]; then
+            case "$SYNTHETIC_CHECK" in
+              canonical_articles_api|canonical_homepage|canonical_readiness|vercel_secondary_readiness|vps_readiness) ;;
+              *)
+                echo "synthetic-mismatch requires one approved synthetic check." >&2
+                exit 1
+                ;;
+            esac
+            case "$SYNTHETIC_VARIANT" in
+              status|body|header) ;;
+              *)
+                echo "synthetic-mismatch requires status, body, or header." >&2
+                exit 1
+                ;;
+            esac
+          elif [[ "$SYNTHETIC_VARIANT" != "not-applicable" ]]; then
+            echo "synthetic_variant is valid only for synthetic-mismatch." >&2
+            exit 1
+          fi
+
+          if [[ "$DRILL_MODE" == "dry-run" ]]; then
+            if [[ "$CONFIRM_TARGET" != "not-executing" || "$CONFIRMATION" != "not-executing" ]]; then
+              echo "Dry-run must retain both non-execution confirmations." >&2
+              exit 1
+            fi
+          fi
+
+          synthetic_target_args=()
+          if [[ "$DRILL" == "synthetic-mismatch" ]]; then
+            synthetic_target_args=(--synthetic-target "$SYNTHETIC_CHECK")
+          fi
+
+          python3 scripts/grafana_failure_drill.py plan \
+            --drill "$DRILL" \
+            --variant "$SYNTHETIC_VARIANT" \
+            "${synthetic_target_args[@]}" \
+            --run-id "${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
+            --output "$RUNNER_TEMP/grafana-failure-drill-plan.json"
+
+          if [[ "$DRILL_MODE" == "execute" ]]; then
+            python3 scripts/grafana_failure_drill.py initialize \
+              --drill "$DRILL" \
+              --variant "$SYNTHETIC_VARIANT" \
+              "${synthetic_target_args[@]}" \
+              --run-id "${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
+              --target-confirmation "$CONFIRM_TARGET" \
+              --execute-confirmation "$CONFIRMATION" \
+              --output "$RUNNER_TEMP/grafana-failure-drill-initialized.json"
+          fi
+
+      - name: Upload value-free dry-run plan
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: grafana-failure-drill-plan-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/grafana-failure-drill-plan.json
+          if-no-files-found: error
+          retention-days: 90
+
+  execute-vps:
+    name: Execute VPS failure drill with fail-safe recovery
+    needs: [plan, audit-production-vps-policy]
+    if: >-
+      github.repository == 'ramideltoro/nutsnews-infra' &&
+      github.ref == 'refs/heads/main' &&
+      inputs.mode == 'execute' &&
+      (inputs.drill == 'alloy-stopped' || inputs.drill == 'textfile-stale')
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    environment: production-vps
+
+    steps:
+      - name: Checkout reviewed drill implementation
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Initialize bounded phase evidence
+        shell: bash
+        env:
+          DRILL: ${{ inputs.drill }}
+          SYNTHETIC_VARIANT: ${{ inputs.synthetic_variant }}
+          CONFIRM_TARGET: ${{ inputs.confirm_target }}
+          CONFIRMATION: ${{ inputs.confirmation }}
+        run: |
+          set -euo pipefail
+          install -m 0700 -d "$RUNNER_TEMP/grafana-failure-drill-phases"
+          for phase in precheck injection observation recovery postcheck; do
+            jq -n '{status: "not-run"}' > "$RUNNER_TEMP/grafana-failure-drill-phases/${phase}.json"
+          done
+          python3 scripts/grafana_failure_drill.py initialize \
+            --drill "$DRILL" \
+            --variant "$SYNTHETIC_VARIANT" \
+            --run-id "${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
+            --target-confirmation "$CONFIRM_TARGET" \
+            --execute-confirmation "$CONFIRMATION" \
+            --output "$RUNNER_TEMP/grafana-failure-drill-initialized.json"
+
+      - name: Validate protected credentials
+        shell: bash
+        env:
+          NUTSNEWS_VPS_SSH_PRIVATE_KEY: ${{ secrets.NUTSNEWS_VPS_SSH_PRIVATE_KEY }}
+          NUTSNEWS_VPS_KNOWN_HOSTS: ${{ secrets.NUTSNEWS_VPS_KNOWN_HOSTS }}
+          GRAFANA_URL: ${{ secrets.NUTSNEWS_GRAFANA_CLOUD_URL }}
+          GRAFANA_SERVICE_ACCOUNT_TOKEN: ${{ secrets.NUTSNEWS_GRAFANA_CLOUD_SERVICE_ACCOUNT_TOKEN }}
+        run: |
+          set -euo pipefail
+          for name in NUTSNEWS_VPS_SSH_PRIVATE_KEY NUTSNEWS_VPS_KNOWN_HOSTS GRAFANA_URL GRAFANA_SERVICE_ACCOUNT_TOKEN; do
+            if [[ -z "${!name}" ]]; then
+              echo "Missing required production-vps environment secret: $name" >&2
+              exit 1
+            fi
+          done
+
+      - name: Require target Grafana rules to be initially resolved
+        shell: bash
+        env:
+          DRILL: ${{ inputs.drill }}
+          SYNTHETIC_VARIANT: ${{ inputs.synthetic_variant }}
+          GRAFANA_URL: ${{ secrets.NUTSNEWS_GRAFANA_CLOUD_URL }}
+          GRAFANA_SERVICE_ACCOUNT_TOKEN: ${{ secrets.NUTSNEWS_GRAFANA_CLOUD_SERVICE_ACCOUNT_TOKEN }}
+        run: |
+          set +e
+          python3 scripts/grafana_failure_drill.py observe \
+            --drill "$DRILL" \
+            --variant "$SYNTHETIC_VARIANT" \
+            --run-id "${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
+            --state resolved \
+            --timeout-seconds 120 \
+            --output "$RUNNER_TEMP/grafana-failure-drill-initial-state.json"
+          initial_rc="$?"
+          if (( initial_rc == 0 )); then
+            jq -n '{status: "pass", checks: [{name: "target-rules-initially-resolved", status: "pass"}]}' \
+              > "$RUNNER_TEMP/grafana-failure-drill-phases/precheck.json"
+          else
+            jq -n '{status: "fail", checks: [{name: "target-rules-initially-resolved", status: "fail"}]}' \
+              > "$RUNNER_TEMP/grafana-failure-drill-phases/precheck.json"
+          fi
+          exit "$initial_rc"
+
+      - name: Prepare fixed VPS SSH identity
+        shell: bash
+        env:
+          NUTSNEWS_VPS_SSH_PRIVATE_KEY: ${{ secrets.NUTSNEWS_VPS_SSH_PRIVATE_KEY }}
+          NUTSNEWS_VPS_KNOWN_HOSTS: ${{ secrets.NUTSNEWS_VPS_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          umask 077
+          install -m 0700 -d "$HOME/.ssh"
+          printf '%s\n' "$NUTSNEWS_VPS_SSH_PRIVATE_KEY" > "$HOME/.ssh/nutsnews_vps"
+          chmod 0600 "$HOME/.ssh/nutsnews_vps"
+          printf '%s\n' "$NUTSNEWS_VPS_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          chmod 0600 "$HOME/.ssh/known_hosts"
+          ssh-keygen -y -f "$HOME/.ssh/nutsnews_vps" > /dev/null
+          ssh-keygen -F 65.75.202.112 -f "$HOME/.ssh/known_hosts" > /dev/null
+
+      - name: Inject fixed VPS failure after scheduling host recovery
+        id: inject
+        shell: bash
+        env:
+          DRILL: ${{ inputs.drill }}
+          CONFIRMATION: ${{ inputs.confirmation }}
+        run: |
+          set -euo pipefail
+          ssh_args=(
+            -i "$HOME/.ssh/nutsnews_vps"
+            -o UserKnownHostsFile="$HOME/.ssh/known_hosts"
+            -o StrictHostKeyChecking=yes
+            -o IdentitiesOnly=yes
+            -o BatchMode=yes
+            -o LogLevel=ERROR
+            -o ConnectTimeout=10
+          )
+          raw="$RUNNER_TEMP/grafana-failure-drill-vps-injection.raw.json"
+          if ssh "${ssh_args[@]}" nutsnews_ops@65.75.202.112 \
+            sudo -n /usr/local/sbin/nutsnews-observability-failure-drill inject \
+              --drill "$DRILL" \
+              --run-id "github-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
+              --confirmation "$CONFIRMATION" \
+              --failsafe-seconds 1800 > "$raw"; then
+            jq -e '.status == "injected" and .recovery_scheduled == true' "$raw" > /dev/null
+            jq -n '{status: "pass", checks: [{name: "target-rules-initially-resolved", status: "pass"}, {name: "host-precheck", status: "pass"}, {name: "failsafe-scheduled", status: "pass"}]}' \
+              > "$RUNNER_TEMP/grafana-failure-drill-phases/precheck.json"
+            jq -n '{status: "pass", checks: [{name: "fixed-injection", status: "pass"}]}' \
+              > "$RUNNER_TEMP/grafana-failure-drill-phases/injection.json"
+          else
+            jq -n '{status: "fail", checks: [{name: "fixed-injection", status: "fail"}]}' \
+              > "$RUNNER_TEMP/grafana-failure-drill-phases/injection.json"
+            exit 1
+          fi
+
+      - name: Require expected Grafana rule to fire
+        if: always() && steps.inject.outcome == 'success'
+        shell: bash
+        env:
+          DRILL: ${{ inputs.drill }}
+          SYNTHETIC_VARIANT: ${{ inputs.synthetic_variant }}
+          GRAFANA_URL: ${{ secrets.NUTSNEWS_GRAFANA_CLOUD_URL }}
+          GRAFANA_SERVICE_ACCOUNT_TOKEN: ${{ secrets.NUTSNEWS_GRAFANA_CLOUD_SERVICE_ACCOUNT_TOKEN }}
+        run: |
+          set -euo pipefail
+          python3 scripts/grafana_failure_drill.py observe \
+            --drill "$DRILL" \
+            --variant "$SYNTHETIC_VARIANT" \
+            --run-id "${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
+            --state firing \
+            --timeout-seconds 1200 \
+            --output "$RUNNER_TEMP/grafana-failure-drill-phases/observation.json"
+
+      - name: Recover VPS explicitly
+        if: always() && steps.inject.outcome != 'skipped'
+        id: recover
+        shell: bash
+        env:
+          DRILL: ${{ inputs.drill }}
+        run: |
+          set -u
+          ssh_args=(
+            -i "$HOME/.ssh/nutsnews_vps"
+            -o UserKnownHostsFile="$HOME/.ssh/known_hosts"
+            -o StrictHostKeyChecking=yes
+            -o IdentitiesOnly=yes
+            -o BatchMode=yes
+            -o LogLevel=ERROR
+            -o ConnectTimeout=10
+          )
+          raw="$RUNNER_TEMP/grafana-failure-drill-vps-recovery.raw.json"
+          if [[ ! -f "$HOME/.ssh/nutsnews_vps" ]]; then
+            jq -n '{status: "fail", checks: [{name: "fixed-recovery", status: "fail"}]}' \
+              > "$RUNNER_TEMP/grafana-failure-drill-phases/recovery.json"
+            exit 1
+          fi
+          if ssh "${ssh_args[@]}" nutsnews_ops@65.75.202.112 \
+            sudo -n /usr/local/sbin/nutsnews-observability-failure-drill recover \
+              --run-id "github-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
+              --confirmation "recover-grafana-failure-drill:vps.nutsnews.com:${DRILL}" > "$raw"; then
+            if jq -e '.status == "recovered"' "$raw" > /dev/null; then
+              jq -n '{status: "pass", checks: [{name: "fixed-recovery", status: "pass"}]}' \
+                > "$RUNNER_TEMP/grafana-failure-drill-phases/recovery.json"
+              exit 0
+            fi
+          fi
+          jq -n '{status: "fail", checks: [{name: "fixed-recovery", status: "fail"}]}' \
+            > "$RUNNER_TEMP/grafana-failure-drill-phases/recovery.json"
+          exit 1
+
+      - name: Require Grafana rule recovery
+        if: always()
+        shell: bash
+        env:
+          DRILL: ${{ inputs.drill }}
+          SYNTHETIC_VARIANT: ${{ inputs.synthetic_variant }}
+          GRAFANA_URL: ${{ secrets.NUTSNEWS_GRAFANA_CLOUD_URL }}
+          GRAFANA_SERVICE_ACCOUNT_TOKEN: ${{ secrets.NUTSNEWS_GRAFANA_CLOUD_SERVICE_ACCOUNT_TOKEN }}
+        run: |
+          set -u
+          python3 scripts/grafana_failure_drill.py observe \
+            --drill "$DRILL" \
+            --variant "$SYNTHETIC_VARIANT" \
+            --run-id "${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
+            --state resolved \
+            --timeout-seconds 600 \
+            --output "$RUNNER_TEMP/grafana-failure-drill-phases/postcheck.json"
+
+      - name: Finalize sanitized VPS evidence
+        if: always()
+        shell: bash
+        env:
+          DRILL: ${{ inputs.drill }}
+          SYNTHETIC_VARIANT: ${{ inputs.synthetic_variant }}
+        run: |
+          set -u
+          python3 scripts/grafana_failure_drill.py finalize \
+            --drill "$DRILL" \
+            --variant "$SYNTHETIC_VARIANT" \
+            --run-id "${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
+            --precheck-file "$RUNNER_TEMP/grafana-failure-drill-phases/precheck.json" \
+            --injection-file "$RUNNER_TEMP/grafana-failure-drill-phases/injection.json" \
+            --observation-file "$RUNNER_TEMP/grafana-failure-drill-phases/observation.json" \
+            --recovery-file "$RUNNER_TEMP/grafana-failure-drill-phases/recovery.json" \
+            --postcheck-file "$RUNNER_TEMP/grafana-failure-drill-phases/postcheck.json" \
+            --initialization-file "$RUNNER_TEMP/grafana-failure-drill-initialized.json" \
+            --output "$RUNNER_TEMP/grafana-failure-drill-evidence.json"
+
+      - name: Upload sanitized VPS drill evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: grafana-failure-drill-${{ inputs.drill }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/grafana-failure-drill-evidence.json
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Remove temporary SSH material
+        if: always()
+        shell: bash
+        run: rm -f "$HOME/.ssh/nutsnews_vps"
+
+  execute-synthetic:
+    name: Execute synthetic mismatch with exact API restoration
+    needs: [plan, audit-production-vps-policy]
+    if: ${{ github.repository == 'ramideltoro/nutsnews-infra' && github.ref == 'refs/heads/main' && inputs.mode == 'execute' && inputs.drill == 'synthetic-mismatch' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    environment: production-vps
+    permissions:
+      actions: write  # Dispatch the independent watchdog and exchange sanitized evidence artifacts.
+      contents: read
+
+    steps:
+      - name: Checkout reviewed drill implementation
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Validate synthetic drill implementation
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 terraform/grafana-cloud/tests/test_synthetic_failure_drill.py
+          python3 terraform/grafana-cloud/tests/test_synthetic_recovery_watchdog_workflow.py
+
+      - name: Dispatch independent synthetic recovery watchdog
+        id: watchdog_dispatch
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SYNTHETIC_CHECK: ${{ inputs.synthetic_check }}
+          SYNTHETIC_VARIANT: ${{ inputs.synthetic_variant }}
+        run: |
+          set -euo pipefail
+          install -m 0700 -d "$RUNNER_TEMP/synthetic-watchdog"
+          watchdog_nonce="$(openssl rand -hex 32)"
+          if [[ ! "$watchdog_nonce" =~ ^[a-f0-9]{64}$ ]]; then
+            echo "Failed to generate the synthetic watchdog correlation nonce." >&2
+            exit 1
+          fi
+          printf '%s' "$watchdog_nonce" > "$RUNNER_TEMP/synthetic-watchdog/nonce"
+          chmod 0600 "$RUNNER_TEMP/synthetic-watchdog/nonce"
+          expected_title="Synthetic recovery watchdog / ${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT} / ${SYNTHETIC_CHECK}"
+          dispatch_started_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+          gh workflow run grafana-synthetic-recovery-watchdog.yml \
+            --repo "$GITHUB_REPOSITORY" \
+            --ref main \
+            --field parent_run_id="$GITHUB_RUN_ID" \
+            --field parent_run_attempt="$GITHUB_RUN_ATTEMPT" \
+            --field parent_head_sha="$GITHUB_SHA" \
+            --field synthetic_check="$SYNTHETIC_CHECK" \
+            --field synthetic_variant="$SYNTHETIC_VARIANT" \
+            --field watchdog_nonce="$watchdog_nonce"
+
+          watchdog_run_id=""
+          for _attempt in $(seq 1 60); do
+            runs="$(gh run list \
+              --repo "$GITHUB_REPOSITORY" \
+              --workflow grafana-synthetic-recovery-watchdog.yml \
+              --event workflow_dispatch \
+              --limit 50 \
+              --json databaseId,displayTitle,createdAt)"
+            match_count="$(jq --arg title "$expected_title" --arg started "$dispatch_started_at" \
+              '[.[] | select(.displayTitle == $title and .createdAt >= $started)] | length' <<< "$runs")"
+            if [[ "$match_count" == "1" ]]; then
+              watchdog_run_id="$(jq -r --arg title "$expected_title" --arg started "$dispatch_started_at" \
+                '.[] | select(.displayTitle == $title and .createdAt >= $started) | .databaseId' <<< "$runs")"
+              break
+            fi
+            if [[ "$match_count" != "0" ]]; then
+              echo "Synthetic watchdog dispatch matched more than one workflow run." >&2
+              exit 1
+            fi
+            sleep 5
+          done
+          if [[ ! "$watchdog_run_id" =~ ^[0-9]{6,20}$ ]]; then
+            echo "Timed out resolving the exact synthetic watchdog run." >&2
+            exit 1
+          fi
+          watchdog="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${watchdog_run_id}")"
+          watchdog_run_attempt="$(jq -r '.run_attempt' <<< "$watchdog")"
+          jq -e \
+            --argjson run_id "$watchdog_run_id" \
+            --arg head_sha "$GITHUB_SHA" '
+              (.id == $run_id) and
+              (.head_sha == $head_sha) and
+              (.head_branch == "main") and
+              (.event == "workflow_dispatch") and
+              (.path == ".github/workflows/grafana-synthetic-recovery-watchdog.yml") and
+              (.status == "queued" or .status == "in_progress") and
+              (.conclusion == null)
+            ' <<< "$watchdog" > /dev/null
+          if [[ ! "$watchdog_run_attempt" =~ ^[1-9][0-9]{0,5}$ ]]; then
+            echo "Synthetic watchdog run attempt is invalid." >&2
+            exit 1
+          fi
+          printf 'run_id=%s\n' "$watchdog_run_id" >> "$GITHUB_OUTPUT"
+          printf 'run_attempt=%s\n' "$watchdog_run_attempt" >> "$GITHUB_OUTPUT"
+
+      - name: Require sanitized armed watchdog handshake before mutation
+        id: watchdog_arm
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SYNTHETIC_CHECK: ${{ inputs.synthetic_check }}
+          SYNTHETIC_VARIANT: ${{ inputs.synthetic_variant }}
+          WATCHDOG_RUN_ID: ${{ steps.watchdog_dispatch.outputs.run_id }}
+          WATCHDOG_RUN_ATTEMPT: ${{ steps.watchdog_dispatch.outputs.run_attempt }}
+        run: |
+          set -euo pipefail
+          watchdog_nonce="$(<"$RUNNER_TEMP/synthetic-watchdog/nonce")"
+          expected_artifact="synthetic-recovery-watchdog-armed-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${WATCHDOG_RUN_ID}-${WATCHDOG_RUN_ATTEMPT}"
+          artifact_id=""
+          for _attempt in $(seq 1 120); do
+            watchdog="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${WATCHDOG_RUN_ID}")"
+            jq -e \
+              --argjson run_id "$WATCHDOG_RUN_ID" \
+              --argjson run_attempt "$WATCHDOG_RUN_ATTEMPT" \
+              --arg head_sha "$GITHUB_SHA" '
+                (.id == $run_id) and
+                (.run_attempt == $run_attempt) and
+                (.head_sha == $head_sha) and
+                (.status == "queued" or .status == "in_progress") and
+                (.conclusion == null)
+              ' <<< "$watchdog" > /dev/null
+            artifacts="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${WATCHDOG_RUN_ID}/artifacts?per_page=100")"
+            match_count="$(jq --arg name "$expected_artifact" '[.artifacts[] | select(.name == $name and .expired == false)] | length' <<< "$artifacts")"
+            if [[ "$match_count" == "1" ]]; then
+              artifact_id="$(jq -r --arg name "$expected_artifact" '.artifacts[] | select(.name == $name and .expired == false) | .id' <<< "$artifacts")"
+              break
+            fi
+            if [[ "$match_count" != "0" ]]; then
+              echo "Synthetic watchdog armed handshake is ambiguous." >&2
+              exit 1
+            fi
+            sleep 5
+          done
+          if [[ ! "$artifact_id" =~ ^[0-9]+$ ]]; then
+            echo "Synthetic watchdog did not publish an armed handshake in time." >&2
+            exit 1
+          fi
+
+          install -m 0700 -d "$RUNNER_TEMP/synthetic-watchdog/armed-download"
+          gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/${artifact_id}/zip" \
+            > "$RUNNER_TEMP/synthetic-watchdog/armed.zip"
+          unzip -q "$RUNNER_TEMP/synthetic-watchdog/armed.zip" \
+            -d "$RUNNER_TEMP/synthetic-watchdog/armed-download"
+          armed="$RUNNER_TEMP/synthetic-watchdog/armed-download/armed.json"
+          if [[ ! -f "$armed" || "$(find "$RUNNER_TEMP/synthetic-watchdog/armed-download" -type f | wc -l)" -ne 1 ]]; then
+            echo "Synthetic watchdog armed artifact has an unsupported file shape." >&2
+            exit 1
+          fi
+          cp "$armed" "$RUNNER_TEMP/synthetic-watchdog/armed.json"
+          python3 terraform/grafana-cloud/scripts/exercise_synthetic_failure_drill.py validate-watchdog-arm \
+            --target "$SYNTHETIC_CHECK" \
+            --variant "$SYNTHETIC_VARIANT" \
+            --watchdog-handshake "$RUNNER_TEMP/synthetic-watchdog/armed.json" \
+            --watchdog-nonce "$watchdog_nonce" \
+            --parent-run-id "$GITHUB_RUN_ID" \
+            --parent-run-attempt "$GITHUB_RUN_ATTEMPT" \
+            --parent-head-sha "$GITHUB_SHA" \
+            --watchdog-run-id "$WATCHDOG_RUN_ID" \
+            --watchdog-run-attempt "$WATCHDOG_RUN_ATTEMPT" \
+            --output "$RUNNER_TEMP/synthetic-watchdog/armed-confirmed.json"
+
+          watchdog="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${WATCHDOG_RUN_ID}")"
+          jq -e '.status == "in_progress" and .conclusion == null' <<< "$watchdog" > /dev/null
+
+      - name: Execute one assertion mismatch and self-restore
+        id: synthetic
+        continue-on-error: true
+        env:
+          GRAFANA_SM_URL: ${{ secrets.NUTSNEWS_GRAFANA_SYNTHETIC_MONITORING_URL }}
+          GRAFANA_SM_ACCESS_TOKEN: ${{ secrets.NUTSNEWS_GRAFANA_SYNTHETIC_MONITORING_ACCESS_TOKEN }}
+          GRAFANA_URL: ${{ secrets.NUTSNEWS_GRAFANA_CLOUD_URL }}
+          GRAFANA_SERVICE_ACCOUNT_TOKEN: ${{ secrets.NUTSNEWS_GRAFANA_CLOUD_SERVICE_ACCOUNT_TOKEN }}
+          GRAFANA_PROMETHEUS_DATASOURCE_UID: ${{ secrets.NUTSNEWS_GRAFANA_CLOUD_PROMETHEUS_DATASOURCE_UID }}
+          SYNTHETIC_VARIANT: ${{ inputs.synthetic_variant }}
+          SYNTHETIC_CHECK: ${{ inputs.synthetic_check }}
+          CONFIRM_TARGET: ${{ inputs.confirm_target }}
+          CONFIRMATION: ${{ inputs.confirmation }}
+          WATCHDOG_RUN_ID: ${{ steps.watchdog_dispatch.outputs.run_id }}
+          WATCHDOG_RUN_ATTEMPT: ${{ steps.watchdog_dispatch.outputs.run_attempt }}
+        run: |
+          set -euo pipefail
+          watchdog_nonce="$(<"$RUNNER_TEMP/synthetic-watchdog/nonce")"
+          install -m 0700 -d "$RUNNER_TEMP/grafana-failure-drill-private"
+          python3 terraform/grafana-cloud/scripts/exercise_synthetic_failure_drill.py execute \
+            --target "$SYNTHETIC_CHECK" \
+            --variant "$SYNTHETIC_VARIANT" \
+            --target-confirmation "$CONFIRM_TARGET" \
+            --confirmation "$CONFIRMATION" \
+            --snapshot "$RUNNER_TEMP/grafana-failure-drill-private/synthetic-restore.json" \
+            --watchdog-handshake "$RUNNER_TEMP/synthetic-watchdog/armed.json" \
+            --watchdog-nonce "$watchdog_nonce" \
+            --parent-run-id "$GITHUB_RUN_ID" \
+            --parent-run-attempt "$GITHUB_RUN_ATTEMPT" \
+            --parent-head-sha "$GITHUB_SHA" \
+            --watchdog-run-id "$WATCHDOG_RUN_ID" \
+            --watchdog-run-attempt "$WATCHDOG_RUN_ATTEMPT" \
+            --timeout-seconds 1200 \
+            --output "$RUNNER_TEMP/synthetic-drill-report.json"
+
+      - name: Fail-safe restore after any unsuccessful exercise
+        if: always() && steps.synthetic.outcome != 'success' && steps.synthetic.outcome != 'skipped'
+        id: synthetic_restore
+        continue-on-error: true
+        env:
+          GRAFANA_SM_URL: ${{ secrets.NUTSNEWS_GRAFANA_SYNTHETIC_MONITORING_URL }}
+          GRAFANA_SM_ACCESS_TOKEN: ${{ secrets.NUTSNEWS_GRAFANA_SYNTHETIC_MONITORING_ACCESS_TOKEN }}
+          GRAFANA_URL: ${{ secrets.NUTSNEWS_GRAFANA_CLOUD_URL }}
+          GRAFANA_SERVICE_ACCOUNT_TOKEN: ${{ secrets.NUTSNEWS_GRAFANA_CLOUD_SERVICE_ACCOUNT_TOKEN }}
+          GRAFANA_PROMETHEUS_DATASOURCE_UID: ${{ secrets.NUTSNEWS_GRAFANA_CLOUD_PROMETHEUS_DATASOURCE_UID }}
+          SYNTHETIC_VARIANT: ${{ inputs.synthetic_variant }}
+          SYNTHETIC_CHECK: ${{ inputs.synthetic_check }}
+        run: |
+          set -euo pipefail
+          snapshot="$RUNNER_TEMP/grafana-failure-drill-private/synthetic-restore.json"
+          if [[ ! -f "$snapshot" ]]; then
+            echo "No mutation snapshot exists; the helper failed closed before mutation." >&2
+            exit 1
+          fi
+          python3 terraform/grafana-cloud/scripts/exercise_synthetic_failure_drill.py restore \
+            --target "$SYNTHETIC_CHECK" \
+            --variant "$SYNTHETIC_VARIANT" \
+            --target-confirmation "$SYNTHETIC_CHECK" \
+            --confirmation "recover-grafana-failure-drill:${SYNTHETIC_CHECK}:synthetic-mismatch" \
+            --snapshot "$snapshot" \
+            --timeout-seconds 1200 \
+            --output "$RUNNER_TEMP/synthetic-restore-report.json"
+
+      - name: Request independent watchdog exact restoration
+        if: always() && steps.watchdog_arm.outcome == 'success'
+        id: watchdog_release
+        shell: bash
+        env:
+          WATCHDOG_RUN_ID: ${{ steps.watchdog_dispatch.outputs.run_id }}
+          WATCHDOG_RUN_ATTEMPT: ${{ steps.watchdog_dispatch.outputs.run_attempt }}
+        run: |
+          set -euo pipefail
+          watchdog_nonce="$(<"$RUNNER_TEMP/synthetic-watchdog/nonce")"
+          nonce_sha256="$(printf '%s' "$watchdog_nonce" | sha256sum | cut -d ' ' -f 1)"
+          run_report="$RUNNER_TEMP/synthetic-drill-report.json"
+          fallback_report="$RUNNER_TEMP/synthetic-restore-report.json"
+          [[ -f "$run_report" ]] || jq -n '{restored: false, recovery_observed: false}' > "$run_report"
+          [[ -f "$fallback_report" ]] || jq -n '{restored: false, recovery_observed: false}' > "$fallback_report"
+          parent_recovery_observed="$(jq -s '((.[0].restored == true and .[0].recovery_observed == true) or (.[1].restored == true and .[1].recovery_observed == true))' "$run_report" "$fallback_report")"
+          jq -n \
+            --arg repository "$GITHUB_REPOSITORY" \
+            --argjson parent_run_id "$GITHUB_RUN_ID" \
+            --argjson parent_run_attempt "$GITHUB_RUN_ATTEMPT" \
+            --arg parent_head_sha "$GITHUB_SHA" \
+            --argjson watchdog_run_id "$WATCHDOG_RUN_ID" \
+            --argjson watchdog_run_attempt "$WATCHDOG_RUN_ATTEMPT" \
+            --arg nonce_sha256 "$nonce_sha256" \
+            --argjson parent_recovery_observed "$parent_recovery_observed" \
+            --arg requested_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" '
+              {
+                schema_version: 1,
+                safe_metadata_only: true,
+                status: "release-requested",
+                request_exact_restore: true,
+                parent_repository: $repository,
+                parent_run_id: $parent_run_id,
+                parent_run_attempt: $parent_run_attempt,
+                parent_head_sha: $parent_head_sha,
+                watchdog_run_id: $watchdog_run_id,
+                watchdog_run_attempt: $watchdog_run_attempt,
+                watchdog_nonce_sha256: $nonce_sha256,
+                parent_recovery_observed: $parent_recovery_observed,
+                release_requested_at: $requested_at
+              }
+            ' > "$RUNNER_TEMP/synthetic-watchdog/release.json"
+
+      - name: Publish sanitized watchdog release handshake
+        if: always() && steps.watchdog_release.outcome == 'success'
+        id: watchdog_release_upload
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: synthetic-recovery-watchdog-release-${{ steps.watchdog_dispatch.outputs.run_id }}-${{ steps.watchdog_dispatch.outputs.run_attempt }}
+          path: ${{ runner.temp }}/synthetic-watchdog/release.json
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Require independent watchdog exact restoration evidence
+        if: always() && steps.watchdog_release_upload.outcome == 'success'
+        id: watchdog_recovery
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          WATCHDOG_RUN_ID: ${{ steps.watchdog_dispatch.outputs.run_id }}
+          WATCHDOG_RUN_ATTEMPT: ${{ steps.watchdog_dispatch.outputs.run_attempt }}
+        run: |
+          set -u
+          watch_rc=0
+          timeout 2700 gh run watch "$WATCHDOG_RUN_ID" \
+            --repo "$GITHUB_REPOSITORY" \
+            --exit-status || watch_rc="$?"
+
+          expected_artifact="synthetic-recovery-watchdog-final-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${WATCHDOG_RUN_ID}-${WATCHDOG_RUN_ATTEMPT}"
+          artifacts="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${WATCHDOG_RUN_ID}/artifacts?per_page=100")" || exit 1
+          match_count="$(jq --arg name "$expected_artifact" '[.artifacts[] | select(.name == $name and .expired == false)] | length' <<< "$artifacts")"
+          if [[ "$match_count" != "1" ]]; then
+            echo "Independent watchdog final evidence is missing or ambiguous." >&2
+            exit 1
+          fi
+          artifact_id="$(jq -r --arg name "$expected_artifact" '.artifacts[] | select(.name == $name and .expired == false) | .id' <<< "$artifacts")"
+          install -m 0700 -d "$RUNNER_TEMP/synthetic-watchdog-final/downloaded"
+          gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/${artifact_id}/zip" \
+            > "$RUNNER_TEMP/synthetic-watchdog-final/final.zip" || exit 1
+          unzip -q "$RUNNER_TEMP/synthetic-watchdog-final/final.zip" \
+            -d "$RUNNER_TEMP/synthetic-watchdog-final/downloaded" || exit 1
+          final="$RUNNER_TEMP/synthetic-watchdog-final/downloaded/synthetic-watchdog-final.json"
+          if [[ ! -f "$final" || "$(find "$RUNNER_TEMP/synthetic-watchdog-final/downloaded" -type f | wc -l)" -ne 1 ]]; then
+            echo "Independent watchdog final artifact has an unsupported file shape." >&2
+            exit 1
+          fi
+          jq -e \
+            --argjson parent_run_id "$GITHUB_RUN_ID" \
+            --argjson parent_run_attempt "$GITHUB_RUN_ATTEMPT" \
+            --argjson watchdog_run_id "$WATCHDOG_RUN_ID" \
+            --argjson watchdog_run_attempt "$WATCHDOG_RUN_ATTEMPT" '
+              (.schema_version == 1) and
+              (.safe_metadata_only == true) and
+              (.workflow == "grafana-synthetic-recovery-watchdog") and
+              (.parent_run_id == $parent_run_id) and
+              (.parent_run_attempt == $parent_run_attempt) and
+              (.watchdog_run_id == $watchdog_run_id) and
+              (.watchdog_run_attempt == $watchdog_run_attempt) and
+              (.armed == true) and
+              (.private_snapshot_uploaded == false) and
+              (.restoration_attempted == true) and
+              (.restored == true) and
+              (.recovery_observed == true) and
+              (.alert_recovery_observed == true) and
+              (.result == "pass")
+            ' "$final" > /dev/null || exit 1
+          cp "$final" "$RUNNER_TEMP/synthetic-watchdog-final/final.json"
+          exit "$watch_rc"
+
+      - name: Build sanitized synthetic phase evidence
+        if: always()
+        shell: bash
+        env:
+          SYNTHETIC_CHECK: ${{ inputs.synthetic_check }}
+          WATCHDOG_RECOVERY_OUTCOME: ${{ steps.watchdog_recovery.outcome }}
+        run: |
+          set -euo pipefail
+          install -m 0700 -d "$RUNNER_TEMP/synthetic-watchdog" "$RUNNER_TEMP/synthetic-watchdog-final"
+          report="$RUNNER_TEMP/synthetic-drill-report.json"
+          fallback="$RUNNER_TEMP/synthetic-restore-report.json"
+          armed="$RUNNER_TEMP/synthetic-watchdog/armed.json"
+          watchdog_final="$RUNNER_TEMP/synthetic-watchdog-final/final.json"
+          if [[ ! -f "$report" ]]; then
+            jq -n '{schema_version: 1, result: "fail"}' > "$report"
+          fi
+          if [[ ! -f "$fallback" ]]; then
+            jq -n '{schema_version: 1, result: "not-run"}' > "$fallback"
+          fi
+          if [[ ! -f "$armed" ]]; then
+            jq -n '{schema_version: 1, result: "not-armed"}' > "$armed"
+          fi
+          if [[ ! -f "$watchdog_final" ]]; then
+            jq -n '{schema_version: 1, result: "not-restored"}' > "$watchdog_final"
+          fi
+          jq -s --arg target "$SYNTHETIC_CHECK" --arg watchdog_step_outcome "$WATCHDOG_RECOVERY_OUTCOME" '
+            .[0] as $run | .[1] as $fallback | .[2] as $armed | .[3] as $watchdog |
+            {
+              schema_version: 1,
+              drill: "synthetic-mismatch",
+              target: $target,
+              variant: ($run.variant // "unknown"),
+              mode: "execute",
+              started_at: ($run.started_at // null),
+              finished_at: ($fallback.finished_at // $run.finished_at // null),
+              precheck: {status: (if (
+                ($run.check_id // 0) > 0 and
+                $run.watchdog_confirmed_armed == true and
+                $run.watchdog_snapshot_matches == true and
+                $armed.result == "armed"
+              ) then "pass" else "fail" end)},
+              injection: {status: (if $run.mutation_performed == true then "pass" else "fail" end)},
+              observed_alert_uids: (if $run.alert_firing_observed == true then ["nn-sm-probe-failure"] else [] end),
+              recovery: {status: (if ($run.restored == true or $fallback.restored == true) then "pass" else "fail" end)},
+              postcheck: {status: (if ($run.recovery_observed == true or $fallback.recovery_observed == true) then "pass" else "fail" end)},
+              independent_recovery: {
+                workflow: "grafana-synthetic-recovery-watchdog",
+                run_id: ($armed.watchdog_run_id // 0),
+                run_attempt: ($armed.watchdog_run_attempt // 0),
+                armed: ($armed.result == "armed"),
+                private_snapshot_uploaded: false,
+                restored: ($watchdog.restored == true),
+                recovery_observed: ($watchdog.recovery_observed == true),
+                alert_recovery_observed: ($watchdog.alert_recovery_observed == true),
+                parent_validation_outcome: $watchdog_step_outcome,
+                result: ($watchdog.result // "fail")
+              },
+              controlled_failure_observed: ($run.controlled_failure_observed == true),
+              result: (if (
+                ($run.watchdog_confirmed_armed == true) and
+                ($run.watchdog_snapshot_matches == true) and
+                ($run.mutation_performed == true) and
+                ($run.controlled_failure_observed == true) and
+                ($run.alert_firing_observed == true) and
+                ($run.restored == true or $fallback.restored == true) and
+                ($run.recovery_observed == true or $fallback.recovery_observed == true) and
+                ($run.alert_recovery_observed == true or $fallback.alert_recovery_observed == true) and
+                ($watchdog.armed == true) and
+                ($watchdog.private_snapshot_uploaded == false) and
+                ($watchdog.restored == true) and
+                ($watchdog.recovery_observed == true) and
+                ($watchdog.alert_recovery_observed == true) and
+                ($watchdog_step_outcome == "success") and
+                ($watchdog.result == "pass")
+              ) then "pass" else "fail" end)
+            }
+          ' "$report" "$fallback" "$armed" "$watchdog_final" > "$RUNNER_TEMP/grafana-failure-drill-evidence.json"
+          jq -e '.result == "pass"' "$RUNNER_TEMP/grafana-failure-drill-evidence.json" > /dev/null
+
+      - name: Upload sanitized synthetic drill evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: grafana-failure-drill-synthetic-mismatch-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/grafana-failure-drill-evidence.json
+            ${{ runner.temp }}/synthetic-watchdog-final/final.json
+          if-no-files-found: error
+          retention-days: 90
+
+  execute-backend:
+    name: Execute protected backend fixture and verify Grafana recovery
+    needs: [plan, audit-production-vps-policy]
+    if: >-
+      github.repository == 'ramideltoro/nutsnews-infra' &&
+      github.ref == 'refs/heads/main' &&
+      inputs.mode == 'execute' &&
+      (inputs.drill == 'worker-unavailable' ||
+      inputs.drill == 'rabbitmq-zero-consumer' ||
+      inputs.drill == 'rabbitmq-growing-dlq' ||
+      inputs.drill == 'postgres-relay-lag' ||
+      inputs.drill == 'backend-readiness-failed')
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    environment: production-vps
+
+    steps:
+      - name: Checkout reviewed drill implementation
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Initialize bounded phase evidence
+        shell: bash
+        env:
+          DRILL: ${{ inputs.drill }}
+          SYNTHETIC_VARIANT: ${{ inputs.synthetic_variant }}
+          CONFIRM_TARGET: ${{ inputs.confirm_target }}
+          CONFIRMATION: ${{ inputs.confirmation }}
+        run: |
+          set -euo pipefail
+          install -m 0700 -d "$RUNNER_TEMP/grafana-failure-drill-phases"
+          for phase in precheck injection observation recovery postcheck; do
+            jq -n '{status: "not-run"}' > "$RUNNER_TEMP/grafana-failure-drill-phases/${phase}.json"
+          done
+          python3 scripts/grafana_failure_drill.py initialize \
+            --drill "$DRILL" \
+            --variant "$SYNTHETIC_VARIANT" \
+            --run-id "${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
+            --target-confirmation "$CONFIRM_TARGET" \
+            --execute-confirmation "$CONFIRMATION" \
+            --output "$RUNNER_TEMP/grafana-failure-drill-initialized.json"
+
+      - name: Require target Grafana rules to be initially resolved
+        shell: bash
+        env:
+          DRILL: ${{ inputs.drill }}
+          SYNTHETIC_VARIANT: ${{ inputs.synthetic_variant }}
+          GRAFANA_URL: ${{ secrets.NUTSNEWS_GRAFANA_CLOUD_URL }}
+          GRAFANA_SERVICE_ACCOUNT_TOKEN: ${{ secrets.NUTSNEWS_GRAFANA_CLOUD_SERVICE_ACCOUNT_TOKEN }}
+        run: |
+          set +e
+          python3 scripts/grafana_failure_drill.py observe \
+            --drill "$DRILL" \
+            --variant "$SYNTHETIC_VARIANT" \
+            --run-id "${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
+            --state resolved \
+            --timeout-seconds 120 \
+            --output "$RUNNER_TEMP/grafana-failure-drill-initial-state.json"
+          initial_rc="$?"
+          if (( initial_rc == 0 )); then
+            jq -n '{status: "pass", checks: [{name: "target-rules-initially-resolved", status: "pass"}]}' \
+              > "$RUNNER_TEMP/grafana-failure-drill-phases/precheck.json"
+          else
+            jq -n '{status: "fail", checks: [{name: "target-rules-initially-resolved", status: "fail"}]}' \
+              > "$RUNNER_TEMP/grafana-failure-drill-phases/precheck.json"
+          fi
+          exit "$initial_rc"
+
+      - name: Dispatch exact protected backend hook
+        id: backend_dispatch
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.NUTSNEWS_BACKEND_OBSERVABILITY_DRILL_TOKEN }}
+          DRILL: ${{ inputs.drill }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$GH_TOKEN" ]]; then
+            echo "Missing protected NUTSNEWS_BACKEND_OBSERVABILITY_DRILL_TOKEN." >&2
+            exit 1
+          fi
+          evidence_suffix="$(printf '%08x' "$GITHUB_RUN_ATTEMPT")"
+          evidence_id="nnobs-${GITHUB_RUN_ID}-${evidence_suffix}"
+          if [[ ! "$evidence_id" =~ ^nnobs-[0-9]{10,20}-[a-f0-9]{8}$ ]]; then
+            echo "Derived backend evidence ID is outside the protected contract." >&2
+            exit 1
+          fi
+          printf '%s\n' "$evidence_id" > "$RUNNER_TEMP/backend-evidence-id"
+          expected_title="Backend observability drill / ${DRILL} / ${evidence_id}"
+          printf '%s\n' "$expected_title" > "$RUNNER_TEMP/backend-expected-title"
+          dispatch_started_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+          gh workflow run backend-observability-failure-drills.yml \
+            --repo ramideltoro/nutsnews-backend \
+            --ref main \
+            --field drill="$DRILL" \
+            --field evidence_id="$evidence_id" \
+            --field dry_run=false \
+            --field confirm_repository=ramideltoro/nutsnews-backend \
+            --field confirm_environment=production-backend \
+            --field confirm_target=backend.nutsnews.com \
+            --field confirm_drill="$DRILL"
+
+          backend_run_id=""
+          for _attempt in $(seq 1 60); do
+            runs="$(gh run list \
+              --repo ramideltoro/nutsnews-backend \
+              --workflow backend-observability-failure-drills.yml \
+              --event workflow_dispatch \
+              --limit 50 \
+              --json databaseId,displayTitle,createdAt)"
+            match_count="$(jq --arg title "$expected_title" --arg started "$dispatch_started_at" \
+              '[.[] | select(.displayTitle == $title and .createdAt >= $started)] | length' <<< "$runs")"
+            if [[ "$match_count" == "1" ]]; then
+              backend_run_id="$(jq -r --arg title "$expected_title" --arg started "$dispatch_started_at" \
+                '.[] | select(.displayTitle == $title and .createdAt >= $started) | .databaseId' <<< "$runs")"
+              break
+            fi
+            if [[ "$match_count" != "0" ]]; then
+              echo "Backend dispatch identity matched more than one workflow run." >&2
+              exit 1
+            fi
+            sleep 5
+          done
+          if [[ ! "$backend_run_id" =~ ^[0-9]+$ ]]; then
+            echo "Timed out resolving the exact protected backend workflow run." >&2
+            exit 1
+          fi
+          printf '%s\n' "$backend_run_id" > "$RUNNER_TEMP/backend-run-id"
+
+      - name: Require expected Grafana backend rule to fire
+        if: always() && steps.backend_dispatch.outcome == 'success'
+        shell: bash
+        env:
+          DRILL: ${{ inputs.drill }}
+          SYNTHETIC_VARIANT: ${{ inputs.synthetic_variant }}
+          GRAFANA_URL: ${{ secrets.NUTSNEWS_GRAFANA_CLOUD_URL }}
+          GRAFANA_SERVICE_ACCOUNT_TOKEN: ${{ secrets.NUTSNEWS_GRAFANA_CLOUD_SERVICE_ACCOUNT_TOKEN }}
+        run: |
+          set -euo pipefail
+          python3 scripts/grafana_failure_drill.py observe \
+            --drill "$DRILL" \
+            --variant "$SYNTHETIC_VARIANT" \
+            --run-id "${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
+            --state firing \
+            --timeout-seconds 1200 \
+            --output "$RUNNER_TEMP/grafana-failure-drill-phases/observation.json"
+
+      - name: Wait for independent backend recovery and validate its evidence
+        if: always()
+        id: backend_recovery
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.NUTSNEWS_BACKEND_OBSERVABILITY_DRILL_TOKEN }}
+          DRILL: ${{ inputs.drill }}
+        run: |
+          set -u
+          fail_backend_evidence() {
+            jq -n '{status: "fail", checks: [{name: "backend-evidence", status: "fail"}]}' \
+              > "$RUNNER_TEMP/grafana-failure-drill-phases/recovery.json"
+            exit 1
+          }
+          if [[ ! -f "$RUNNER_TEMP/backend-run-id" ||
+                ! -f "$RUNNER_TEMP/backend-evidence-id" ||
+                ! -f "$RUNNER_TEMP/backend-expected-title" ]]; then
+            jq -n '{status: "fail", checks: [{name: "backend-dispatch", status: "fail"}]}' \
+              > "$RUNNER_TEMP/grafana-failure-drill-phases/precheck.json"
+            fail_backend_evidence
+          fi
+          backend_run_id="$(<"$RUNNER_TEMP/backend-run-id")"
+          evidence_id="$(<"$RUNNER_TEMP/backend-evidence-id")"
+          expected_title="$(<"$RUNNER_TEMP/backend-expected-title")"
+          if [[ ! "$backend_run_id" =~ ^[1-9][0-9]*$ ]] ||
+             [[ ! "$evidence_id" =~ ^nnobs-[0-9]{10,20}-[a-f0-9]{8}$ ]]; then
+            fail_backend_evidence
+          fi
+          watch_rc=0
+          timeout 1800 gh run watch "$backend_run_id" \
+            --repo ramideltoro/nutsnews-backend \
+            --exit-status || watch_rc="$?"
+          if (( watch_rc != 0 )); then
+            echo "Protected backend workflow did not conclude successfully." >&2
+            fail_backend_evidence
+          fi
+
+          backend_run="$(gh api \
+            "repos/ramideltoro/nutsnews-backend/actions/runs/${backend_run_id}")" || \
+            fail_backend_evidence
+          if ! jq -e \
+            --argjson run_id "$backend_run_id" \
+            --arg title "$expected_title" '
+              (.id == $run_id) and
+              (.name == "Backend Observability Failure Drills") and
+              (.path == ".github/workflows/backend-observability-failure-drills.yml") and
+              (.display_title == $title) and
+              (.event == "workflow_dispatch") and
+              (.head_branch == "main") and
+              (.repository.full_name == "ramideltoro/nutsnews-backend") and
+              (.head_repository.full_name == "ramideltoro/nutsnews-backend") and
+              (.head_sha | type == "string" and test("^[0-9a-f]{40}$")) and
+              (.run_attempt | type == "number" and . >= 1 and floor == .) and
+              (.status == "completed") and
+              (.conclusion == "success")
+            ' <<< "$backend_run" > /dev/null; then
+            fail_backend_evidence
+          fi
+          backend_run_attempt="$(jq -r '.run_attempt' <<< "$backend_run")"
+          backend_revision="$(jq -r '.head_sha' <<< "$backend_run")"
+
+          artifacts="$(gh api \
+            "repos/ramideltoro/nutsnews-backend/actions/runs/${backend_run_id}/artifacts?per_page=100")" || \
+            fail_backend_evidence
+          match_count="$(jq \
+            --argjson run_id "$backend_run_id" \
+            --arg revision "$backend_revision" '
+              [.artifacts[] | select(
+                .name == "backend-observability-failure-drill-evidence" and
+                .expired == false and
+                .workflow_run.id == $run_id and
+                .workflow_run.head_sha == $revision and
+                (.id | type == "number" and . >= 1 and floor == .) and
+                (.digest | type == "string" and test("^sha256:[0-9a-f]{64}$"))
+              )] | length
+            ' <<< "$artifacts")"
+          if [[ "$match_count" != "1" ]]; then
+            echo "Backend evidence artifact is missing or ambiguous." >&2
+            fail_backend_evidence
+          fi
+          artifact_id="$(jq -r \
+            --argjson run_id "$backend_run_id" \
+            --arg revision "$backend_revision" '
+              .artifacts[] | select(
+                .name == "backend-observability-failure-drill-evidence" and
+                .expired == false and
+                .workflow_run.id == $run_id and
+                .workflow_run.head_sha == $revision and
+                (.digest | type == "string" and test("^sha256:[0-9a-f]{64}$"))
+              ) | .id
+            ' <<< "$artifacts")"
+          artifact_digest="$(jq -r \
+            --argjson run_id "$backend_run_id" \
+            --arg revision "$backend_revision" '
+              .artifacts[] | select(
+                .name == "backend-observability-failure-drill-evidence" and
+                .expired == false and
+                .workflow_run.id == $run_id and
+                .workflow_run.head_sha == $revision and
+                (.digest | type == "string" and test("^sha256:[0-9a-f]{64}$"))
+              ) | .digest
+            ' <<< "$artifacts")"
+          private_dir="$RUNNER_TEMP/backend-observability-drill-private"
+          install -m 0700 -d "$private_dir"
+          artifact_zip="$private_dir/upstream-evidence.zip"
+          if ! gh api \
+            "repos/ramideltoro/nutsnews-backend/actions/artifacts/${artifact_id}/zip" \
+            > "$artifact_zip"; then
+            fail_backend_evidence
+          fi
+          chmod 0600 "$artifact_zip"
+          if ! python3 scripts/validate_backend_drill_evidence.py \
+            --artifact-zip "$artifact_zip" \
+            --run-id "$backend_run_id" \
+            --run-attempt "$backend_run_attempt" \
+            --revision "$backend_revision" \
+            --evidence-id "$evidence_id" \
+            --drill "$DRILL" \
+            --artifact-id "$artifact_id" \
+            --artifact-digest "$artifact_digest" \
+            --output "$RUNNER_TEMP/backend-observability-drill-evidence-summary.json"; then
+            fail_backend_evidence
+          fi
+
+          jq -n '{status: "pass", checks: [{name: "target-rules-initially-resolved", status: "pass"}, {name: "backend-precheck", status: "pass"}, {name: "failsafe-scheduled", status: "pass"}]}' \
+            > "$RUNNER_TEMP/grafana-failure-drill-phases/precheck.json"
+          jq -n '{status: "pass", checks: [{name: "fixed-injection", status: "pass"}]}' \
+            > "$RUNNER_TEMP/grafana-failure-drill-phases/injection.json"
+          jq -n '{status: "pass", checks: [{name: "backend-recovery", status: "pass"}]}' \
+            > "$RUNNER_TEMP/grafana-failure-drill-phases/recovery.json"
+
+      - name: Require Grafana backend rule recovery
+        if: always()
+        shell: bash
+        env:
+          DRILL: ${{ inputs.drill }}
+          SYNTHETIC_VARIANT: ${{ inputs.synthetic_variant }}
+          GRAFANA_URL: ${{ secrets.NUTSNEWS_GRAFANA_CLOUD_URL }}
+          GRAFANA_SERVICE_ACCOUNT_TOKEN: ${{ secrets.NUTSNEWS_GRAFANA_CLOUD_SERVICE_ACCOUNT_TOKEN }}
+        run: |
+          set -u
+          timeout_seconds=600
+          if [[ "$DRILL" == "rabbitmq-growing-dlq" ]]; then
+            timeout_seconds=1200
+          fi
+          python3 scripts/grafana_failure_drill.py observe \
+            --drill "$DRILL" \
+            --variant "$SYNTHETIC_VARIANT" \
+            --run-id "${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
+            --state resolved \
+            --timeout-seconds "$timeout_seconds" \
+            --output "$RUNNER_TEMP/grafana-failure-drill-phases/postcheck.json"
+
+      - name: Finalize sanitized backend evidence linkage
+        if: always()
+        shell: bash
+        env:
+          DRILL: ${{ inputs.drill }}
+          SYNTHETIC_VARIANT: ${{ inputs.synthetic_variant }}
+        run: |
+          set -u
+          python3 scripts/grafana_failure_drill.py finalize \
+            --drill "$DRILL" \
+            --variant "$SYNTHETIC_VARIANT" \
+            --run-id "${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
+            --precheck-file "$RUNNER_TEMP/grafana-failure-drill-phases/precheck.json" \
+            --injection-file "$RUNNER_TEMP/grafana-failure-drill-phases/injection.json" \
+            --observation-file "$RUNNER_TEMP/grafana-failure-drill-phases/observation.json" \
+            --recovery-file "$RUNNER_TEMP/grafana-failure-drill-phases/recovery.json" \
+            --postcheck-file "$RUNNER_TEMP/grafana-failure-drill-phases/postcheck.json" \
+            --initialization-file "$RUNNER_TEMP/grafana-failure-drill-initialized.json" \
+            --output "$RUNNER_TEMP/grafana-failure-drill-evidence.json"
+          finalize_rc="$?"
+          backend_summary="$RUNNER_TEMP/backend-observability-drill-evidence-summary.json"
+          if [[ -f "$backend_summary" ]]; then
+            jq \
+              --slurpfile backend_summary "$backend_summary" \
+              '.backend_evidence = $backend_summary[0]' \
+              "$RUNNER_TEMP/grafana-failure-drill-evidence.json" \
+              > "$RUNNER_TEMP/grafana-failure-drill-evidence.linked.json"
+            mv "$RUNNER_TEMP/grafana-failure-drill-evidence.linked.json" \
+              "$RUNNER_TEMP/grafana-failure-drill-evidence.json"
+          fi
+          exit "$finalize_rc"
+
+      - name: Upload reconstructed value-free backend and Grafana evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: grafana-failure-drill-${{ inputs.drill }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/grafana-failure-drill-evidence.json
+            ${{ runner.temp }}/backend-observability-drill-evidence-summary.json
+          if-no-files-found: error
+          retention-days: 90

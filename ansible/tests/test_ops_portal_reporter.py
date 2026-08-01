@@ -7,6 +7,7 @@ import importlib.util
 import json
 import unittest
 from pathlib import Path
+from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -136,6 +137,106 @@ class ReporterCooldownTests(unittest.TestCase):
         self.assertNotIn("volatile message", rendered)
         self.assertNotIn("do-not-store", rendered)
         self.assertNotIn("token=", rendered)
+
+
+class ReporterCriticalHealthTests(unittest.TestCase):
+    @staticmethod
+    def configured_email() -> dict[str, object]:
+        return {
+            "enabled": True,
+            "host": "smtp.example.invalid",
+            "port": 587,
+            "username": "",
+            "password": "",
+            "starttls": True,
+            "sender": "ops@example.invalid",
+            "recipients": ["recipient@example.invalid"],
+            "cooldown_seconds": 21_600,
+            "subject_prefix": "NutsNews VPS",
+            "auth_complete": True,
+        }
+
+    @staticmethod
+    def status(level: str) -> dict[str, object]:
+        return {
+            "generated_at": "2026-07-31T00:00:00+00:00",
+            "alerts": {
+                "items": [
+                    {
+                        "id": "test.health",
+                        "level": level,
+                        "message": f"{level} fixture",
+                    }
+                ]
+            },
+        }
+
+    def test_critical_report_sends_and_writes_evidence_before_nonzero_exit(self) -> None:
+        events: list[str] = []
+        status_updates: list[dict[str, object]] = []
+
+        def record_status(**kwargs: object) -> dict[str, object]:
+            events.append("status")
+            status_updates.append(kwargs)
+            return kwargs
+
+        with (
+            mock.patch.object(REPORTER, "read_json", return_value=self.status("critical")),
+            mock.patch.object(REPORTER, "send_email", side_effect=lambda *_: events.append("email")),
+            mock.patch.object(REPORTER, "public_status_update", side_effect=record_status),
+        ):
+            result = REPORTER.handle_report(
+                self.configured_email(),
+                True,
+                False,
+                fail_on_critical=True,
+            )
+
+        self.assertEqual(result, REPORTER.CRITICAL_HEALTH_EXIT_CODE)
+        self.assertEqual(events, ["email", "status"])
+        self.assertEqual(status_updates[0]["status"], "sent")
+        self.assertEqual(status_updates[0]["pending_alerts"], 1)
+        self.assertTrue(status_updates[0]["sent"])
+        self.assertEqual(status_updates[0]["report_conclusion"], "critical")
+        self.assertEqual(status_updates[0]["report_exit_code"], REPORTER.CRITICAL_HEALTH_EXIT_CODE)
+
+    def test_warning_report_remains_successful(self) -> None:
+        with (
+            mock.patch.object(REPORTER, "read_json", return_value=self.status("warning")),
+            mock.patch.object(REPORTER, "send_email"),
+            mock.patch.object(REPORTER, "public_status_update"),
+        ):
+            result = REPORTER.handle_report(
+                self.configured_email(),
+                True,
+                False,
+                fail_on_critical=True,
+            )
+
+        self.assertEqual(result, 0)
+
+    def test_delivery_failure_takes_precedence_over_critical_exit(self) -> None:
+        status_updates: list[dict[str, object]] = []
+        with (
+            mock.patch.object(REPORTER, "read_json", return_value=self.status("critical")),
+            mock.patch.object(REPORTER, "send_email", side_effect=RuntimeError("smtp unavailable")),
+            mock.patch.object(
+                REPORTER,
+                "public_status_update",
+                side_effect=lambda **kwargs: status_updates.append(kwargs) or kwargs,
+            ),
+        ):
+            result = REPORTER.handle_report(
+                self.configured_email(),
+                True,
+                False,
+                fail_on_critical=True,
+            )
+
+        self.assertEqual(result, 1)
+        self.assertEqual(status_updates[0]["status"], "send failed")
+        self.assertEqual(status_updates[0]["pending_alerts"], 1)
+        self.assertIn("smtp unavailable", str(status_updates[0]["error"]))
 
 
 if __name__ == "__main__":

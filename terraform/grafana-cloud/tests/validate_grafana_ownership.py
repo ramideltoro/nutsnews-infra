@@ -34,8 +34,8 @@ dashboard_uids = [dashboard["uid"] for dashboard in dashboards]
 alert_uids = [alert["uid"] for alert in alerts]
 
 require(folder == {"title": "NutsNews Backend Ops", "uid": "nutsnews-backend-ops"}, "backend folder UID/title changed")
-require(len(dashboards) == 13, "backend catalog must preserve all 13 backend dashboards")
-require(len(alerts) == 11, "backend catalog must preserve all 11 backend alerts")
+require(len(dashboards) == 15, "backend catalog must preserve all 15 backend dashboards")
+require(len(alerts) == 20, "backend catalog must preserve all 20 backend alerts")
 require(len(dashboard_uids) == len(set(dashboard_uids)), "backend dashboard UIDs must be unique")
 require(len(alert_uids) == len(set(alert_uids)), "backend alert UIDs must be unique")
 require("nutsnews-observability" not in dashboard_uids, "backend dashboard UIDs must not collide with VPS folder UID")
@@ -59,6 +59,8 @@ source_created_dashboards = [
 source_created_uids = [dashboard["uid"] for dashboard in source_created_dashboards]
 expected_source_created_uids = [
     "nutsnews-backend-postgres-failover",
+    "nutsnews-backend-postgres-operations",
+    "nutsnews-worker-pipeline-run-drilldown",
     "nutsnews-worker-uplift-rabbitmq-overview",
     "nutsnews-worker-uplift-rabbitmq-queues",
     "nutsnews-worker-uplift-rmq-resources",
@@ -75,7 +77,15 @@ require(
     "Grafana Cloud Apply run 29984664724" in source_created_dashboards[0].get("missingRemoteObjectReason", ""),
     "source-created dashboard must document the apply evidence for the missing remote object",
 )
-for dashboard in source_created_dashboards[1:]:
+require(
+    "PostgreSQL operations dashboard" in source_created_dashboards[1].get("missingRemoteObjectReason", ""),
+    "PostgreSQL operations dashboard must document its source-created ownership",
+)
+require(
+    "Loki correlation dashboard" in source_created_dashboards[2].get("missingRemoteObjectReason", ""),
+    "pipeline drilldown must document its source-created ownership",
+)
+for dashboard in source_created_dashboards[3:]:
     require(
         "ramideltoro/nutsnews-worker#89" in dashboard.get("missingRemoteObjectReason", ""),
         f"{dashboard['uid']} must document the #89 source-created reason",
@@ -83,6 +93,19 @@ for dashboard in source_created_dashboards[1:]:
 
 for uid in alert_uids:
     require(uid in json.dumps(CATALOG), f"backend catalog missing alert UID {uid}")
+
+for uid in (
+    "nn-backend-health-audit-repeated",
+    "nn-backend-health-audit-missed",
+    "nn-backend-api-not-ready",
+    "nn-backend-postgres-exporter-down",
+    "nn-backend-sync-relay-contract",
+    "nn-backend-sync-relay-unhealthy",
+    "nn-backend-sync-relay-lag",
+    "nn-backend-sync-relay-failed-tables",
+    "nn-backend-tls-expiry",
+):
+    require(uid in alert_uids, f"scheduled health-audit guardrail missing: {uid}")
 
 require('to = grafana_folder.backend_observability' in IMPORTS_TF, "backend folder import block missing")
 require('id = "nutsnews-backend-ops"' in IMPORTS_TF, "backend folder import id missing")
@@ -104,7 +127,7 @@ require("verify_post_apply.py" in APPLY_WORKFLOW, "Grafana apply workflow must r
 require("--require-query-data" in APPLY_WORKFLOW, "post-apply verification must require live query data")
 require("grafana-cloud-post-apply-verification" in APPLY_WORKFLOW, "verification report artifact missing")
 require(
-    '"backend_host_logs": \'{host="backend.nutsnews.com"}\'' in VERIFY_SCRIPT,
+    '"backend_host_logs": \'{deployment_environment="production",host="backend.nutsnews.com"}\'' in VERIFY_SCRIPT,
     "post-apply Loki verification must require backend host logs",
 )
 require(

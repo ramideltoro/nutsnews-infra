@@ -219,7 +219,7 @@ The workflow has no dispatch inputs and does not accept remote commands. If emai
 
 The portal shows encrypted VPS backup status from the local restic runner: enabled/configured state, repository path, latest snapshot freshness, whether the latest snapshot has been verified, last backup, last prune, next backup run, next verify run, and protected path count. Raw backup path lists stay in root-only config and are not copied into public status JSON.
 
-Backup failures, stale snapshots, prune failures, verification failures, overdue verification, and inactive backup or verify timers are emitted as warning or critical alerts. A newer daily snapshot remains visibly `latest_unverified` with `policy_status=pending` until the scheduled weekly verification and does not alert while it is inside the 192-hour policy window.
+Backup failures, stale snapshots, prune failures, verification failures, overdue verification, and inactive backup or verify timers are emitted as warning or critical alerts. A newer daily snapshot remains visibly `latest_unverified` with `policy_status=pending` until the scheduled daily verification and does not alert while it is inside the 30-hour policy window.
 
 The runner treats top-level `last_error` as the active unresolved backup error. A later successful backup plus prune, or a later successful latest-snapshot verification, clears that active field and moves the previous value into bounded `resolved_errors` history with occurrence and resolution timestamps. Per-run failure details remain on `last_backup.error`, `last_prune.error`, or `last_check.error`.
 

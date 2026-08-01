@@ -21,7 +21,7 @@ ConditionPathIsDirectory=/var/lib/docker
 [Service]
 Type=oneshot
 User=root
-Group=root
+Group={{ vps_service_foundation_backup_log_group }}
 Environment="NUTSNEWS_DOCKER_CLEANUP_STATUS_FILE={{ vps_service_foundation_docker_cleanup_status_file }}"
 Environment="NUTSNEWS_DOCKER_CLEANUP_LOG_FILE={{ vps_service_foundation_docker_cleanup_log_file }}"
 Environment="NUTSNEWS_DOCKER_CLEANUP_IMAGE_UNTIL={{ vps_service_foundation_docker_cleanup_image_until }}"

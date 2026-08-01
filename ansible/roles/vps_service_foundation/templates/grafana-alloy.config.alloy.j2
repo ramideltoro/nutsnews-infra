@@ -25,10 +25,7 @@ prometheus.remote_write "grafana_cloud" {
 loki.write "grafana_cloud" {
   max_streams = 500
   external_labels = {
-    service_namespace      = "nutsnews",
     deployment_environment = sys.env("NUTSNEWS_ALLOY_ENVIRONMENT"),
-    env                    = sys.env("NUTSNEWS_ALLOY_ENVIRONMENT"),
-    instance               = sys.env("NUTSNEWS_ALLOY_HOSTNAME"),
     host                   = sys.env("NUTSNEWS_ALLOY_HOSTNAME"),
   }
 
@@ -69,9 +66,21 @@ prometheus.exporter.unix "host" {
 
 prometheus.scrape "host" {
   targets         = prometheus.exporter.unix.host.targets
+  job_name        = "integrations/node_exporter"
   scrape_interval = "{{ vps_service_foundation_grafana_alloy_scrape_interval }}"
   scrape_timeout  = "10s"
-  forward_to      = [prometheus.relabel.cost_controls.receiver]
+  forward_to      = [prometheus.relabel.host_identity.receiver]
+}
+
+prometheus.relabel "host_identity" {
+  forward_to = [prometheus.relabel.cost_controls.receiver]
+
+  rule {
+    source_labels = ["service"]
+    regex         = "^$"
+    target_label  = "service"
+    replacement   = "host-exporter"
+  }
 }
 
 {% if vps_service_foundation_grafana_alloy_collect_docker | bool %}
@@ -90,6 +99,7 @@ prometheus.exporter.cadvisor "containers" {
 
 prometheus.scrape "containers" {
   targets         = prometheus.exporter.cadvisor.containers.targets
+  job_name        = "integrations/nutsnews-vps-containers"
   scrape_interval = "{{ vps_service_foundation_grafana_alloy_scrape_interval }}"
   scrape_timeout  = "10s"
   forward_to      = [prometheus.relabel.cost_controls.receiver]
@@ -99,11 +109,47 @@ prometheus.scrape "containers" {
 prometheus.scrape "alloy" {
   targets = [{
     __address__ = "127.0.0.1:12345",
-    job         = "integrations/alloy",
+    instance    = sys.env("NUTSNEWS_ALLOY_HOSTNAME"),
   }]
+  job_name        = "integrations/nutsnews-vps-alloy"
   scrape_interval = "{{ vps_service_foundation_grafana_alloy_scrape_interval }}"
   scrape_timeout  = "10s"
-  forward_to      = [prometheus.relabel.cost_controls.receiver]
+  forward_to      = [prometheus.relabel.alloy_identity.receiver]
+}
+
+prometheus.relabel "alloy_identity" {
+  forward_to = [prometheus.relabel.cost_controls.receiver]
+
+  rule {
+    target_label = "service"
+    replacement  = "alloy"
+  }
+}
+
+prometheus.scrape "caddy" {
+  targets = [{
+    __address__ = "{{ vps_service_foundation_grafana_alloy_caddy_metrics_address }}",
+    instance    = sys.env("NUTSNEWS_ALLOY_HOSTNAME"),
+  }]
+  job_name        = "integrations/nutsnews-vps-caddy"
+  scrape_interval = "{{ vps_service_foundation_grafana_alloy_scrape_interval }}"
+  scrape_timeout  = "10s"
+  forward_to      = [prometheus.relabel.caddy_identity.receiver]
+}
+
+prometheus.relabel "caddy_identity" {
+  forward_to = [prometheus.relabel.cost_controls.receiver]
+
+  rule {
+    target_label = "service"
+    replacement  = "caddy"
+  }
+
+  rule {
+    action        = "drop"
+    source_labels = ["__name__"]
+    regex         = "^(go_.*|process_.*|caddy_admin_.*)$"
+  }
 }
 
 prometheus.relabel "cost_controls" {
@@ -111,7 +157,7 @@ prometheus.relabel "cost_controls" {
 
   rule {
     action = "labeldrop"
-    regex  = "^(id|container_id|image_id|name|container_label_com_docker_compose_config_hash|container_label_com_docker_compose_project_config_files|container_label_com_docker_compose_project_working_dir)$"
+    regex  = "^(id|container_id|image_id|container_label_com_docker_compose_config_hash|container_label_com_docker_compose_project_config_files|container_label_com_docker_compose_project_working_dir)$"
   }
 
   rule {
@@ -125,31 +171,55 @@ loki.relabel "journal_labels" {
   forward_to = []
 
   rule {
-    source_labels = ["__journal__systemd_unit"]
-    target_label  = "unit"
+    source_labels = ["__journal_priority"]
+    regex         = "^[0-2]$"
+    replacement   = "critical"
+    target_label  = "severity"
   }
 
   rule {
-    source_labels = ["__journal_priority_keyword"]
-    target_label  = "level"
+    source_labels = ["__journal_priority"]
+    regex         = "^3$"
+    replacement   = "error"
+    target_label  = "severity"
   }
 
   rule {
-    source_labels = ["__journal_syslog_identifier"]
-    target_label  = "service"
+    source_labels = ["__journal_priority"]
+    regex         = "^4$"
+    replacement   = "warning"
+    target_label  = "severity"
   }
+
+  rule {
+    source_labels = ["__journal_priority"]
+    regex         = "^[5-6]$"
+    replacement   = "info"
+    target_label  = "severity"
+  }
+
+  rule {
+    source_labels = ["__journal_priority"]
+    regex         = "^7$"
+    replacement   = "debug"
+    target_label  = "severity"
+  }
+
 }
 
-{% for priority in [0, 1, 2, 3, 4] %}
-loki.source.journal "priority_{{ priority }}" {
-  matches       = "PRIORITY={{ priority }}"
+{% for journal_unit in vps_service_foundation_grafana_alloy_journal_units %}
+loki.source.journal "unit_{{ journal_unit | regex_replace('[^A-Za-z0-9_]', '_') }}" {
+  matches       = "_SYSTEMD_UNIT={{ journal_unit }}"
   max_age       = "2h"
   relabel_rules = loki.relabel.journal_labels.rules
   labels = {
-    job        = "systemd-journal",
-    log_source = "journal",
-    service    = "systemd",
-    source     = "journal",
+    service         = "{{ journal_unit | regex_replace('\\.(service|timer)$', '') }}",
+{% if journal_unit.startswith('nutsnews-') %}
+    service_version = sys.env("NUTSNEWS_ALLOY_SERVICE_VERSION"),
+{% else %}
+    service_version = "unknown",
+{% endif %}
+    source          = "journal",
   }
   forward_to = [loki.process.journal.receiver]
 }
@@ -158,19 +228,67 @@ loki.source.journal "priority_{{ priority }}" {
 loki.process "journal" {
   forward_to = [loki.write.grafana_cloud.receiver]
 
+  stage.replace {
+    expression = "(?i)bearer\\s+([A-Za-z0-9._~+/=-]+)"
+    replace    = "[redacted]"
+  }
+
+  stage.replace {
+    expression = "(?i)(?:password|passwd|token|secret|authorization|proxy[_-]?authorization|credential|api[_-]?key|x[_-]?api[_-]?key)[\"']?\\s*[:=]\\s*(\\[[^\\]]*\\])"
+    replace    = "[\\\"[redacted]\\\"]"
+  }
+
+  stage.replace {
+    expression = "(?i)(?:password|passwd|token|secret|authorization|proxy[_-]?authorization|credential|api[_-]?key|x[_-]?api[_-]?key)[\"']?\\s*[:=]\\s*[\"']([^\"']*)"
+    replace    = "[redacted]"
+  }
+
+  stage.replace {
+    expression = "(?i)(?:authorization|proxy[_-]?authorization)[\"']?\\s*[:=]\\s*(?:basic|digest|bearer|token)\\s+([^\\s,}\\]]+)"
+    replace    = "[redacted]"
+  }
+
+  stage.replace {
+    expression = "(?i)(?:password|passwd|token|secret|authorization|proxy[_-]?authorization|credential|api[_-]?key|x[_-]?api[_-]?key)=([^\\s,]+)"
+    replace    = "[redacted]"
+  }
+
+  stage.replace {
+    expression = "(?i)(?:password|passwd|token|secret|authorization|proxy[_-]?authorization|credential|api[_-]?key|x[_-]?api[_-]?key)\\s*:\\s*([^,\\s]+)"
+    replace    = "[redacted]"
+  }
+
+  stage.replace {
+    expression = "(\\?[^\"\\s]*)"
+    replace    = "?[query-redacted]"
+  }
+
+  stage.replace {
+    expression = "((?:[0-9]{1,3}\\.){3}[0-9]{1,3})"
+    replace    = "[ip]"
+  }
+
   stage.drop {
     longer_than         = "8KB"
     drop_counter_reason = "journal_line_too_large"
   }
 
+  stage.match {
+    selector            = "{severity=\"debug\"}"
+    action              = "drop"
+    drop_counter_reason = "journal_debug"
+  }
+
   stage.limit {
-    rate  = {{ vps_service_foundation_grafana_alloy_journal_log_rate }}
-    burst = {{ vps_service_foundation_grafana_alloy_journal_log_burst }}
-    drop  = true
+    rate                = {{ vps_service_foundation_grafana_alloy_journal_log_rate }}
+    burst               = {{ vps_service_foundation_grafana_alloy_journal_log_burst }}
+    drop                = true
+    by_label_name       = "service"
+    max_distinct_labels = 64
   }
 
   stage.label_keep {
-    values = ["env", "host", "instance", "deployment_environment", "service_namespace", "job", "source", "log_source", "service", "unit", "level"]
+    values = ["deployment_environment", "service", "service_version", "host", "source", "severity"]
   }
 }
 
@@ -182,15 +300,50 @@ loki.source.file "nutsnews_files" {
       job                = "auth-log",
       log_source         = "auth",
       service            = "auth",
+      service_version    = "host",
       source             = "auth",
     },
     {
-      __path__           = "{{ vps_service_foundation_logs_dir }}/{backups,caddy,health,ops-portal}/*.{log,jsonl}",
+      __path__           = "{{ vps_service_foundation_backup_log_dir }}/*.{log,jsonl}",
       __path_exclude__   = "{{ vps_service_foundation_logs_dir }}/**/*.{gz,zip,bak,old}",
-      job                = "nutsnews-service-logs",
-      log_source         = "nutsnews-service",
-      service            = "nutsnews-service",
-      source             = "nutsnews-service",
+      service            = "backup",
+      service_version    = sys.env("NUTSNEWS_ALLOY_SERVICE_VERSION"),
+      source             = "file",
+    },
+    {
+      __path__           = "{{ vps_service_foundation_caddy_logs_dir }}/*.{log,jsonl}",
+      __path_exclude__   = "{{ vps_service_foundation_logs_dir }}/**/*.{gz,zip,bak,old}",
+      service            = "caddy",
+      service_version    = "{{ vps_service_foundation_grafana_alloy_caddy_service_version }}",
+      source             = "file",
+    },
+    {
+      __path__           = "{{ vps_service_foundation_infra_health_log_dir }}/*.{log,jsonl}",
+      __path_exclude__   = "{{ vps_service_foundation_logs_dir }}/**/*.{gz,zip,bak,old}",
+      service            = "infra-health",
+      service_version    = sys.env("NUTSNEWS_ALLOY_SERVICE_VERSION"),
+      source             = "file",
+    },
+    {
+      __path__           = "{{ vps_service_foundation_collector_log_dir }}/*.{log,jsonl}",
+      __path_exclude__   = "{{ vps_service_foundation_logs_dir }}/**/*.{gz,zip,bak,old}",
+      service            = "ops-portal",
+      service_version    = sys.env("NUTSNEWS_ALLOY_SERVICE_VERSION"),
+      source             = "file",
+    },
+    {
+      __path__           = "{{ vps_service_foundation_docker_cleanup_log_dir }}/*.{log,jsonl}",
+      __path_exclude__   = "{{ vps_service_foundation_logs_dir }}/**/*.{gz,zip,bak,old}",
+      service            = "docker-cleanup",
+      service_version    = sys.env("NUTSNEWS_ALLOY_SERVICE_VERSION"),
+      source             = "file",
+    },
+    {
+      __path__           = "{{ vps_service_foundation_nutsnews_staging_auto_idle_log_dir }}/*.{log,jsonl}",
+      __path_exclude__   = "{{ vps_service_foundation_logs_dir }}/**/*.{gz,zip,bak,old}",
+      service            = "staging-auto-idle",
+      service_version    = sys.env("NUTSNEWS_ALLOY_SERVICE_VERSION"),
+      source             = "file",
     },
   ]
   tail_from_end = true
@@ -208,50 +361,70 @@ loki.process "files" {
 
   stage.json {
     expressions = {
-      timestamp   = "timestamp",
-      level       = "level",
-      message     = "message",
-      msg         = "msg",
-      log_service = "service",
-      component   = "component",
-      request_id  = "request_id",
-      method      = "method",
-      status      = "status",
-      path        = "path",
-      duration_ms = "duration_ms",
+      timestamp          = "timestamp",
+      level              = "level",
+      parsed_severity    = "severity",
+      component          = "component",
+      request_id         = "request_id",
+      message_id         = "message_id",
+      correlation_id     = "correlation_id",
+      traceparent        = "traceparent",
+      trace_id           = "trace_id",
+      article_id         = "article_id",
+      feed_id            = "feed_id",
+      idempotency_key    = "idempotency_key",
+      method             = "method",
+      status             = "status",
+      path               = "path",
+      duration_ms        = "duration_ms",
     }
     drop_malformed = false
   }
 
+  stage.template {
+    source   = "severity"
+{% raw %}
+    template = "{{ if .parsed_severity }}{{ ToLower .parsed_severity }}{{ else if .level }}{{ ToLower .level }}{{ else }}unknown{{ end }}"
+{% endraw %}
+
+  }
+
+  stage.template {
+    source   = "severity"
+{% raw %}
+    template = "{{ $s := .Value }}{{ if or (eq $s \"trace\") (eq $s \"debug\") }}debug{{ else if or (eq $s \"info\") (eq $s \"notice\") }}info{{ else if or (eq $s \"warn\") (eq $s \"warning\") }}warning{{ else if or (eq $s \"err\") (eq $s \"error\") }}error{{ else if or (eq $s \"fatal\") (eq $s \"critical\") (eq $s \"crit\") (eq $s \"alert\") (eq $s \"emerg\") (eq $s \"emergency\") }}critical{{ else }}unknown{{ end }}"
+{% endraw %}
+  }
+
   stage.labels {
     values = {
-      level = "",
+      severity = "",
     }
+  }
+
+  stage.replace {
+    source     = "path"
+    expression = "(\\?.*)"
+    replace    = ""
   }
 
   stage.structured_metadata {
     values = {
-      timestamp   = "",
-      message     = "",
-      msg         = "",
-      log_service = "",
-      component   = "",
-      request_id  = "",
-      method      = "",
-      status      = "",
-      path        = "",
-      duration_ms = "",
+      timestamp       = "",
+      component       = "",
+      request_id      = "",
+      message_id      = "",
+      correlation_id  = "",
+      traceparent     = "",
+      trace_id        = "",
+      article_id      = "",
+      feed_id         = "",
+      idempotency_key = "",
+      method          = "",
+      status          = "",
+      path            = "",
+      duration_ms     = "",
     }
-  }
-
-  stage.replace {
-    expression = "(?i)(?:password|passwd|token|secret|authorization|credential|api[_-]?key)=([^\\s,]+)"
-    replace    = "[redacted]"
-  }
-
-  stage.replace {
-    expression = "(?i)(?:password|passwd|token|secret|authorization|credential|api[_-]?key)\\s*:\\s*([^,\\s]+)"
-    replace    = "[redacted]"
   }
 
   stage.replace {
@@ -260,19 +433,44 @@ loki.process "files" {
   }
 
   stage.replace {
+    expression = "(?i)(?:password|passwd|token|secret|authorization|proxy[_-]?authorization|credential|api[_-]?key|x[_-]?api[_-]?key)[\"']?\\s*[:=]\\s*(\\[[^\\]]*\\])"
+    replace    = "[\\\"[redacted]\\\"]"
+  }
+
+  stage.replace {
+    expression = "(?i)(?:password|passwd|token|secret|authorization|proxy[_-]?authorization|credential|api[_-]?key|x[_-]?api[_-]?key)[\"']?\\s*[:=]\\s*[\"']([^\"']*)"
+    replace    = "[redacted]"
+  }
+
+  stage.replace {
+    expression = "(?i)(?:authorization|proxy[_-]?authorization)[\"']?\\s*[:=]\\s*(?:basic|digest|bearer|token)\\s+([^\\s,}\\]]+)"
+    replace    = "[redacted]"
+  }
+
+  stage.replace {
+    expression = "(?i)(?:password|passwd|token|secret|authorization|proxy[_-]?authorization|credential|api[_-]?key|x[_-]?api[_-]?key)=([^\\s,]+)"
+    replace    = "[redacted]"
+  }
+
+  stage.replace {
+    expression = "(?i)(?:password|passwd|token|secret|authorization|proxy[_-]?authorization|credential|api[_-]?key|x[_-]?api[_-]?key)\\s*:\\s*([^,\\s]+)"
+    replace    = "[redacted]"
+  }
+
+  stage.replace {
+    expression = "(\\?[^\"\\s]*)"
+    replace    = "?[query-redacted]"
+  }
+
+  stage.replace {
     expression = "((?:[0-9]{1,3}\\.){3}[0-9]{1,3})"
     replace    = "[ip]"
   }
 
-  stage.drop {
-    source               = "level"
-    expression          = "(?i)\\b(debug|trace)\\b"
-    drop_counter_reason = "debug_or_trace"
-  }
-
-  stage.drop {
-    expression          = "(?i)\\b(debug|trace)\\b"
-    drop_counter_reason = "debug_or_trace_line"
+  stage.match {
+    selector            = "{severity=\"debug\"}"
+    action              = "drop"
+    drop_counter_reason = "file_debug"
   }
 
   stage.drop {
@@ -281,13 +479,15 @@ loki.process "files" {
   }
 
   stage.limit {
-    rate  = {{ vps_service_foundation_grafana_alloy_file_log_rate }}
-    burst = {{ vps_service_foundation_grafana_alloy_file_log_burst }}
-    drop  = true
+    rate                = {{ vps_service_foundation_grafana_alloy_file_log_rate }}
+    burst               = {{ vps_service_foundation_grafana_alloy_file_log_burst }}
+    drop                = true
+    by_label_name       = "service"
+    max_distinct_labels = 8
   }
 
   stage.label_keep {
-    values = ["env", "host", "instance", "deployment_environment", "service_namespace", "job", "source", "log_source", "service", "level"]
+    values = ["deployment_environment", "service", "service_version", "host", "source", "severity"]
   }
 }
 
@@ -316,6 +516,13 @@ discovery.relabel "docker_logs" {
   }
 
   rule {
+    source_labels = ["__meta_docker_container_label_com_docker_compose_project", "__meta_docker_container_label_com_docker_compose_service"]
+    separator     = ";"
+    regex         = "^(nutsnews-service-foundation;(caddy|ops-auth)|nutsnews-app;nutsnews-app)$"
+    action        = "keep"
+  }
+
+  rule {
     source_labels = ["__meta_docker_container_name"]
     regex         = "/(.*)"
     replacement   = "$1"
@@ -333,8 +540,51 @@ discovery.relabel "docker_logs" {
   }
 
   rule {
-    source_labels = ["__meta_docker_container_label_com_docker_compose_service"]
+    source_labels = ["__meta_docker_container_label_com_docker_compose_project", "__meta_docker_container_label_com_docker_compose_service"]
+    separator     = ";"
+    regex         = "^nutsnews-service-foundation;caddy$"
+    replacement   = "caddy"
     target_label  = "service"
+  }
+
+  rule {
+    source_labels = ["__meta_docker_container_label_com_docker_compose_project", "__meta_docker_container_label_com_docker_compose_service"]
+    separator     = ";"
+    regex         = "^nutsnews-service-foundation;ops-auth$"
+    replacement   = "ops-auth"
+    target_label  = "service"
+  }
+
+  rule {
+    source_labels = ["__meta_docker_container_label_com_docker_compose_project", "__meta_docker_container_label_com_docker_compose_service"]
+    separator     = ";"
+    regex         = "^nutsnews-app;nutsnews-app$"
+    replacement   = "web"
+    target_label  = "service"
+  }
+
+  rule {
+    source_labels = ["__meta_docker_container_label_com_docker_compose_project", "__meta_docker_container_label_com_docker_compose_service"]
+    separator     = ";"
+    regex         = "^nutsnews-service-foundation;caddy$"
+    replacement   = "{{ vps_service_foundation_grafana_alloy_caddy_service_version }}"
+    target_label  = "service_version"
+  }
+
+  rule {
+    source_labels = ["__meta_docker_container_label_com_docker_compose_project", "__meta_docker_container_label_com_docker_compose_service"]
+    separator     = ";"
+    regex         = "^nutsnews-service-foundation;ops-auth$"
+    replacement   = "{{ vps_service_foundation_grafana_alloy_service_version }}"
+    target_label  = "service_version"
+  }
+
+  rule {
+    source_labels = ["__meta_docker_container_label_com_docker_compose_project", "__meta_docker_container_label_com_docker_compose_service"]
+    separator     = ";"
+    regex         = "^nutsnews-app;nutsnews-app$"
+    replacement   = "{{ vps_service_foundation_nutsnews_app_source_commit | default('unknown', true) }}"
+    target_label  = "service_version"
   }
 
   rule {
@@ -374,11 +624,16 @@ loki.process "docker" {
       timestamp            = "timestamp",
       ts                   = "ts",
       level                = "level",
-      message              = "message",
-      msg                  = "msg",
-      log_service          = "service",
+      parsed_severity      = "severity",
       component            = "component",
       request_id           = "request_id",
+      message_id           = "message_id",
+      correlation_id       = "correlation_id",
+      traceparent          = "traceparent",
+      trace_id             = "trace_id",
+      article_id           = "article_id",
+      feed_id              = "feed_id",
+      idempotency_key      = "idempotency_key",
       method               = "method",
       request_method       = "request.method",
       status               = "status",
@@ -393,21 +648,52 @@ loki.process "docker" {
     drop_malformed = false
   }
 
+  stage.template {
+    source   = "severity"
+{% raw %}
+    template = "{{ if .parsed_severity }}{{ ToLower .parsed_severity }}{{ else if .level }}{{ ToLower .level }}{{ else }}unknown{{ end }}"
+{% endraw %}
+
+  }
+
+  stage.template {
+    source   = "severity"
+{% raw %}
+    template = "{{ $s := .Value }}{{ if or (eq $s \"trace\") (eq $s \"debug\") }}debug{{ else if or (eq $s \"info\") (eq $s \"notice\") }}info{{ else if or (eq $s \"warn\") (eq $s \"warning\") }}warning{{ else if or (eq $s \"err\") (eq $s \"error\") }}error{{ else if or (eq $s \"fatal\") (eq $s \"critical\") (eq $s \"crit\") (eq $s \"alert\") (eq $s \"emerg\") (eq $s \"emergency\") }}critical{{ else }}unknown{{ end }}"
+{% endraw %}
+  }
+
   stage.labels {
     values = {
-      level = "",
+      severity = "",
     }
+  }
+
+  stage.replace {
+    source     = "path"
+    expression = "(\\?.*)"
+    replace    = ""
+  }
+
+  stage.replace {
+    source     = "uri"
+    expression = "(\\?.*)"
+    replace    = ""
   }
 
   stage.structured_metadata {
     values = {
       timestamp            = "",
       ts                   = "",
-      message              = "",
-      msg                  = "",
-      log_service          = "",
       component            = "",
       request_id           = "",
+      message_id           = "",
+      correlation_id       = "",
+      traceparent          = "",
+      trace_id             = "",
+      article_id           = "",
+      feed_id              = "",
+      idempotency_key      = "",
       method               = "",
       request_method       = "",
       status               = "",
@@ -422,29 +708,49 @@ loki.process "docker" {
   }
 
   stage.replace {
-    expression = "(?i)(?:password|passwd|token|secret|authorization|credential|api[_-]?key)=([^\\s,]+)"
-    replace    = "[redacted]"
-  }
-
-  stage.replace {
-    expression = "(?i)(?:password|passwd|token|secret|authorization|credential|api[_-]?key)\\s*:\\s*([^,\\s]+)"
-    replace    = "[redacted]"
-  }
-
-  stage.replace {
     expression = "(?i)bearer\\s+([A-Za-z0-9._~+/=-]+)"
     replace    = "[redacted]"
   }
 
-  stage.drop {
-    source               = "level"
-    expression          = "(?i)\\b(debug|trace)\\b"
-    drop_counter_reason = "docker_debug_or_trace"
+  stage.replace {
+    expression = "(?i)(?:password|passwd|token|secret|authorization|proxy[_-]?authorization|credential|api[_-]?key|x[_-]?api[_-]?key)[\"']?\\s*[:=]\\s*(\\[[^\\]]*\\])"
+    replace    = "[\\\"[redacted]\\\"]"
   }
 
-  stage.drop {
-    expression          = "(?i)\\b(debug|trace)\\b"
-    drop_counter_reason = "docker_debug_or_trace_line"
+  stage.replace {
+    expression = "(?i)(?:password|passwd|token|secret|authorization|proxy[_-]?authorization|credential|api[_-]?key|x[_-]?api[_-]?key)[\"']?\\s*[:=]\\s*[\"']([^\"']*)"
+    replace    = "[redacted]"
+  }
+
+  stage.replace {
+    expression = "(?i)(?:authorization|proxy[_-]?authorization)[\"']?\\s*[:=]\\s*(?:basic|digest|bearer|token)\\s+([^\\s,}\\]]+)"
+    replace    = "[redacted]"
+  }
+
+  stage.replace {
+    expression = "(?i)(?:password|passwd|token|secret|authorization|proxy[_-]?authorization|credential|api[_-]?key|x[_-]?api[_-]?key)=([^\\s,]+)"
+    replace    = "[redacted]"
+  }
+
+  stage.replace {
+    expression = "(?i)(?:password|passwd|token|secret|authorization|proxy[_-]?authorization|credential|api[_-]?key|x[_-]?api[_-]?key)\\s*:\\s*([^,\\s]+)"
+    replace    = "[redacted]"
+  }
+
+  stage.replace {
+    expression = "(\\?[^\"\\s]*)"
+    replace    = "?[query-redacted]"
+  }
+
+  stage.replace {
+    expression = "((?:[0-9]{1,3}\\.){3}[0-9]{1,3})"
+    replace    = "[ip]"
+  }
+
+  stage.match {
+    selector            = "{severity=\"debug\"}"
+    action              = "drop"
+    drop_counter_reason = "docker_debug"
   }
 
   stage.drop {
@@ -453,13 +759,15 @@ loki.process "docker" {
   }
 
   stage.limit {
-    rate  = {{ vps_service_foundation_grafana_alloy_docker_log_rate }}
-    burst = {{ vps_service_foundation_grafana_alloy_docker_log_burst }}
-    drop  = true
+    rate                = {{ vps_service_foundation_grafana_alloy_docker_log_rate }}
+    burst               = {{ vps_service_foundation_grafana_alloy_docker_log_burst }}
+    drop                = true
+    by_label_name       = "service"
+    max_distinct_labels = 3
   }
 
   stage.label_keep {
-    values = ["env", "host", "instance", "deployment_environment", "service_namespace", "container", "compose_project", "compose_service", "job", "source", "log_source", "service", "level"]
+    values = ["deployment_environment", "service", "service_version", "host", "source", "severity"]
   }
 }
 {% endif %}

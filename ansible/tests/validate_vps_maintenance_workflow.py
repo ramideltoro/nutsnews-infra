@@ -29,6 +29,7 @@ require("NUTSNEWS_VPS_KNOWN_HOSTS" in TEXT, "Workflow must use the existing know
 require("VPS_USER: nutsnews_ops" in TEXT, "Workflow must connect as nutsnews_ops.")
 require("permissions:\n  contents: read" in TEXT, "Workflow permissions must be contents: read only.")
 require("cancel-in-progress: false" in TEXT, "Maintenance workflow must not cancel active maintenance.")
+require("queue: max" in TEXT, "Maintenance workflow must retain every pending maintenance run.")
 require("bash -s" not in TEXT, "Workflow must not stream arbitrary shell over SSH.")
 require("sudo -n /bin/bash" not in TEXT, "Workflow must not start a remote root shell.")
 require("cat \"$HOME/.ssh/nutsnews_vps\"" not in TEXT, "Workflow must not print the private key.")

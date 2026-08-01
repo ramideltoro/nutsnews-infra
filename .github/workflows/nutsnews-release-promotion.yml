@@ -38,6 +38,7 @@ permissions:
 
 concurrency:
   group: nutsnews-vps-release-promotion
+  queue: max
   cancel-in-progress: false
 
 jobs:
@@ -50,6 +51,12 @@ jobs:
       }}
     runs-on: ubuntu-latest
     timeout-minutes: 180
+    outputs:
+      build_id: ${{ steps.qualified.outputs.build_id }}
+      image_digest: ${{ steps.qualified.outputs.image_digest }}
+      rollback_run_id: ${{ steps.rollback.outputs.run_id }}
+      source_commit: ${{ steps.qualified.outputs.source_commit }}
+      vercel_deploy_failed: ${{ steps.vercel.outputs.deploy_failed }}
     env:
       EVENT_QUALIFICATION_RUN_ID: ${{ github.event.workflow_run.id }}
       INPUT_QUALIFICATION_RUN_ID: ${{ inputs.qualification_run_id }}
@@ -628,6 +635,37 @@ jobs:
             --schema-version "$SCHEMA_VERSION" \
             --supabase-project-ref "$SUPABASE_PROJECT_REF"
 
+      - name: Queue Grafana promotion start annotation
+        id: grafana_annotation_started
+        continue-on-error: true
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.NUTSNEWS_INFRA_RELEASE_TOKEN }}
+          SOURCE_COMMIT: ${{ steps.qualified.outputs.source_commit }}
+          IMAGE_DIGEST: ${{ steps.qualified.outputs.image_digest }}
+          BUILD_ID: ${{ steps.qualified.outputs.build_id }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$GH_TOKEN" ]]; then
+            echo "NUTSNEWS_INFRA_RELEASE_TOKEN is unavailable for the best-effort start annotation." >&2
+            exit 1
+          fi
+          gh workflow run grafana-deployment-annotation.yml \
+            --repo "$GITHUB_REPOSITORY" \
+            --ref main \
+            --field event_type=promotion \
+            --field commit="$SOURCE_COMMIT" \
+            --field image_digest="$IMAGE_DIGEST" \
+            --field version="$BUILD_ID" \
+            --field target=production-vps \
+            --field outcome=started
+
+      - name: Report promotion start annotation delivery failure
+        if: ${{ steps.grafana_annotation_started.outcome == 'failure' }}
+        shell: bash
+        run: |
+          echo "::warning::The promotion start annotation could not be queued. Production promotion continues; do not retry a production mutation solely for observability."
+
       - name: Start and wait for protected VPS apply
         id: apply
         shell: bash
@@ -657,7 +695,7 @@ jobs:
             --field confirm_apply=vps.nutsnews.com \
             --field sync_vercel_production=true \
             --field enable_cloudflare_ddns=false \
-            --field enable_grafana_alloy=false \
+            --field enable_grafana_alloy=true \
             --field enable_staging_access=true \
             --field production_writes_paused="$PRODUCTION_WRITES_PAUSED" \
             --field release_source_commit="$SOURCE_COMMIT" \
@@ -1009,3 +1047,74 @@ jobs:
             echo "Vercel production deploy did not succeed and no protected rollback run completed." >&2
             exit 1
           fi
+
+  annotate-promotion:
+    name: Queue separate Grafana promotion annotation run
+    needs: promote
+    if: >-
+      ${{
+        always() &&
+        needs.promote.result != 'skipped' &&
+        needs.promote.outputs.source_commit != '' &&
+        needs.promote.outputs.image_digest != '' &&
+        needs.promote.outputs.build_id != ''
+      }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Queue final promotion annotation as a separate workflow run
+        id: dispatch_annotation
+        continue-on-error: true
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.NUTSNEWS_INFRA_RELEASE_TOKEN }}
+          SOURCE_COMMIT: ${{ needs.promote.outputs.source_commit }}
+          IMAGE_DIGEST: ${{ needs.promote.outputs.image_digest }}
+          BUILD_ID: ${{ needs.promote.outputs.build_id }}
+          DEPLOYMENT_OUTCOME: >-
+            ${{
+              needs.promote.result == 'success' &&
+              needs.promote.outputs.vercel_deploy_failed == 'true' &&
+              needs.promote.outputs.rollback_run_id != '' &&
+              'rolled-back' ||
+              needs.promote.result == 'success' && 'succeeded' ||
+              'failed'
+            }}
+          PROMOTION_RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$GH_TOKEN" ]]; then
+            echo "NUTSNEWS_INFRA_RELEASE_TOKEN is unavailable for the final annotation dispatch." >&2
+            exit 1
+          fi
+          gh workflow run grafana-deployment-annotation.yml \
+            --repo "$GITHUB_REPOSITORY" \
+            --ref main \
+            --field event_type=promotion \
+            --field commit="$SOURCE_COMMIT" \
+            --field image_digest="$IMAGE_DIGEST" \
+            --field version="$BUILD_ID" \
+            --field target=production-vps \
+            --field outcome="$DEPLOYMENT_OUTCOME" \
+            --field evidence="$PROMOTION_RUN_URL"
+
+      - name: Record final annotation dispatch failure without changing promotion authority
+        if: ${{ steps.dispatch_annotation.outcome == 'failure' }}
+        shell: bash
+        run: |
+          echo "::warning::The final promotion annotation could not be queued. The completed production promotion result remains authoritative; investigate observability delivery without retrying the production mutation."
+          {
+            echo "### Grafana promotion annotation dispatch failed"
+            echo
+            echo "The production promotion result remains authoritative. The final Grafana annotation could not be queued as a separate workflow run and requires observability follow-up."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Record separately queued final annotation
+        if: ${{ steps.dispatch_annotation.outcome == 'success' }}
+        shell: bash
+        run: |
+          {
+            echo "### Grafana promotion annotation queued"
+            echo
+            echo "Annotation delivery is tracked by the separate Publish Grafana Deployment Annotation workflow; its failure cannot change the completed production promotion result."
+          } >> "$GITHUB_STEP_SUMMARY"

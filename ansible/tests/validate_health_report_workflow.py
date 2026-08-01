@@ -9,6 +9,10 @@ from pathlib import Path
 
 WORKFLOW = Path(".github/workflows/send-vps-health-report.yml")
 TEXT = WORKFLOW.read_text(encoding="utf-8")
+REPORT_SERVICE = Path(
+    "ansible/roles/vps_service_foundation/templates/nutsnews-ops-health-report.service.j2"
+).read_text(encoding="utf-8")
+REPORTER = Path("ansible/roles/vps_service_foundation/files/ops_portal_reporter.py").read_text(encoding="utf-8")
 
 
 def require(condition: bool, message: str) -> None:
@@ -32,6 +36,25 @@ require("${{ inputs." not in TEXT, "Workflow must not interpolate dispatch input
 require("bash -s" not in TEXT, "Workflow must not stream arbitrary shell over SSH.")
 require("sudo -n /bin/bash" not in TEXT, "Workflow must not start a remote shell with sudo.")
 require("systemctl start ${REPORT_SERVICE}" in TEXT, "Workflow must trigger the existing systemd report unit.")
+require("ExecMainStatus" in TEXT, "Workflow must surface the report service's process result.")
+require(
+    "ExecMainStatus=2 means the report/status evidence was written" in TEXT,
+    "Workflow must explain the fail-on-critical service result.",
+)
+require(
+    "--mode report --fail-on-critical" in REPORT_SERVICE,
+    "Scheduled and manually triggered report service must fail after reporting a critical health state.",
+)
+require("CRITICAL_HEALTH_EXIT_CODE = 2" in REPORTER, "Reporter must reserve a stable critical-health exit code.")
+require(
+    "critical_exit = CRITICAL_HEALTH_EXIT_CODE if fail_on_critical and critical_alerts else 0" in REPORTER,
+    "Reporter must derive a bounded critical-health result.",
+)
+handle_report = REPORTER[REPORTER.index("def handle_report(") : REPORTER.index("\ndef main()")]
+require(
+    handle_report.rindex("public_status_update(") < handle_report.rindex("return critical_exit"),
+    "Reporter must write report/status evidence before returning the critical-health result.",
+)
 require("set -x" not in TEXT, "Workflow must not enable shell tracing around secrets.")
 require("cat \"$HOME/.ssh/nutsnews_vps\"" not in TEXT, "Workflow must not print the private key.")
 require("cat \"$HOME/.ssh/known_hosts\"" not in TEXT, "Workflow must not print known_hosts.")

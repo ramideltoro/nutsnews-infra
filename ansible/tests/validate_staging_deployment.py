@@ -812,6 +812,7 @@ for required in (
     "nutsnews-staging-release",
     "workflow_dispatch:",
     "rehearse-staging-candidate",
+    "queue: max",
     "cancel-in-progress: false",
     "environment: staging-vps",
     "NUTSNEWS_STAGING_AUTH_GOOGLE_ID",
@@ -1008,6 +1009,7 @@ assert "vps_baseline_vps" not in inventory
 # A fixed global queue and a host-side lock make concurrent dispatches queue
 # rather than cancel each other or mutate the staging runtime simultaneously.
 assert "group: nutsnews-staging-deploy" in workflow
+assert "queue: max" in workflow
 assert "cancel-in-progress: false" in workflow
 assert "nutsnews-staging-deploy.lock" in defaults
 

@@ -279,7 +279,7 @@ ansible_requirements = ANSIBLE_REQUIREMENTS.read_text(encoding="utf-8")
 for required in (
     "verify-production-eligibility:",
     "environment: production-vps",
-    "needs: verify-production-eligibility",
+    "needs: [verify-production-eligibility, audit-production-vps-policy]",
     "release_source_workflow_run_id:",
     "release_deployment_id:",
     "release_manifest_mode:",

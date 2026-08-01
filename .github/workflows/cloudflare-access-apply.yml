@@ -22,6 +22,7 @@ permissions:
 
 concurrency:
   group: cloudflare-access-apply
+  queue: max
   cancel-in-progress: false
 
 jobs:

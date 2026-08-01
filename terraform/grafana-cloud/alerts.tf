@@ -13,6 +13,7 @@ resource "grafana_rule_group" "quota_guardrails" {
     }
 
     content {
+      uid            = rule.value.uid
       name           = rule.value.title
       for            = rule.value.for_period
       condition      = "C"
@@ -21,15 +22,19 @@ resource "grafana_rule_group" "quota_guardrails" {
       is_paused      = false
 
       annotations = {
-        summary     = rule.value.title
-        description = "${rule.value.description} Check the Usage / Quota dashboard before enabling additional telemetry."
+        summary       = rule.value.title
+        description   = "${rule.value.description} Check the Usage / Quota dashboard before enabling additional telemetry."
+        dashboard_url = "/d/nutsnews-grafana-cloud-usage-quota"
+        runbook_url   = local.grafana_observability_runbook_url
       }
 
       labels = {
         service_namespace      = "nutsnews"
         deployment_environment = var.deployment_environment
         managed_by             = "nutsnews-infra"
+        owner                  = "nutsnews-observability"
         route                  = var.quota_alert_contact_route
+        service                = "grafana-cloud"
         severity               = rule.value.severity
       }
 
@@ -153,6 +158,7 @@ resource "grafana_rule_group" "log_pipeline" {
     for_each = local.log_pipeline_alert_rules
 
     content {
+      uid            = rule.value.uid
       name           = rule.value.title
       for            = rule.value.for_period
       condition      = "C"
@@ -161,15 +167,19 @@ resource "grafana_rule_group" "log_pipeline" {
       is_paused      = false
 
       annotations = {
-        summary     = rule.value.title
-        description = rule.value.description
+        summary       = rule.value.title
+        description   = rule.value.description
+        dashboard_url = try(rule.value.dashboard_url, "/d/nutsnews-logs-overview")
+        runbook_url   = local.grafana_observability_runbook_url
       }
 
       labels = {
         service_namespace      = "nutsnews"
         deployment_environment = var.deployment_environment
         managed_by             = "nutsnews-infra"
+        owner                  = "nutsnews-observability"
         route                  = var.quota_alert_contact_route
+        service                = try(rule.value.service, "observability")
         severity               = rule.value.severity
       }
 

@@ -1,0 +1,97 @@
+{
+  "schemaVersion": 2,
+  "observedAt": "2026-07-31",
+  "folderUid": "integration---linux-node",
+  "managedByLabel": {
+    "key": "__converted_prometheus_rule__",
+    "value": "true"
+  },
+  "owner": "grafana-cloud-linux-integration",
+  "source": "Grafana Cloud Linux/node_exporter integration",
+  "integrationVersionTarget": "1.6.3",
+  "integrationEvidenceUrl": "https://grafana.com/docs/grafana-cloud/observe-and-act/monitor-infrastructure/integrations/integration-reference/integration-linux-node/#changelog",
+  "contextPolicy": {
+    "requiredAlertLabels": ["severity", "owner", "route", "service", "deployment_environment", "__converted_prometheus_rule__"],
+    "requiredAlertLabelValues": {
+      "owner": "nutsnews-observability",
+      "route": "operations-email",
+      "service": "vps-host",
+      "deployment_environment": "production",
+      "__converted_prometheus_rule__": "true"
+    },
+    "severityNormalization": {"info": "low", "warning": "warning", "critical": "critical"},
+    "requiredAlertAnnotations": ["summary", "description", "dashboard_url", "runbook_url"],
+    "requiredAlertAnnotationValues": {"dashboard_url": "/d/nutsnews-vps-overview"},
+    "normalizationStatus": "blocked_pending_owned_replacements_or_supported_vendor_relabel",
+    "normalizationRolloutBlocker": "The 24 retained Linux integration alerts do not yet satisfy the universal NutsNews routing and dashboard-context contract. Post-apply verification must fail closed until an authenticated review either proves a supported in-place vendor relabel or provisions Terraform-owned normalized equivalents and removes vendor alerts only after duplicate equivalence is proven. Root-policy fallback is not accepted as normalization."
+  },
+  "definitionFingerprintPolicy": {
+    "algorithm": "sha256",
+    "canonicalization": "sorted compact JSON over folder, group, title, kind, labels, annotations, query, for, no-data state, and error state",
+    "requiredDisposition": "retain",
+    "baselineStatus": "pending_authenticated_rollout",
+    "bootstrap": "Run authenticated post-apply verification, review every retained live rule definition and observed hash, then commit definitionFingerprintSha256 on all 35 retained entries and change baselineStatus to approved. Until that reviewed commit, post-apply verification intentionally fails closed."
+  },
+  "duplicateReview": {
+    "retained": "The 24 alert rules and 11 node-exporter recording rules are not proven duplicates of nutsnews-infra-managed rules and remain integration-owned.",
+    "obsolete": "Grafana Linux integration 1.6.3 removes the five Asserts resource recording rules because the Asserts base pipeline now provides them. Remove them only by upgrading the supported integration, never by blind UID deletion."
+  },
+  "legacyObservedRuleCount": 40,
+  "expectedRetainedRuleCount": 35,
+  "expectedPostUpgradeRuleCount": 35,
+  "legacyGroups": {
+    "asserts-node.rules": 5,
+    "node-exporter": 18,
+    "node-exporter-filesystem": 6,
+    "node-exporter.rules": 11
+  },
+  "expectedPostUpgradeGroups": {
+    "node-exporter": 18,
+    "node-exporter-filesystem": 6,
+    "node-exporter.rules": 11
+  },
+  "legacyKindCounts": {"alert": 24, "recording": 16},
+  "expectedPostUpgradeKindCounts": {"alert": 24, "recording": 11},
+  "rules": [
+    {"uid": "cf81c68d-6daf-521c-b711-57e36e2ed8e4", "group": "asserts-node.rules", "title": "asserts:resource:total", "kind": "recording", "disposition": "remove_via_integration_upgrade", "sourceDetail": "node_exporter disk:utilization"},
+    {"uid": "0613ea4e-a037-59d7-b837-290e10677fbb", "group": "asserts-node.rules", "title": "asserts:resource:total", "kind": "recording", "disposition": "remove_via_integration_upgrade", "sourceDetail": "node_exporter network:rx_bytes"},
+    {"uid": "2d4b4cd4-dfc9-51ff-8135-67e33341e3a2", "group": "asserts-node.rules", "title": "asserts:resource:total", "kind": "recording", "disposition": "remove_via_integration_upgrade", "sourceDetail": "node_exporter network:tx_bytes"},
+    {"uid": "8b4d69f7-2e7b-5419-bfae-fecd42556008", "group": "asserts-node.rules", "title": "asserts:resource:usage", "kind": "recording", "disposition": "remove_via_integration_upgrade", "sourceDetail": "node_exporter cpu:usage"},
+    {"uid": "5bb14c18-ae26-5ee3-a4b6-50eda7a66dba", "group": "asserts-node.rules", "title": "asserts:resource:usage", "kind": "recording", "disposition": "remove_via_integration_upgrade", "sourceDetail": "node_exporter memory:usage"},
+    {"uid": "455a9775-1dae-5313-9593-ee5770c75127", "group": "node-exporter", "title": "NodeCPUHighUsage", "kind": "alert", "severity": "info", "disposition": "retain", "sourceDetail": "linux integration"},
+    {"uid": "0bf4c9fa-6632-5abd-a459-974283f2a548", "group": "node-exporter", "title": "NodeClockNotSynchronising", "kind": "alert", "severity": "warning", "disposition": "retain", "sourceDetail": "linux integration"},
+    {"uid": "bfe6750a-0e6f-57e0-a02c-eddae7a9bfb7", "group": "node-exporter", "title": "NodeClockSkewDetected", "kind": "alert", "severity": "warning", "disposition": "retain", "sourceDetail": "linux integration"},
+    {"uid": "272e1d53-43d3-5428-a6b3-f8af8480b284", "group": "node-exporter", "title": "NodeDiskIOSaturation", "kind": "alert", "severity": "warning", "disposition": "retain", "sourceDetail": "linux integration"},
+    {"uid": "a2870d8a-021d-5592-95e8-142e5efdc72d", "group": "node-exporter", "title": "NodeFileDescriptorLimit", "kind": "alert", "severity": "warning", "disposition": "retain", "sourceDetail": "linux integration"},
+    {"uid": "1a0f8c06-c2cb-5059-be18-9e44eaf7c2a4", "group": "node-exporter", "title": "NodeHasRebooted", "kind": "alert", "severity": "info", "disposition": "retain", "sourceDetail": "linux integration"},
+    {"uid": "6e5718d7-1dc4-5489-ac3f-251162cf0336", "group": "node-exporter", "title": "NodeHighNumberConntrackEntriesUsed", "kind": "alert", "severity": "warning", "disposition": "retain", "sourceDetail": "linux integration"},
+    {"uid": "edfaf3f2-7666-5ede-8f74-f839e2c94ef0", "group": "node-exporter", "title": "NodeMemoryHighUtilization", "kind": "alert", "severity": "warning", "disposition": "retain", "sourceDetail": "linux integration"},
+    {"uid": "f2687789-ec6e-5955-8f37-307af559e79c", "group": "node-exporter", "title": "NodeMemoryMajorPagesFaults", "kind": "alert", "severity": "warning", "disposition": "retain", "sourceDetail": "linux integration"},
+    {"uid": "7220f375-7b9c-52bf-8d96-9f7fb215b68b", "group": "node-exporter", "title": "NodeNetworkReceiveErrs", "kind": "alert", "severity": "warning", "disposition": "retain", "sourceDetail": "linux integration"},
+    {"uid": "8e24e771-d9b6-5e34-ad66-2c06a3177881", "group": "node-exporter", "title": "NodeNetworkTransmitErrs", "kind": "alert", "severity": "warning", "disposition": "retain", "sourceDetail": "linux integration"},
+    {"uid": "f93e66c9-11a9-5831-822e-990364a12138", "group": "node-exporter", "title": "NodeProcessesCountIsHigh", "kind": "alert", "severity": "warning", "disposition": "retain", "sourceDetail": "linux integration"},
+    {"uid": "1b8c642f-6e02-5549-a9e4-13f8db71c47d", "group": "node-exporter", "title": "NodeRAIDDegraded", "kind": "alert", "severity": "critical", "disposition": "retain", "sourceDetail": "linux integration"},
+    {"uid": "9c5cc980-fb75-5b12-aedc-7f6073217982", "group": "node-exporter", "title": "NodeRAIDDiskFailure", "kind": "alert", "severity": "warning", "disposition": "retain", "sourceDetail": "linux integration"},
+    {"uid": "aaa02146-aa1d-5bad-ad7d-3373b0b5447a", "group": "node-exporter", "title": "NodeSystemSaturation", "kind": "alert", "severity": "warning", "disposition": "retain", "sourceDetail": "linux integration"},
+    {"uid": "0160fb80-7873-506d-af67-dd6a94878344", "group": "node-exporter", "title": "NodeSystemdServiceCrashlooping", "kind": "alert", "severity": "warning", "disposition": "retain", "sourceDetail": "linux integration"},
+    {"uid": "eb5f628f-be95-5b1c-be2f-b8c216a7e029", "group": "node-exporter", "title": "NodeSystemdServiceFailed", "kind": "alert", "severity": "warning", "disposition": "retain", "sourceDetail": "linux integration"},
+    {"uid": "e643033c-eb08-57ce-9744-80532cf7d521", "group": "node-exporter", "title": "NodeTextFileCollectorScrapeError", "kind": "alert", "severity": "warning", "disposition": "retain", "sourceDetail": "linux integration"},
+    {"uid": "a3455147-f220-53f4-8261-8551a6e86d17", "group": "node-exporter-filesystem", "title": "NodeFilesystemAlmostOutOfFiles", "kind": "alert", "severity": "warning", "disposition": "retain", "sourceDetail": "linux integration"},
+    {"uid": "bbf5608b-b69e-58e7-b102-1bc5df13af0d", "group": "node-exporter-filesystem", "title": "NodeFilesystemAlmostOutOfFiles", "kind": "alert", "severity": "critical", "disposition": "retain", "sourceDetail": "linux integration"},
+    {"uid": "3363e973-98e8-5d7e-a3b8-8bf7c1d49752", "group": "node-exporter-filesystem", "title": "NodeFilesystemAlmostOutOfSpace", "kind": "alert", "severity": "warning", "disposition": "retain", "sourceDetail": "linux integration"},
+    {"uid": "c9f53ea6-643b-57e5-ac9c-7b665f9bfd05", "group": "node-exporter-filesystem", "title": "NodeFilesystemAlmostOutOfSpace", "kind": "alert", "severity": "critical", "disposition": "retain", "sourceDetail": "linux integration"},
+    {"uid": "3aaba02e-f615-5511-b01d-3ddae0bfb177", "group": "node-exporter-filesystem", "title": "NodeFilesystemFilesFillingUp", "kind": "alert", "severity": "warning", "disposition": "retain", "sourceDetail": "linux integration"},
+    {"uid": "5b082cee-4c7f-5d52-8143-e83d6341a9c2", "group": "node-exporter-filesystem", "title": "NodeFilesystemFilesFillingUp", "kind": "alert", "severity": "critical", "disposition": "retain", "sourceDetail": "linux integration"},
+    {"uid": "b6c13892-f082-5da8-8128-656f6a52a4ca", "group": "node-exporter.rules", "title": "instance:node_cpu_utilisation:rate5m", "kind": "recording", "disposition": "retain", "sourceDetail": "linux integration"},
+    {"uid": "b25577f5-20f6-5aa8-b463-c888ad91bb8b", "group": "node-exporter.rules", "title": "instance:node_load1_per_cpu:ratio", "kind": "recording", "disposition": "retain", "sourceDetail": "linux integration"},
+    {"uid": "c6bab08b-436c-53ca-a449-d9fe6a380f29", "group": "node-exporter.rules", "title": "instance:node_memory_utilisation:ratio", "kind": "recording", "disposition": "retain", "sourceDetail": "linux integration"},
+    {"uid": "e5168453-d65a-56df-9f04-d4440025b07f", "group": "node-exporter.rules", "title": "instance:node_network_receive_bytes_excluding_lo:rate5m", "kind": "recording", "disposition": "retain", "sourceDetail": "linux integration"},
+    {"uid": "5841f754-c2bd-59b9-bc70-c2b584215a0e", "group": "node-exporter.rules", "title": "instance:node_network_receive_drop_excluding_lo:rate5m", "kind": "recording", "disposition": "retain", "sourceDetail": "linux integration"},
+    {"uid": "1c5f6564-46c7-53f6-900a-3bd2a8a20914", "group": "node-exporter.rules", "title": "instance:node_network_transmit_bytes_excluding_lo:rate5m", "kind": "recording", "disposition": "retain", "sourceDetail": "linux integration"},
+    {"uid": "b9e17090-df6b-5edf-a199-d387d3385b98", "group": "node-exporter.rules", "title": "instance:node_network_transmit_drop_excluding_lo:rate5m", "kind": "recording", "disposition": "retain", "sourceDetail": "linux integration"},
+    {"uid": "83c13f8c-12c5-5cff-a2d1-2a034dd93df3", "group": "node-exporter.rules", "title": "instance:node_num_cpu:sum", "kind": "recording", "disposition": "retain", "sourceDetail": "linux integration"},
+    {"uid": "9434daf5-562f-54fa-a80e-c3d520048f5c", "group": "node-exporter.rules", "title": "instance:node_vmstat_pgmajfault:rate5m", "kind": "recording", "disposition": "retain", "sourceDetail": "linux integration"},
+    {"uid": "3c875415-b270-59eb-907b-e3956012727e", "group": "node-exporter.rules", "title": "instance_device:node_disk_io_time_seconds:rate5m", "kind": "recording", "disposition": "retain", "sourceDetail": "linux integration"},
+    {"uid": "b157cb28-5fbc-54b2-97d1-9b12ee99f3f7", "group": "node-exporter.rules", "title": "instance_device:node_disk_io_time_weighted_seconds:rate5m", "kind": "recording", "disposition": "retain", "sourceDetail": "linux integration"}
+  ]
+}

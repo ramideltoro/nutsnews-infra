@@ -12,6 +12,7 @@ Add runbooks for deployment, rollback, incident response, security changes, back
 - [Break-Glass SSH Notes](BREAK_GLASS_SSH.md)
 - [Bootstrap Rollback And Recovery Notes](BOOTSTRAP_ROLLBACK_RECOVERY.md)
 - [Protected Ansible Apply](PROTECTED_ANSIBLE_APPLY.md)
+- [Production VPS Environment Protection](PRODUCTION_VPS_ENVIRONMENT_PROTECTION.md)
 - [VPS Service Foundation](VPS_SERVICE_FOUNDATION.md)
 - [NutsNews Runtime Environments](NUTSNEWS_RUNTIME_ENVIRONMENTS.md)
 - [NutsNews Staging Deployment](NUTSNEWS_STAGING_DEPLOY.md)
@@ -24,6 +25,7 @@ Add runbooks for deployment, rollback, incident response, security changes, back
 - [Worker-Uplift Backup And Isolated Restore Readiness](WORKER_UPLIFT_BACKUP_RESTORE_READINESS.md)
 - [Cloudflare DDNS](CLOUDFLARE_DDNS.md)
 - [Grafana Cloud Observability](GRAFANA_CLOUD_OBSERVABILITY.md)
+- [Grafana Observability Read-Only Environment](GRAFANA_OBSERVABILITY_READONLY_ENVIRONMENT.md)
 - [Vercel-to-VPS environment synchronization](VERCEL_VPS_ENV_SYNC.md)
 
 The `Send VPS Health Report` GitHub Actions workflow manually triggers the existing VPS report email without an interactive SSH session.

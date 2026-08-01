@@ -1,6 +1,11 @@
 {
   admin off
   skip_install_trust
+  metrics
+}
+
+http://:2019 {
+  metrics /metrics
 }
 
 vps.nutsnews.com {
@@ -9,7 +14,27 @@ vps.nutsnews.com {
 
   log {
     output stdout
-    format json
+    format filter {
+      request>uri regexp "\\?.*$" ""
+      request>remote_ip delete
+      request>client_ip delete
+      request>headers>Cookie delete
+      request>headers>Authorization delete
+      request>headers>Proxy-Authorization delete
+      request>headers>X-Api-Key delete
+      request>headers>Cf-Access-Authenticated-User-Email delete
+      request>headers>Cf-Access-Jwt-Assertion delete
+      request>headers>Cf-Access-Client-Id delete
+      request>headers>Cf-Access-Client-Secret delete
+      request>headers>Cf-Connecting-Ip delete
+      request>headers>X-Forwarded-For delete
+      request>headers>X-Real-Ip delete
+      request>headers>Forwarded delete
+      request>headers>Referer delete
+      resp_headers>Set-Cookie delete
+      resp_headers>Location delete
+      wrap json
+    }
   }
 
   handle /health {
@@ -44,7 +69,27 @@ nutsnews.com, www.nutsnews.com {
 
   log {
     output stdout
-    format json
+    format filter {
+      request>uri regexp "\\?.*$" ""
+      request>remote_ip delete
+      request>client_ip delete
+      request>headers>Cookie delete
+      request>headers>Authorization delete
+      request>headers>Proxy-Authorization delete
+      request>headers>X-Api-Key delete
+      request>headers>Cf-Access-Authenticated-User-Email delete
+      request>headers>Cf-Access-Jwt-Assertion delete
+      request>headers>Cf-Access-Client-Id delete
+      request>headers>Cf-Access-Client-Secret delete
+      request>headers>Cf-Connecting-Ip delete
+      request>headers>X-Forwarded-For delete
+      request>headers>X-Real-Ip delete
+      request>headers>Forwarded delete
+      request>headers>Referer delete
+      resp_headers>Set-Cookie delete
+      resp_headers>Location delete
+      wrap json
+    }
   }
 
   @apex host nutsnews.com
@@ -74,13 +119,22 @@ staging.nutsnews.com {
   log {
     output stdout
     format filter {
-      request>uri delete
+      request>uri regexp "\\?.*$" ""
+      request>remote_ip delete
+      request>client_ip delete
       request>headers>Cookie delete
       request>headers>Authorization delete
       request>headers>Proxy-Authorization delete
+      request>headers>X-Api-Key delete
+      request>headers>Cf-Access-Authenticated-User-Email delete
       request>headers>Cf-Access-Jwt-Assertion delete
-      request>headers>CF-Access-Client-Id delete
-      request>headers>CF-Access-Client-Secret delete
+      request>headers>Cf-Access-Client-Id delete
+      request>headers>Cf-Access-Client-Secret delete
+      request>headers>Cf-Connecting-Ip delete
+      request>headers>X-Forwarded-For delete
+      request>headers>X-Real-Ip delete
+      request>headers>Forwarded delete
+      request>headers>Referer delete
       resp_headers>Set-Cookie delete
       resp_headers>Location delete
       wrap json
@@ -110,7 +164,27 @@ ops.nutsnews.com {
 
   log {
     output stdout
-    format json
+    format filter {
+      request>uri regexp "\\?.*$" ""
+      request>remote_ip delete
+      request>client_ip delete
+      request>headers>Cookie delete
+      request>headers>Authorization delete
+      request>headers>Proxy-Authorization delete
+      request>headers>X-Api-Key delete
+      request>headers>Cf-Access-Authenticated-User-Email delete
+      request>headers>Cf-Access-Jwt-Assertion delete
+      request>headers>Cf-Access-Client-Id delete
+      request>headers>Cf-Access-Client-Secret delete
+      request>headers>Cf-Connecting-Ip delete
+      request>headers>X-Forwarded-For delete
+      request>headers>X-Real-Ip delete
+      request>headers>Forwarded delete
+      request>headers>Referer delete
+      resp_headers>Set-Cookie delete
+      resp_headers>Location delete
+      wrap json
+    }
   }
 
   header {
@@ -141,7 +215,27 @@ ops.nutsnews.com {
 
   log {
     output stdout
-    format json
+    format filter {
+      request>uri regexp "\\?.*$" ""
+      request>remote_ip delete
+      request>client_ip delete
+      request>headers>Cookie delete
+      request>headers>Authorization delete
+      request>headers>Proxy-Authorization delete
+      request>headers>X-Api-Key delete
+      request>headers>Cf-Access-Authenticated-User-Email delete
+      request>headers>Cf-Access-Jwt-Assertion delete
+      request>headers>Cf-Access-Client-Id delete
+      request>headers>Cf-Access-Client-Secret delete
+      request>headers>Cf-Connecting-Ip delete
+      request>headers>X-Forwarded-For delete
+      request>headers>X-Real-Ip delete
+      request>headers>Forwarded delete
+      request>headers>Referer delete
+      resp_headers>Set-Cookie delete
+      resp_headers>Location delete
+      wrap json
+    }
   }
 
   header {

@@ -75,7 +75,7 @@ require(len(dashboards) <= guardrails["max_dashboards"], "dashboard count exceed
 require(max(len(item["panels"]) for item in dashboards) <= guardrails["max_panels_per_dashboard"], "panel count exceeds per-dashboard guardrail")
 require(len(all_panels) <= guardrails["max_total_panels"], "total panel count exceeds catalog guardrail")
 require(len(queries) <= guardrails["max_unique_queries"], "unique query count exceeds catalog guardrail")
-require(len(all_panels) == 79, "backend catalog must stay within the approved 79 panel total for #89")
+require(len(all_panels) == 125, "backend catalog must stay within the approved 125-panel total")
 
 for uid in DASHBOARD_UIDS:
     item = dashboard(uid)
@@ -87,7 +87,7 @@ for uid in DASHBOARD_UIDS:
         require(panel.get("description"), f"{uid} panel lacks description: {panel['title']}")
         require(panel.get("unit") or panel.get("type") == "logs", f"{uid} panel lacks unit: {panel['title']}")
         require(panel.get("expr"), f"{uid} panel lacks query expression: {panel['title']}")
-        require("trace" not in json.dumps(panel).lower(), f"{uid} must not add trace links while #144 defers traces")
+        require("tempo" not in json.dumps(panel).lower(), f"{uid} must not add Tempo links while #144 defers traces")
 
 for variable in ("environment", "host", "vhost", "stage", "queue", "service"):
     block = variable_block(variable)
@@ -162,23 +162,33 @@ for token in (
     "rabbitmq_connections",
     "rabbitmq_channels",
     "rabbitmq_process_open_fds",
-    "{host=~\\\"$host\\\",source=\\\"container\\\"",
+    "{deployment_environment=~\\\"$environment\\\",host=~\\\"$host\\\",source=\\\"container\\\",service=~\\\"$service\\\"} | queue=~\\\"$queue\\\"",
 ):
     require(token in catalog_text, f"RabbitMQ dashboard catalog missing {token}")
 
-require("/explore?left=" in catalog_text, "RabbitMQ dashboards must include Grafana Explore Loki links")
-require("%24%24%7Bloki_datasource_uid%7D" in catalog_text, "Loki links must use the encoded datasource UID placeholder")
-require("urlencode(var.loki_datasource_uid)" in BACKEND_TF, "backend generator must replace encoded Loki datasource UID placeholders")
+require("/d/nutsnews-worker-pipeline-run-drilldown" in catalog_text, "RabbitMQ logs must link to the bounded pipeline drilldown")
+for item in (dashboard(uid) for uid in DASHBOARD_UIDS):
+    for panel in item["panels"]:
+        if panel.get("datasource") != "loki":
+            continue
+        indexed_selector = panel["expr"].split("}", 1)[0]
+        require("queue=" not in indexed_selector, "queue must remain structured metadata rather than an indexed Loki label")
 require("description = panel.description" in BACKEND_TF, "backend generator must emit panel descriptions")
 require("links = panel.links" in BACKEND_TF, "backend generator must emit panel links")
 require("noValue  = panel.noValue" in BACKEND_TF, "backend generator must emit no-data text")
 
 for token in (
     "backend_rabbitmq",
-    "backend_rabbitmq_queues",
+    "backend_rabbitmq_queue_messages",
+    "backend_rabbitmq_queue_ready",
+    "backend_rabbitmq_queue_unacked",
+    "backend_rabbitmq_queue_consumers",
+    "backend_rabbitmq_queue_acked",
+    "backend_rabbitmq_queue_delivered",
+    "backend_rabbitmq_queue_redelivered",
     "backend_rabbitmq_logs",
-    'rabbitmq_detailed_queue_messages{job="nutsnews-rabbitmq-queues"',
-    '{host="backend.nutsnews.com",source="container",service="rabbitmq"}',
+    "rabbitmq_detailed_queue_messages",
+    '{deployment_environment="production",host="backend.nutsnews.com",source="container",service="rabbitmq"}',
 ):
     require(token in VERIFY, f"post-apply verification missing {token}")
 

@@ -200,7 +200,7 @@ def base_status() -> dict[str, Any]:
     is_configured, missing = configured() if enabled else (False, [])
     repository = env_text("RESTIC_REPOSITORY", "rclone:nutsnews-onedrive:nutsnews-backups/vps")
     stale_hours = env_int("NUTSNEWS_BACKUP_STALE_AFTER_HOURS", 30)
-    verify_stale_hours = env_int("NUTSNEWS_BACKUP_VERIFY_STALE_AFTER_HOURS", 192)
+    verify_stale_hours = env_int("NUTSNEWS_BACKUP_VERIFY_STALE_AFTER_HOURS", 30)
     _, path_status = current_backup_path_status()
 
     status = {
@@ -344,7 +344,7 @@ def verification_status(data: dict[str, Any]) -> dict[str, Any]:
     except (TypeError, ValueError):
         threshold_seconds = 0
     if threshold_seconds <= 0:
-        threshold_seconds = env_int("NUTSNEWS_BACKUP_VERIFY_STALE_AFTER_HOURS", 192) * 3600
+        threshold_seconds = env_int("NUTSNEWS_BACKUP_VERIFY_STALE_AFTER_HOURS", 30) * 3600
     finished_at = last_check.get("finished_at")
     finished_at_age = age_seconds(finished_at)
     latest_snapshot_age = age_seconds(latest.get("time")) if latest else None
@@ -435,7 +435,7 @@ def verification_status(data: dict[str, Any]) -> dict[str, Any]:
                 "status": "latest_unverified",
                 "policy_status": "pending",
                 "pending": True,
-                "detail": "The newest daily snapshot is awaiting the scheduled weekly verification within policy.",
+                "detail": "The newest daily snapshot is awaiting the scheduled daily verification within policy.",
             }
         )
     else:

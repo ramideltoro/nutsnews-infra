@@ -72,7 +72,29 @@ for token in ("rate_limit {", "zone {{ zone.name }}", "log_key", "ipv6_prefix"):
 
 require(CADDYFILE.count("import /etc/nutsnews/caddy/rate-limits") == 4, "Every Caddy server block must import rate limits.")
 require(CADDYFILE.count("output stdout") == 4, "Every Caddy server block must log to stdout.")
-require(CADDYFILE.count("format json") == 4, "Every Caddy server block must emit JSON logs for Loki parsing.")
+require(CADDYFILE.count("format filter {") == 4, "Every Caddy server block must filter access logs.")
+require(CADDYFILE.count("wrap json") == 4, "Every filtered Caddy access log must remain JSON for Loki parsing.")
+for field in (
+    'request>uri regexp "\\\\?.*$" ""',
+    "request>remote_ip delete",
+    "request>client_ip delete",
+    "request>headers>Cookie delete",
+    "request>headers>Authorization delete",
+    "request>headers>Proxy-Authorization delete",
+    "request>headers>X-Api-Key delete",
+    "request>headers>Cf-Access-Authenticated-User-Email delete",
+    "request>headers>Cf-Access-Jwt-Assertion delete",
+    "request>headers>Cf-Access-Client-Id delete",
+    "request>headers>Cf-Access-Client-Secret delete",
+    "request>headers>Cf-Connecting-Ip delete",
+    "request>headers>X-Forwarded-For delete",
+    "request>headers>X-Real-Ip delete",
+    "request>headers>Forwarded delete",
+    "request>headers>Referer delete",
+    "resp_headers>Set-Cookie delete",
+    "resp_headers>Location delete",
+):
+    require(CADDYFILE.count(field) == 4, f"Every Caddy access log must protect {field}.")
 require("github.com/mholt/caddy-ratelimit@${CADDY_RATELIMIT_VERSION}" in DOCKERFILE, "Caddy module must be pinned by build arg.")
 require("CADDY_RATELIMIT_VERSION=16aecbb" in DOCKERFILE, "Caddy rate-limit module pin changed unexpectedly.")
 require("CADDY_VERSION=2.10.0" in DOCKERFILE, "Caddy base version changed unexpectedly.")

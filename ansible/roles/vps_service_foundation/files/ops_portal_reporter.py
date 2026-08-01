@@ -24,6 +24,7 @@ ALERT_STATE_FILE = Path(os.environ.get("NUTSNEWS_ALERT_STATE_FILE", "/opt/nutsne
 ALERT_STATE_SCHEMA_VERSION = 2
 ALERT_STATE_MAX_ENTRIES = 256
 ALERT_LEVEL_RANK = {"warning": 1, "critical": 2}
+CRITICAL_HEALTH_EXIT_CODE = 2
 
 
 def utc_now() -> str:
@@ -109,6 +110,8 @@ def public_status_update(
     suppressed_alerts: int = 0,
     error: str = "",
     sent: bool = False,
+    report_conclusion: str = "",
+    report_exit_code: int | None = None,
 ) -> dict[str, Any]:
     lock_file = REPORTING_STATUS_FILE.with_name(f"{REPORTING_STATUS_FILE.name}.lock")
     lock_file.parent.mkdir(parents=True, exist_ok=True)
@@ -137,7 +140,10 @@ def public_status_update(
             "last_alert_sent_at": previous.get("last_alert_sent_at", "never"),
             "last_report_run_at": previous.get("last_report_run_at", "never"),
             "last_report_success_at": previous.get("last_report_success_at", "never"),
+            "last_report_delivery_success_at": previous.get("last_report_delivery_success_at", "never"),
             "last_report_sent_at": previous.get("last_report_sent_at", "never"),
+            "last_report_conclusion": previous.get("last_report_conclusion", "unknown"),
+            "last_report_exit_code": previous.get("last_report_exit_code", -1),
             "last_dry_run_at": previous.get("last_dry_run_at", "never"),
         }
 
@@ -145,12 +151,17 @@ def public_status_update(
             data["last_alert_check_at"] = data["updated_at"]
             if sent and not dry_run:
                 data["last_alert_sent_at"] = data["updated_at"]
-        if mode == "report" and sent and not dry_run:
+        if mode == "report":
             data["last_report_run_at"] = data["updated_at"]
-            data["last_report_success_at"] = data["updated_at"]
-            data["last_report_sent_at"] = data["updated_at"]
-        elif mode == "report":
-            data["last_report_run_at"] = data["updated_at"]
+            if report_conclusion:
+                data["last_report_conclusion"] = report_conclusion
+            if report_exit_code is not None:
+                data["last_report_exit_code"] = report_exit_code
+            if sent and not dry_run:
+                data["last_report_delivery_success_at"] = data["updated_at"]
+                data["last_report_sent_at"] = data["updated_at"]
+                if report_conclusion == "success":
+                    data["last_report_success_at"] = data["updated_at"]
         if dry_run:
             data["last_dry_run_at"] = data["updated_at"]
 
@@ -569,8 +580,17 @@ def handle_alert(config: dict[str, Any], configured: bool, dry_run: bool) -> int
     return 0
 
 
-def handle_report(config: dict[str, Any], configured: bool, dry_run: bool) -> int:
+def handle_report(
+    config: dict[str, Any],
+    configured: bool,
+    dry_run: bool,
+    *,
+    fail_on_critical: bool = False,
+) -> int:
     status = read_json(STATUS_FILE, {})
+    alerts = relevant_alerts(status)
+    critical_alerts = [alert for alert in alerts if alert["level"] == "critical"]
+    critical_exit = CRITICAL_HEALTH_EXIT_CODE if fail_on_critical and critical_alerts else 0
     if not configured:
         public_status_update(
             config=config,
@@ -578,20 +598,27 @@ def handle_report(config: dict[str, Any], configured: bool, dry_run: bool) -> in
             status="disabled" if not config["enabled"] else "misconfigured",
             mode="report",
             dry_run=dry_run,
+            pending_alerts=len(alerts),
+            report_conclusion="disabled" if not config["enabled"] else "misconfigured",
+            report_exit_code=critical_exit,
         )
-        return 0
+        return critical_exit
 
     try:
         if not dry_run:
             subject = f"{config['subject_prefix']}: daily VPS health report"
             send_email(config, subject, health_report_body(status))
+        report_conclusion = "critical" if critical_alerts else ("dry_run" if dry_run else "success")
         public_status_update(
             config=config,
             configured=True,
             status="dry run" if dry_run else "sent",
             mode="report",
             dry_run=dry_run,
+            pending_alerts=len(alerts),
             sent=not dry_run,
+            report_conclusion=report_conclusion,
+            report_exit_code=critical_exit,
         )
     except Exception as error:  # noqa: BLE001 - surface email transport errors to the status feed
         public_status_update(
@@ -600,33 +627,62 @@ def handle_report(config: dict[str, Any], configured: bool, dry_run: bool) -> in
             status="send failed",
             mode="report",
             dry_run=dry_run,
+            pending_alerts=len(alerts),
             error=str(error),
+            report_conclusion="delivery_failed",
+            report_exit_code=1,
         )
         return 1
-    return 0
+    return critical_exit
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--mode", choices=["alert", "report"], required=True)
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument(
+        "--fail-on-critical",
+        action="store_true",
+        help="After report/status evidence is written, exit 2 when the status snapshot has a critical alert.",
+    )
     args = parser.parse_args()
+
+    if args.fail_on_critical and args.mode != "report":
+        parser.error("--fail-on-critical is valid only with --mode report")
 
     config = email_config()
     configured, status = config_status(config)
     if not configured and config["enabled"]:
+        current_status = read_json(STATUS_FILE, {})
+        alerts = relevant_alerts(current_status)
         public_status_update(
             config=config,
             configured=False,
             status=status,
             mode=args.mode,
             dry_run=args.dry_run,
+            pending_alerts=len(alerts),
+            report_conclusion="misconfigured" if args.mode == "report" else "",
+            report_exit_code=(
+                CRITICAL_HEALTH_EXIT_CODE
+                if args.fail_on_critical and any(alert["level"] == "critical" for alert in alerts)
+                else 0
+            )
+            if args.mode == "report"
+            else None,
         )
+        if args.fail_on_critical and any(alert["level"] == "critical" for alert in alerts):
+            return CRITICAL_HEALTH_EXIT_CODE
         return 0
 
     if args.mode == "alert":
         return handle_alert(config, configured, args.dry_run)
-    return handle_report(config, configured, args.dry_run)
+    return handle_report(
+        config,
+        configured,
+        args.dry_run,
+        fail_on_critical=args.fail_on_critical,
+    )
 
 
 if __name__ == "__main__":

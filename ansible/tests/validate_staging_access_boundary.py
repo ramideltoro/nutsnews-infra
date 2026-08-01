@@ -51,25 +51,37 @@ disabled = render_caddy(False)
 enabled = render_caddy(True)
 assert disabled == base, "Disabled staging access must render the production Caddyfile byte-for-byte."
 assert enabled.count("staging.nutsnews.com {") == 1
+staging_block = enabled[enabled.index("staging.nutsnews.com {") : enabled.index("ops.nutsnews.com {")]
 assert "admin off" in enabled
 assert "forward_auth nutsnews-staging-access:8091" in enabled
 assert "uri /verify?" in enabled, "The verifier subrequest must discard OAuth callback query material."
 assert "uri /verify\n" not in enabled, "The verifier must not receive the original request query."
-assert "request>uri delete" in enabled, "Staging access logs must omit query-bearing request URIs."
+assert 'request>uri regexp "\\\\?.*$" ""' in enabled, "Staging access logs must omit request query values."
 for log_field in (
     "request>headers>Cookie delete",
     "request>headers>Authorization delete",
     "request>headers>Proxy-Authorization delete",
+    "request>headers>Cf-Access-Authenticated-User-Email delete",
     "request>headers>Cf-Access-Jwt-Assertion delete",
-    "request>headers>CF-Access-Client-Id delete",
-    "request>headers>CF-Access-Client-Secret delete",
+    "request>headers>Cf-Access-Client-Id delete",
+    "request>headers>Cf-Access-Client-Secret delete",
     "resp_headers>Set-Cookie delete",
     "resp_headers>Location delete",
 ):
-    assert log_field in enabled, f"Staging access logs must delete {log_field}."
+    assert log_field in staging_block, f"Staging access logs must delete {log_field}."
+for incorrectly_cased_field in (
+    "request>headers>CF-Access-Authenticated-User-Email delete",
+    "request>headers>CF-Access-Jwt-Assertion delete",
+    "request>headers>CF-Access-Client-Id delete",
+    "request>headers>CF-Access-Client-Secret delete",
+):
+    assert incorrectly_cased_field not in staging_block, (
+        "Caddy's Go JSON encoder canonicalizes Cloudflare Access headers with "
+        f"a 'Cf-' prefix; {incorrectly_cased_field} would retain a secret."
+    )
 assert "reverse_proxy nutsnews-app-staging:3000" in enabled
 assert 'X-Robots-Tag "noindex, nofollow, noarchive, nosnippet"' in enabled
-assert enabled.replace(enabled[enabled.index("staging.nutsnews.com {") : enabled.index("ops.nutsnews.com {")], "") == base
+assert enabled.replace(staging_block, "") == base
 
 workflow = STAGING_WORKFLOW.read_text(encoding="utf-8")
 test_workflow = TEST_WORKFLOW.read_text(encoding="utf-8")
@@ -194,10 +206,19 @@ assert 'production = result.get("production")' in workflow
 assert "Production container health was recorded as sanitized observation only" in workflow
 assert '"production_healthy"' not in workflow
 assert '"host_unreachable"' in forced_command and '"task_failed"' in forced_command
-assert '"uri /verify?" in caddy_text' in forced_command
-assert '"request>uri delete" in caddy_text' in forced_command
-assert '"request>headers>Cf-Access-Jwt-Assertion delete" in caddy_text' in forced_command
-assert '"resp_headers>Location delete" in caddy_text' in forced_command
+assert 'caddy_text.find("staging.nutsnews.com {")' in forced_command
+assert 'caddy_text.find("\\nops.nutsnews.com {", staging_route_start)' in forced_command
+assert '"uri /verify?" in staging_caddy_text' in forced_command
+assert "'request>uri regexp \"\\\\\\\\?.*$\" \"\"' in staging_caddy_text" in forced_command
+assert '"request>headers>Cf-Access-Jwt-Assertion delete" in staging_caddy_text' in forced_command
+assert '"request>headers>Cf-Access-Authenticated-User-Email delete" in staging_caddy_text' in forced_command
+assert '"request>headers>Cf-Access-Client-Id delete" in staging_caddy_text' in forced_command
+assert '"request>headers>Cf-Access-Client-Secret delete" in staging_caddy_text' in forced_command
+assert '"request>headers>CF-Access-Authenticated-User-Email delete" not in staging_caddy_text' in forced_command
+assert '"request>headers>CF-Access-Jwt-Assertion delete" not in staging_caddy_text' in forced_command
+assert '"request>headers>CF-Access-Client-Id delete" not in staging_caddy_text' in forced_command
+assert '"request>headers>CF-Access-Client-Secret delete" not in staging_caddy_text' in forced_command
+assert '"resp_headers>Location delete" in staging_caddy_text' in forced_command
 assert "TEST_USER" in write_vars and "staging-tests" in write_vars
 assert "NUTSNEWS_PRODUCTION_SUPABASE_PROJECT_REF" in write_vars
 

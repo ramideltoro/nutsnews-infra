@@ -82,11 +82,22 @@ permissions:
 
 concurrency:
   group: protected-vercel-provider-switch
+  queue: max
   cancel-in-progress: false
 
 jobs:
+  audit-production-vps-policy:
+    name: Audit production-vps environment protection
+    if: ${{ github.repository == 'ramideltoro/nutsnews-infra' && github.ref == 'refs/heads/main' }}
+    permissions:
+      actions: read
+      contents: read
+    uses: ./.github/workflows/production-vps-environment-policy-audit.yml
+
   switch:
     name: Protected Vercel provider switch
+    if: ${{ github.repository == 'ramideltoro/nutsnews-infra' && github.ref == 'refs/heads/main' }}
+    needs: audit-production-vps-policy
     runs-on: ubuntu-latest
     timeout-minutes: 45
     environment: production-vps
@@ -100,6 +111,41 @@ jobs:
       - name: Validate provider switch guardrails
         shell: bash
         run: python3 ansible/tests/validate_vercel_provider_switch.py
+
+      - name: Publish database provider change start annotation
+        id: grafana_annotation_started
+        if: inputs.operation == 'apply'
+        continue-on-error: true
+        shell: bash
+        env:
+          GRAFANA_URL: ${{ secrets.NUTSNEWS_GRAFANA_CLOUD_URL }}
+          GRAFANA_SERVICE_ACCOUNT_TOKEN: ${{ secrets.NUTSNEWS_GRAFANA_CLOUD_SERVICE_ACCOUNT_TOKEN }}
+          DATABASE_PROVIDER_MODE: ${{ inputs.database_provider_mode }}
+          SOURCE_COMMIT: ${{ inputs.source_commit }}
+          IMAGE_DIGEST: ${{ inputs.image_digest }}
+          BUILD_ID: ${{ inputs.build_id }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$SOURCE_COMMIT" =~ ^[0-9a-f]{40}$ ]] || \
+             [[ ! "$IMAGE_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]] || \
+             [[ ! "$BUILD_ID" =~ ^[1-9][0-9]{0,19}-[1-9][0-9]{0,5}$ ]]; then
+            echo "No start annotation was published because the requested provider switch did not have a valid release identity." >&2
+            exit 0
+          fi
+          python3 terraform/grafana-cloud/scripts/publish_deployment_annotation.py \
+            --event-type database-provider-change \
+            --commit "$SOURCE_COMMIT" \
+            --image-digest "$IMAGE_DIGEST" \
+            --version "$BUILD_ID" \
+            --target "$DATABASE_PROVIDER_MODE" \
+            --outcome started \
+            --output "$RUNNER_TEMP/grafana-provider-switch-started-annotation.json"
+
+      - name: Report provider start annotation delivery failure
+        if: ${{ steps.grafana_annotation_started.outcome == 'failure' }}
+        shell: bash
+        run: |
+          echo "::warning::The database provider change start annotation could not be published. The protected switch continues; do not retry a production mutation solely for observability."
 
       - name: Plan or apply Vercel provider switch
         id: switch
@@ -216,6 +262,46 @@ jobs:
           echo "{\"vercel_release_run_id\":\"$run_id\",\"safe_metadata_only\":true}" \
             > "$RUNNER_TEMP/vercel-provider-switch-release.json"
 
+      - name: Publish final database provider change outcome
+        id: grafana_annotation
+        if: ${{ always() && inputs.operation == 'apply' }}
+        continue-on-error: true
+        shell: bash
+        env:
+          GRAFANA_URL: ${{ secrets.NUTSNEWS_GRAFANA_CLOUD_URL }}
+          GRAFANA_SERVICE_ACCOUNT_TOKEN: ${{ secrets.NUTSNEWS_GRAFANA_CLOUD_SERVICE_ACCOUNT_TOKEN }}
+          PROVIDER_SWITCH_JOB_STATUS: ${{ job.status }}
+          DATABASE_PROVIDER_MODE: ${{ inputs.database_provider_mode }}
+          SOURCE_COMMIT: ${{ inputs.source_commit }}
+          IMAGE_DIGEST: ${{ inputs.image_digest }}
+          BUILD_ID: ${{ inputs.build_id }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$SOURCE_COMMIT" =~ ^[0-9a-f]{40}$ ]] || \
+             [[ ! "$IMAGE_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]] || \
+             [[ ! "$BUILD_ID" =~ ^[1-9][0-9]{0,19}-[1-9][0-9]{0,5}$ ]]; then
+            echo "No annotation was published because the rejected provider switch did not have a valid release identity." >&2
+            exit 0
+          fi
+          outcome=failed
+          if [[ "$PROVIDER_SWITCH_JOB_STATUS" == "success" ]]; then
+            outcome=succeeded
+          fi
+          python3 terraform/grafana-cloud/scripts/publish_deployment_annotation.py \
+            --event-type database-provider-change \
+            --commit "$SOURCE_COMMIT" \
+            --image-digest "$IMAGE_DIGEST" \
+            --version "$BUILD_ID" \
+            --target "$DATABASE_PROVIDER_MODE" \
+            --outcome "$outcome" \
+            --output "$RUNNER_TEMP/grafana-provider-switch-annotation.json"
+
+      - name: Report provider annotation delivery failure
+        if: ${{ always() && steps.grafana_annotation.outcome == 'failure' }}
+        shell: bash
+        run: |
+          echo "::warning::The deployed database provider change could not be published to Grafana. Investigate annotation delivery without retrying the completed provider switch solely for observability."
+
       - name: Summarize safe metadata
         if: always()
         shell: bash
@@ -242,4 +328,6 @@ jobs:
           path: |
             ${{ runner.temp }}/vercel-provider-switch.json
             ${{ runner.temp }}/vercel-provider-switch-release.json
+            ${{ runner.temp }}/grafana-provider-switch-started-annotation.json
+            ${{ runner.temp }}/grafana-provider-switch-annotation.json
           if-no-files-found: ignore

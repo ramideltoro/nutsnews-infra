@@ -15,11 +15,22 @@ permissions:
 
 concurrency:
   group: grafana-cloud-apply
+  queue: max
   cancel-in-progress: false
 
 jobs:
+  audit-production-vps-policy:
+    name: Audit production-vps environment protection
+    if: ${{ github.repository == 'ramideltoro/nutsnews-infra' && github.ref == 'refs/heads/main' }}
+    permissions:
+      actions: read
+      contents: read
+    uses: ./.github/workflows/production-vps-environment-policy-audit.yml
+
   apply:
     name: Protected OpenTofu apply
+    if: ${{ github.repository == 'ramideltoro/nutsnews-infra' && github.ref == 'refs/heads/main' }}
+    needs: audit-production-vps-policy
     runs-on: ubuntu-latest
     timeout-minutes: 30
     environment: production-vps
@@ -61,6 +72,7 @@ jobs:
           NUTSNEWS_GRAFANA_CLOUD_PROMETHEUS_DATASOURCE_UID: ${{ secrets.NUTSNEWS_GRAFANA_CLOUD_PROMETHEUS_DATASOURCE_UID }}
           NUTSNEWS_GRAFANA_CLOUD_LOKI_DATASOURCE_UID: ${{ secrets.NUTSNEWS_GRAFANA_CLOUD_LOKI_DATASOURCE_UID }}
           NUTSNEWS_GRAFANA_CLOUD_USAGE_DATASOURCE_UID: ${{ secrets.NUTSNEWS_GRAFANA_CLOUD_USAGE_DATASOURCE_UID }}
+          NUTSNEWS_EMAIL_TO: ${{ secrets.NUTSNEWS_EMAIL_TO }}
           NUTSNEWS_GRAFANA_SYNTHETIC_MONITORING_ACCESS_TOKEN: ${{ secrets.NUTSNEWS_GRAFANA_SYNTHETIC_MONITORING_ACCESS_TOKEN }}
           NUTSNEWS_GRAFANA_SYNTHETIC_MONITORING_URL: ${{ secrets.NUTSNEWS_GRAFANA_SYNTHETIC_MONITORING_URL }}
           NUTSNEWS_GRAFANA_SYNTHETIC_PROBE_IDS_JSON: ${{ secrets.NUTSNEWS_GRAFANA_SYNTHETIC_PROBE_IDS_JSON }}
@@ -75,7 +87,12 @@ jobs:
             NUTSNEWS_GRAFANA_CLOUD_SERVICE_ACCOUNT_TOKEN \
             NUTSNEWS_GRAFANA_CLOUD_PROMETHEUS_DATASOURCE_UID \
             NUTSNEWS_GRAFANA_CLOUD_LOKI_DATASOURCE_UID \
-            NUTSNEWS_GRAFANA_CLOUD_USAGE_DATASOURCE_UID
+            NUTSNEWS_GRAFANA_CLOUD_USAGE_DATASOURCE_UID \
+            NUTSNEWS_EMAIL_TO \
+            NUTSNEWS_GRAFANA_SYNTHETIC_MONITORING_ACCESS_TOKEN \
+            NUTSNEWS_GRAFANA_SYNTHETIC_MONITORING_URL \
+            NUTSNEWS_GRAFANA_SYNTHETIC_PROBE_IDS_JSON \
+            NUTSNEWS_GRAFANA_SYNTHETIC_HTTP_CHECKS_JSON
           do
             if [[ -z "${!name}" ]]; then
               echo "Missing required production-vps environment secret for Grafana Cloud apply: $name" >&2
@@ -92,12 +109,9 @@ jobs:
           NUTSNEWS_GRAFANA_SYNTHETIC_MONITORING_URL: ${{ secrets.NUTSNEWS_GRAFANA_SYNTHETIC_MONITORING_URL }}
           NUTSNEWS_GRAFANA_SYNTHETIC_PROBE_IDS_JSON: ${{ secrets.NUTSNEWS_GRAFANA_SYNTHETIC_PROBE_IDS_JSON }}
           NUTSNEWS_GRAFANA_SYNTHETIC_HTTP_CHECKS_JSON: ${{ secrets.NUTSNEWS_GRAFANA_SYNTHETIC_HTTP_CHECKS_JSON }}
+          NUTSNEWS_GRAFANA_SYNTHETIC_MAJOR_FORECAST_ACKNOWLEDGED: ${{ vars.NUTSNEWS_GRAFANA_SYNTHETIC_MAJOR_FORECAST_ACKNOWLEDGED || 'false' }}
         run: |
           set -euo pipefail
-          if [[ "$NUTSNEWS_GRAFANA_CLOUD_URL" != https://* ]]; then
-            echo "NUTSNEWS_GRAFANA_CLOUD_URL must start with https://." >&2
-            exit 1
-          fi
           python3 terraform/grafana-cloud/scripts/validate_synthetic_monitoring_inputs.py \
             --output "$RUNNER_TEMP/grafana-cloud-input-validation.json"
 
@@ -110,8 +124,11 @@ jobs:
           TF_VAR_prometheus_datasource_uid: ${{ secrets.NUTSNEWS_GRAFANA_CLOUD_PROMETHEUS_DATASOURCE_UID }}
           TF_VAR_loki_datasource_uid: ${{ secrets.NUTSNEWS_GRAFANA_CLOUD_LOKI_DATASOURCE_UID }}
           TF_VAR_usage_datasource_uid: ${{ secrets.NUTSNEWS_GRAFANA_CLOUD_USAGE_DATASOURCE_UID }}
+          TF_VAR_operations_email_recipients: ${{ secrets.NUTSNEWS_EMAIL_TO }}
           TF_VAR_synthetic_monitoring_probe_ids: ${{ secrets.NUTSNEWS_GRAFANA_SYNTHETIC_PROBE_IDS_JSON || '[]' }}
           TF_VAR_synthetic_http_checks: ${{ secrets.NUTSNEWS_GRAFANA_SYNTHETIC_HTTP_CHECKS_JSON || '{}' }}
+          TF_VAR_synthetic_major_forecast_acknowledged: ${{ vars.NUTSNEWS_GRAFANA_SYNTHETIC_MAJOR_FORECAST_ACKNOWLEDGED || 'false' }}
+          TF_VAR_worker_terminal_slo_alerting_enabled: ${{ vars.NUTSNEWS_WORKER_TERMINAL_SLO_ALERTING_ENABLED || 'false' }}
           GRAFANA_SM_ACCESS_TOKEN: ${{ secrets.NUTSNEWS_GRAFANA_SYNTHETIC_MONITORING_ACCESS_TOKEN }}
           GRAFANA_SM_URL: ${{ secrets.NUTSNEWS_GRAFANA_SYNTHETIC_MONITORING_URL }}
         run: |
@@ -127,10 +144,15 @@ jobs:
           python3 terraform/grafana-cloud/tests/validate_worker_uplift_rabbitmq_dashboards.py
           python3 terraform/grafana-cloud/tests/validate_worker_uplift_alerts_slos.py
           python3 terraform/grafana-cloud/tests/test_validate_synthetic_monitoring_inputs.py
+          python3 terraform/grafana-cloud/tests/validate_observability_enhancements.py
+          python3 terraform/grafana-cloud/tests/test_verify_post_apply.py
+          python3 terraform/grafana-cloud/tests/test_notification_canary.py
+          python3 terraform/grafana-cloud/tests/test_deployment_annotation.py
           tofu -chdir=terraform/grafana-cloud init -input=false -backend-config="$RUNNER_TEMP/grafana-backend.hcl"
           tofu -chdir=terraform/grafana-cloud validate -no-color
           tofu -chdir=terraform/grafana-cloud plan -input=false -no-color -out="$RUNNER_TEMP/grafana-cloud.tfplan"
           tofu -chdir=terraform/grafana-cloud apply -input=false -no-color "$RUNNER_TEMP/grafana-cloud.tfplan"
+          tofu -chdir=terraform/grafana-cloud output -json > "$RUNNER_TEMP/grafana-cloud-outputs.json"
 
       - name: Verify Grafana Cloud resources and telemetry
         shell: bash
@@ -139,11 +161,16 @@ jobs:
           TF_VAR_grafana_service_account_token: ${{ secrets.NUTSNEWS_GRAFANA_CLOUD_SERVICE_ACCOUNT_TOKEN }}
           TF_VAR_prometheus_datasource_uid: ${{ secrets.NUTSNEWS_GRAFANA_CLOUD_PROMETHEUS_DATASOURCE_UID }}
           TF_VAR_loki_datasource_uid: ${{ secrets.NUTSNEWS_GRAFANA_CLOUD_LOKI_DATASOURCE_UID }}
+          TF_VAR_usage_datasource_uid: ${{ secrets.NUTSNEWS_GRAFANA_CLOUD_USAGE_DATASOURCE_UID }}
+          GRAFANA_SM_ACCESS_TOKEN: ${{ secrets.NUTSNEWS_GRAFANA_SYNTHETIC_MONITORING_ACCESS_TOKEN }}
+          GRAFANA_SM_URL: ${{ secrets.NUTSNEWS_GRAFANA_SYNTHETIC_MONITORING_URL }}
+          NUTSNEWS_GRAFANA_SYNTHETIC_HTTP_CHECKS_JSON: ${{ secrets.NUTSNEWS_GRAFANA_SYNTHETIC_HTTP_CHECKS_JSON }}
         run: |
           set -euo pipefail
 
           python3 terraform/grafana-cloud/scripts/verify_post_apply.py \
             --require-query-data \
+            --terraform-outputs "$RUNNER_TEMP/grafana-cloud-outputs.json" \
             --output "$RUNNER_TEMP/grafana-cloud-post-apply-verification.json"
 
       - name: Upload Grafana Cloud verification report

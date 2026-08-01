@@ -1,0 +1,170 @@
+name: Record Confirmed Grafana Failover Annotation
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: Public target that became authoritative after the transition.
+        required: true
+        type: choice
+        options:
+          - production-vps
+          - vercel-production
+      outcome:
+        description: Completed transition outcome; started and failed attempts are not accepted.
+        required: true
+        type: choice
+        options:
+          - succeeded
+          - rolled-back
+      source_commit:
+        description: Full source commit, or not-applicable when a release identity is supplied.
+        required: true
+        default: not-applicable
+        type: string
+      release_identity:
+        description: Bounded deployed release identity, or not-applicable when a commit is supplied.
+        required: true
+        default: not-applicable
+        type: string
+      transition_evidence_url:
+        description: Durable ramideltoro GitHub Actions run or run-artifact URL proving the completed production transition.
+        required: true
+        type: string
+      confirmation:
+        description: Type record-confirmed-production-failover after the transition has completed.
+        required: true
+        type: string
+  workflow_call:
+    inputs:
+      target:
+        description: Public target that became authoritative after the transition.
+        required: true
+        type: string
+      outcome:
+        description: Completed transition outcome.
+        required: true
+        type: string
+      source_commit:
+        description: Full source commit, or not-applicable when a release identity is supplied.
+        required: true
+        type: string
+      release_identity:
+        description: Bounded deployed release identity, or not-applicable when a commit is supplied.
+        required: true
+        type: string
+      transition_evidence_url:
+        description: Durable ramideltoro GitHub Actions run or run-artifact URL proving the completed production transition.
+        required: true
+        type: string
+      confirmation:
+        description: Exact completed-transition confirmation.
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: grafana-confirmed-failover-annotation
+  queue: max
+  cancel-in-progress: false
+
+jobs:
+  validate-confirmed-transition:
+    name: Validate completed failover evidence
+    if: ${{ github.repository == 'ramideltoro/nutsnews-infra' && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Validate bounded completed-transition contract
+        shell: bash
+        env:
+          TARGET: ${{ inputs.target }}
+          OUTCOME: ${{ inputs.outcome }}
+          SOURCE_COMMIT: ${{ inputs.source_commit }}
+          RELEASE_IDENTITY: ${{ inputs.release_identity }}
+          TRANSITION_EVIDENCE_URL: ${{ inputs.transition_evidence_url }}
+          CONFIRMATION: ${{ inputs.confirmation }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os
+          import re
+          import urllib.parse
+
+          target = os.environ["TARGET"]
+          outcome = os.environ["OUTCOME"]
+          source_commit = os.environ["SOURCE_COMMIT"]
+          release_identity = os.environ["RELEASE_IDENTITY"]
+          evidence = os.environ["TRANSITION_EVIDENCE_URL"]
+          confirmation = os.environ["CONFIRMATION"]
+
+          if target not in {"production-vps", "vercel-production"}:
+              raise SystemExit("target must be production-vps or vercel-production")
+          if outcome not in {"succeeded", "rolled-back"}:
+              raise SystemExit("only a completed succeeded or rolled-back transition may be recorded")
+          if confirmation != "record-confirmed-production-failover":
+              raise SystemExit("confirmation must be record-confirmed-production-failover")
+
+          not_applicable = "not-applicable"
+          if source_commit != not_applicable and not re.fullmatch(r"[0-9a-f]{40}", source_commit):
+              raise SystemExit("source_commit must be a full lowercase Git commit or not-applicable")
+          if release_identity != not_applicable and not re.fullmatch(
+              r"[A-Za-z0-9][A-Za-z0-9._:/@+-]{0,79}", release_identity
+          ):
+              raise SystemExit("release_identity must be a bounded identifier or not-applicable")
+          if source_commit == not_applicable and release_identity == not_applicable:
+              raise SystemExit("provide either source_commit or release_identity")
+
+          evidence_error = (
+              "transition_evidence_url must be an exact query-free "
+              "https://github.com/ramideltoro/<repo>/actions/runs/<run-id>"
+              "[/artifacts/<artifact-id>] URL"
+          )
+          try:
+              parsed = urllib.parse.urlsplit(evidence)
+              port = parsed.port
+          except (UnicodeError, ValueError):
+              raise SystemExit(evidence_error) from None
+          evidence_path = re.fullmatch(
+              r"/ramideltoro/[A-Za-z0-9][A-Za-z0-9._-]{0,99}/actions/runs/"
+              r"[1-9][0-9]*(?:/artifacts/[1-9][0-9]*)?",
+              parsed.path,
+          )
+          if (
+              len(evidence) > 160
+              or evidence != evidence.strip()
+              or parsed.scheme != "https"
+              or parsed.netloc != "github.com"
+              or parsed.hostname != "github.com"
+              or parsed.username
+              or parsed.password
+              or port is not None
+              or parsed.query
+              or parsed.fragment
+              or any(segment in {".", ".."} for segment in parsed.path.split("/"))
+              or evidence_path is None
+          ):
+              raise SystemExit(evidence_error)
+          PY
+
+  publish-confirmed-transition:
+    name: Publish confirmed failover annotation
+    needs: validate-confirmed-transition
+    permissions:
+      actions: read  # Propagate read access to the publisher's nested environment-policy audit.
+      contents: read
+    uses: ./.github/workflows/grafana-deployment-annotation.yml
+    with:
+      event_type: failover
+      commit: ${{ inputs.source_commit }}
+      image_digest: not-applicable
+      version: ${{ inputs.release_identity }}
+      target: ${{ inputs.target }}
+      outcome: ${{ inputs.outcome }}
+      evidence: ${{ inputs.transition_evidence_url }}
+    secrets:
+      NUTSNEWS_GRAFANA_CLOUD_URL: ${{ secrets.NUTSNEWS_GRAFANA_CLOUD_URL }}
+      NUTSNEWS_GRAFANA_CLOUD_SERVICE_ACCOUNT_TOKEN: ${{ secrets.NUTSNEWS_GRAFANA_CLOUD_SERVICE_ACCOUNT_TOKEN }}

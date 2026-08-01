@@ -33,6 +33,23 @@ WORKFLOWS = [
     },
 ]
 
+DEFAULTS_PATH = Path("ansible/roles/vps_service_foundation/defaults/main.yml")
+VERIFY_TIMER_PATH = Path(
+    "ansible/roles/vps_service_foundation/templates/nutsnews-restic-verify.timer.j2"
+)
+BACKUP_RUNNER_PATH = Path(
+    "ansible/roles/vps_service_foundation/files/vps_restic_backup.py"
+)
+COLLECTOR_PATH = Path(
+    "ansible/roles/vps_service_foundation/files/ops_portal_collector.py"
+)
+PROTECTED_APPLY_PATH = Path(".github/workflows/protected-ansible-apply.yml")
+BACKUP_RUNBOOK_PATHS = (
+    Path("runbooks/VPS_BACKUP_SETUP.md"),
+    Path("runbooks/PROTECTED_ANSIBLE_APPLY.md"),
+    Path("runbooks/OPS_PORTAL.md"),
+)
+
 
 def require(condition: bool, message: str) -> None:
     if not condition:
@@ -117,8 +134,8 @@ def backup_status_fixture(snapshot_time: str) -> dict[str, object]:
         },
         "stale_after_seconds": 60,
         "stale_after_hours": 1,
-        "verify_stale_after_seconds": 691200,
-        "verify_stale_after_hours": 192,
+        "verify_stale_after_seconds": 108000,
+        "verify_stale_after_hours": 30,
         "timer_active": "active",
         "verify_timer_active": "active",
         "missing_configuration": [],
@@ -160,6 +177,87 @@ def validate_collector_recomputes_backup_freshness() -> None:
         require(forbidden not in rendered, f"Backup status must not expose {forbidden}.")
 
 
+def validate_backup_cadence_contract() -> None:
+    defaults = DEFAULTS_PATH.read_text(encoding="utf-8")
+    timer = VERIFY_TIMER_PATH.read_text(encoding="utf-8")
+    runner = BACKUP_RUNNER_PATH.read_text(encoding="utf-8")
+    collector = COLLECTOR_PATH.read_text(encoding="utf-8")
+    protected_apply = PROTECTED_APPLY_PATH.read_text(encoding="utf-8")
+
+    require(
+        re.search(
+            r'^vps_service_foundation_backup_verify_on_calendar: "\*-\*-\* 05:15:00"$',
+            defaults,
+            flags=re.MULTILINE,
+        )
+        is not None,
+        "Backup verification must run daily at the managed 05:15 cadence.",
+    )
+    require(
+        re.search(
+            r"^vps_service_foundation_backup_verify_stale_after_hours: 30$",
+            defaults,
+            flags=re.MULTILINE,
+        )
+        is not None,
+        "Backup verification must use the shared 30-hour stale threshold.",
+    )
+    require(
+        "OnCalendar={{ vps_service_foundation_backup_verify_on_calendar }}" in timer,
+        "Verify timer must render the managed daily cadence.",
+    )
+    require("Persistent=true" in timer, "Verify timer must catch up after downtime.")
+    require(
+        "RandomizedDelaySec={{ vps_service_foundation_backup_verify_randomized_delay_seconds }}" in timer,
+        "Verify timer must retain bounded scheduling jitter.",
+    )
+    require(
+        runner.count('env_int("NUTSNEWS_BACKUP_VERIFY_STALE_AFTER_HOURS", 30)') == 2,
+        "Backup runner defaults and fallback must both use 30 hours.",
+    )
+    require(
+        '"verify_stale_after_hours": 30' in collector
+        and '"verify_stale_after_seconds": 108000' in collector,
+        "Portal backup fallback must use the same 30-hour threshold.",
+    )
+    require(
+        'safe_int(backups.get("verify_stale_after_seconds"), 108000)' in collector,
+        "Portal verification evaluation must fall back to 30 hours.",
+    )
+    require(
+        "691200" not in runner and "691200" not in collector,
+        "Runtime backup components must not retain the legacy 192-hour threshold.",
+    )
+    require(
+        re.search(
+            r'"vps_service_foundation_backup_verify_stale_after_hours": env_int\(\s*'
+            r'"NUTSNEWS_BACKUP_VERIFY_STALE_AFTER_HOURS",\s*30,\s*\)',
+            protected_apply,
+        )
+        is not None,
+        "Protected apply must default backup verification to 30 hours.",
+    )
+    require(
+        "NUTSNEWS_BACKUP_VERIFY_STALE_AFTER_HOURS: "
+        "${{ secrets.NUTSNEWS_BACKUP_VERIFY_STALE_AFTER_HOURS }}" in protected_apply,
+        "Protected apply must pass the documented verification threshold override.",
+    )
+    require(
+        "scheduled weekly verification" not in runner
+        and "scheduled weekly verification" not in collector,
+        "Runtime backup status must describe the daily verification cadence.",
+    )
+    for runbook_path in BACKUP_RUNBOOK_PATHS:
+        runbook = runbook_path.read_text(encoding="utf-8")
+        require("192-hour" not in runbook, f"{runbook_path}: legacy 192-hour policy remains.")
+        require("`192`" not in runbook, f"{runbook_path}: legacy 192-hour default remains.")
+        require(
+            "weekly latest-snapshot verification timer" not in runbook
+            and "scheduled weekly verification" not in runbook,
+            f"{runbook_path}: legacy weekly verification cadence remains.",
+        )
+
+
 def validate_backup_alert_semantics() -> None:
     collector = load_collector()
     backup_runner = load_backup_runner()
@@ -182,7 +280,7 @@ def validate_backup_alert_semantics() -> None:
     )
     require(verification.get("policy_status") == "pending", "A new daily snapshot must be pending within policy.")
     require(verification.get("pending") is True, "Pending verification must stay visible in portal status.")
-    require(verification.get("overdue") is False, "Expected weekly verification wait must not be overdue.")
+    require(verification.get("overdue") is False, "Expected daily verification wait must not be overdue.")
     require(verification.get("deadline_at") != "unknown", "Pending verification must expose its policy deadline.")
     runner_verification = backup_runner.verification_status(backups)
     require(
@@ -194,7 +292,7 @@ def validate_backup_alert_semantics() -> None:
 
     alerts = collector.alert_state({}, {}, [], backups, {})
     alert_ids = {item.get("id") for item in alerts}
-    require("backup.verification_overdue" not in alert_ids, "Expected weekly verification wait must not alert.")
+    require("backup.verification_overdue" not in alert_ids, "Expected daily verification wait must not alert.")
     require(
         not any("has not been verified" in item.get("message", "") for item in alerts),
         "A newer daily snapshot must not immediately emit repetitive unverified email noise.",
@@ -233,16 +331,16 @@ def validate_backup_alert_semantics() -> None:
     stale_case = backup_status_fixture(latest_time)
     stale_case["last_check"] = {
         "status": "success",
-        "finished_at": (now - timedelta(days=9)).isoformat(),
+        "finished_at": (now - timedelta(hours=31)).isoformat(),
         "latest_snapshot_id": "older123",
-        "latest_snapshot_time": (now - timedelta(days=9)).isoformat(),
+        "latest_snapshot_time": (now - timedelta(hours=31)).isoformat(),
         "error": "",
     }
     stale_verification = collector.backup_verification_status(stale_case)
     require(
         stale_verification.get("status") == "latest_unverified"
         and stale_verification.get("policy_status") == "overdue",
-        "An older checked snapshot beyond 192 hours must be visibly unverified and overdue.",
+        "An older checked snapshot beyond 30 hours must be visibly unverified and overdue.",
     )
     stale_case["latest_snapshot_verification"] = stale_verification
     stale_alerts = collector.alert_state({}, {}, [], stale_case, {})
@@ -251,7 +349,7 @@ def validate_backup_alert_semantics() -> None:
         "Overdue verification must keep its warning alert.",
     )
 
-    never_checked_case = backup_status_fixture((now - timedelta(days=9)).isoformat())
+    never_checked_case = backup_status_fixture((now - timedelta(hours=31)).isoformat())
     never_checked_case["last_check"] = {"status": "never"}
     never_checked_verification = collector.backup_verification_status(never_checked_case)
     require(
@@ -318,7 +416,7 @@ def validate_backup_runner_error_lifecycle() -> None:
                 "RCLONE_CONFIG": str(rclone_config),
                 "NUTSNEWS_BACKUP_RCLONE_REMOTE": "nutsnews-onedrive",
                 "NUTSNEWS_BACKUP_STALE_AFTER_HOURS": "30",
-                "NUTSNEWS_BACKUP_VERIFY_STALE_AFTER_HOURS": "192",
+                "NUTSNEWS_BACKUP_VERIFY_STALE_AFTER_HOURS": "30",
             }
         )
 
@@ -499,6 +597,7 @@ for workflow in WORKFLOWS:
     validate_workflow(workflow)
 
 validate_collector_recomputes_backup_freshness()
+validate_backup_cadence_contract()
 validate_backup_alert_semantics()
 validate_backup_runner_error_lifecycle()
 

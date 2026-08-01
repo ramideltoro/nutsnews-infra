@@ -37,7 +37,7 @@ Optional overrides:
 | --- | --- |
 | `NUTSNEWS_BACKUP_REPOSITORY` | `rclone:nutsnews-onedrive:nutsnews-backups/vps` |
 | `NUTSNEWS_BACKUP_STALE_AFTER_HOURS` | `30` |
-| `NUTSNEWS_BACKUP_VERIFY_STALE_AFTER_HOURS` | `192` |
+| `NUTSNEWS_BACKUP_VERIFY_STALE_AFTER_HOURS` | `30` |
 | `NUTSNEWS_BACKUP_CHECK_READ_DATA_SUBSET` | `5%` |
 | `NUTSNEWS_BACKUP_KEEP_DAILY` | `14` |
 | `NUTSNEWS_BACKUP_KEEP_WEEKLY` | `8` |
@@ -76,7 +76,7 @@ Copy the full config text into the GitHub Environment secret `NUTSNEWS_BACKUP_RC
 3. Run `Protected Ansible Apply` in `apply` mode with `confirm_apply=vps.nutsnews.com`.
 4. Run `Run VPS Backup`.
 5. Run `Verify VPS Backup`.
-6. Confirm `nutsnews-restic-verify.timer` is enabled for the weekly scheduled check.
+6. Confirm `nutsnews-restic-verify.timer` is enabled for the daily scheduled check.
 7. Open the Ops Portal and confirm the latest snapshot shows recent successful verification.
 
 ## Manual VPS Checks
@@ -89,9 +89,9 @@ sudo journalctl -u nutsnews-restic-backup.service -n 120 --no-pager
 sudo cat /opt/nutsnews/portal-assets/data/backup-status.json
 ```
 
-The scheduled verify timer is conservative by default: weekly, randomized by several hours, and stale after 192 hours. It verifies the latest snapshot with the same lock-protected runner as the manual workflow, so backup and verification jobs do not run restic against each other.
+The scheduled verify timer runs daily at 05:15, randomized by up to six hours, and becomes stale after 30 hours. It verifies the latest snapshot with the same lock-protected runner as the manual workflow, so backup and verification jobs do not run restic against each other.
 
-Daily backups normally create a newer snapshot than the last weekly verification. The portal shows that mismatch as `latest_unverified` with `policy_status=pending` and a policy deadline; it is status information, not an immediate email condition. Alerting remains active for failed verification, verification beyond 192 hours, an inactive verify timer, failed backup/prune work, or a backup snapshot older than the 30-hour freshness threshold. Full restore drills remain separate under issue #24.
+Daily backups normally create a newer snapshot before that day's verification runs. The portal shows that temporary mismatch as `latest_unverified` with `policy_status=pending` and a policy deadline; it is status information, not an immediate email condition. Alerting remains active for failed verification, verification beyond 30 hours, an inactive verify timer, failed backup/prune work, or a backup snapshot older than the 30-hour freshness threshold. Full restore drills remain separate under issue #24.
 
 `Backup Local Cache` in the Free Tier section measures only local GiB against the VPS root filesystem. Snapshot age remains in the backup panel, and remote OneDrive capacity is reported as unmeasured unless a real read-only quota source is added.
 

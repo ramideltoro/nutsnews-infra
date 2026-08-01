@@ -391,6 +391,13 @@ def verify(request: dict[str, object]) -> None:
         caddy_text = caddy_file.read_text(encoding="utf-8")
     except OSError:
         caddy_text = ""
+    staging_route_start = caddy_text.find("staging.nutsnews.com {")
+    staging_route_end = caddy_text.find("\nops.nutsnews.com {", staging_route_start)
+    staging_caddy_text = (
+        caddy_text[staging_route_start:staging_route_end]
+        if staging_route_start >= 0 and staging_route_end > staging_route_start
+        else ""
+    )
     caddy_mounts = caddy.get("Mounts", [])
     caddyfile_mounted = any(
         isinstance(mount, dict)
@@ -441,13 +448,20 @@ def verify(request: dict[str, object]) -> None:
         "caddy_route": (
             healthy(caddy_state)
             and caddyfile_mounted
-            and "staging.nutsnews.com {" in caddy_text
-            and "forward_auth nutsnews-staging-access:8091" in caddy_text
-            and "uri /verify?" in caddy_text
-            and "request>uri delete" in caddy_text
-            and "request>headers>Cf-Access-Jwt-Assertion delete" in caddy_text
-            and "resp_headers>Location delete" in caddy_text
-            and "reverse_proxy nutsnews-app-staging:3000" in caddy_text
+            and "staging.nutsnews.com {" in staging_caddy_text
+            and "forward_auth nutsnews-staging-access:8091" in staging_caddy_text
+            and "uri /verify?" in staging_caddy_text
+            and 'request>uri regexp "\\\\?.*$" ""' in staging_caddy_text
+            and "request>headers>Cf-Access-Authenticated-User-Email delete" in staging_caddy_text
+            and "request>headers>Cf-Access-Jwt-Assertion delete" in staging_caddy_text
+            and "request>headers>Cf-Access-Client-Id delete" in staging_caddy_text
+            and "request>headers>Cf-Access-Client-Secret delete" in staging_caddy_text
+            and "request>headers>CF-Access-Authenticated-User-Email delete" not in staging_caddy_text
+            and "request>headers>CF-Access-Jwt-Assertion delete" not in staging_caddy_text
+            and "request>headers>CF-Access-Client-Id delete" not in staging_caddy_text
+            and "request>headers>CF-Access-Client-Secret delete" not in staging_caddy_text
+            and "resp_headers>Location delete" in staging_caddy_text
+            and "reverse_proxy nutsnews-app-staging:3000" in staging_caddy_text
         ),
         "access_verifier_healthy": healthy(access_state),
     }
