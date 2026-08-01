@@ -191,7 +191,7 @@ Optional Synthetic Monitoring secrets:
 - `NUTSNEWS_GRAFANA_SYNTHETIC_PROBE_IDS_JSON`: JSON array of probe IDs.
 - `NUTSNEWS_GRAFANA_SYNTHETIC_HTTP_CHECKS_JSON`: JSON object of HTTP checks.
 
-Keep real target URLs in the protected secret JSON or local untracked variables, not in Git.
+Keep real target URLs in the protected secret JSON or local untracked variables, not in Git. The source-controlled validator accepts Grafana API checks from 10 seconds through 60 minutes, enforces HTTPS targets and bounded timeouts, and fails closed above the 70% monthly execution guardrail. Its artifact is value-free: counts, interval bounds, and projected executions only.
 
 ### Secret Inventory
 
@@ -261,7 +261,7 @@ Do not chmod `/run/containerd/containerd.sock`, make it world-readable, or run A
 
 1. Open the `Grafana Cloud Plan` workflow.
 2. Run it from the PR branch or from `main` after the protected secrets are configured.
-3. Confirm OpenTofu fmt, validate, plan output, and the refresh-only drift check.
+3. Confirm OpenTofu fmt, validate, plan output, the refresh-only drift check, and the value-free `grafana-cloud-read-only-evidence` artifact. The artifact must show protected input validation plus current worker-uplift dashboard, alert, Prometheus, and Loki proof.
 4. Merge the PR after required checks pass.
 5. Open the `Grafana Cloud Apply` workflow on `main`.
 6. Type `grafana-cloud` in `confirm_apply`.
