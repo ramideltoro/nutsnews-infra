@@ -117,6 +117,7 @@ vps_service_foundation_free_tier_sentry_base_url: https://sentry.io
 vps_service_foundation_free_tier_cloudflare_api_token: ""
 vps_service_foundation_free_tier_cloudflare_usage_api_url: ""
 vps_service_foundation_free_tier_cloudflare_account_id: ""
+vps_service_foundation_free_tier_cloudflare_zone_id: ""
 vps_service_foundation_free_tier_better_stack_api_token: ""
 vps_service_foundation_free_tier_better_stack_usage_api_url: ""
 vps_service_foundation_free_tier_supabase_access_token: ""
@@ -305,6 +306,7 @@ vps_service_foundation_free_tier_quotas:
       url_env: NUTSNEWS_CLOUDFLARE_USAGE_API_URL
       token_env: NUTSNEWS_CLOUDFLARE_API_TOKEN
       account_id_env: NUTSNEWS_CLOUDFLARE_ACCOUNT_ID
+      zone_id_env: NUTSNEWS_CLOUDFLARE_ZONE_ID
     metrics:
       - key: workers_requests
         label: Workers Requests
@@ -312,6 +314,22 @@ vps_service_foundation_free_tier_quotas:
         period: daily
         limit: 100000
         quota_source: https://developers.cloudflare.com/workers/platform/limits/
+      - key: zone_requests
+        label: Zone Requests
+        unit: requests/day
+        period: daily
+      - key: zone_cached_requests
+        label: Cached Zone Requests
+        unit: requests/day
+        period: daily
+      - key: zone_origin_requests
+        label: Origin-bound Zone Requests
+        unit: requests/day
+        period: daily
+      - key: zone_cache_hit_ratio_pct
+        label: Zone Cache Hit Ratio
+        unit: percent
+        period: daily
       - key: workers_cpu_time_ms
         label: Workers CPU Time
         unit: ms/request

@@ -508,6 +508,9 @@ jobs:
           NUTSNEWS_VERCEL_PROJECT_ID: ${{ secrets.NUTSNEWS_VERCEL_PROJECT_ID }}
           NUTSNEWS_VERCEL_TEAM_ID: ${{ secrets.NUTSNEWS_VERCEL_TEAM_ID }}
           NUTSNEWS_BACKEND_API_TOKEN: ${{ secrets.NUTSNEWS_BACKEND_API_TOKEN }}
+          NUTSNEWS_CACHE_REVALIDATION_SECRET: ${{ secrets.NUTSNEWS_CACHE_REVALIDATION_SECRET }}
+          CLOUDFLARE_CACHE_PURGE_API_TOKEN: ${{ secrets.CLOUDFLARE_CACHE_PURGE_API_TOKEN }}
+          NUTSNEWS_CLOUDFLARE_ZONE_ID: ${{ secrets.NUTSNEWS_CLOUDFLARE_ZONE_ID }}
           NUTSNEWS_FAILOVER_STATUS_HMAC_SECRET: ${{ secrets.NUTSNEWS_FAILOVER_STATUS_HMAC_SECRET }}
           APP_RELEASE: ${{ needs.verify-production-eligibility.outputs.app_release }}
           ENABLE_CLOUDFLARE_DDNS: ${{ inputs.enable_cloudflare_ddns }}
@@ -532,6 +535,16 @@ jobs:
               missing=1
             fi
           done
+
+          if [[ ${#NUTSNEWS_CACHE_REVALIDATION_SECRET} -lt 32 ]]; then
+            echo "Missing or invalid production-vps environment secret: NUTSNEWS_CACHE_REVALIDATION_SECRET (minimum 32 characters)" >&2
+            missing=1
+          fi
+
+          if [[ -z "$CLOUDFLARE_CACHE_PURGE_API_TOKEN" || ! "$NUTSNEWS_CLOUDFLARE_ZONE_ID" =~ ^[0-9a-f]{32}$ ]]; then
+            echo "Missing or invalid production-vps cache-purge token or Cloudflare zone ID." >&2
+            missing=1
+          fi
 
           if [[ "$ENABLE_CLOUDFLARE_DDNS" == "true" && -z "$NUTSNEWS_CLOUDFLARE_DDNS_API_TOKEN" ]]; then
             echo "Missing required production-vps environment secret: NUTSNEWS_CLOUDFLARE_DDNS_API_TOKEN" >&2
@@ -675,6 +688,8 @@ jobs:
           NUTSNEWS_BACKUP_KEEP_MONTHLY: ${{ secrets.NUTSNEWS_BACKUP_KEEP_MONTHLY }}
           NUTSNEWS_BACKUP_KEEP_YEARLY: ${{ secrets.NUTSNEWS_BACKUP_KEEP_YEARLY }}
           NUTSNEWS_APP_ENVS_JSON: ${{ secrets.NUTSNEWS_APP_ENVS_JSON }}
+          NUTSNEWS_CACHE_REVALIDATION_SECRET: ${{ secrets.NUTSNEWS_CACHE_REVALIDATION_SECRET }}
+          CLOUDFLARE_CACHE_PURGE_API_TOKEN: ${{ secrets.CLOUDFLARE_CACHE_PURGE_API_TOKEN }}
           NUTSNEWS_OPS_PORTAL_DOMAIN: ${{ secrets.NUTSNEWS_OPS_PORTAL_DOMAIN }}
           NUTSNEWS_OPS_PORTAL_CALLBACK_URL: ${{ secrets.NUTSNEWS_OPS_PORTAL_CALLBACK_URL }}
           NUTSNEWS_OPS_PORTAL_SESSION_SECRET: ${{ secrets.NUTSNEWS_OPS_PORTAL_SESSION_SECRET }}
@@ -697,6 +712,7 @@ jobs:
           NUTSNEWS_CLOUDFLARE_USAGE_API_TOKEN: ${{ secrets.NUTSNEWS_CLOUDFLARE_USAGE_API_TOKEN }}
           NUTSNEWS_CLOUDFLARE_USAGE_API_URL: ${{ secrets.NUTSNEWS_CLOUDFLARE_USAGE_API_URL }}
           NUTSNEWS_CLOUDFLARE_ACCOUNT_ID: ${{ secrets.NUTSNEWS_CLOUDFLARE_ACCOUNT_ID }}
+          NUTSNEWS_CLOUDFLARE_ZONE_ID: ${{ secrets.NUTSNEWS_CLOUDFLARE_ZONE_ID }}
           NUTSNEWS_BETTER_STACK_API_TOKEN: ${{ secrets.NUTSNEWS_BETTER_STACK_API_TOKEN }}
           NUTSNEWS_BETTER_STACK_USAGE_API_URL: ${{ secrets.NUTSNEWS_BETTER_STACK_USAGE_API_URL }}
           NUTSNEWS_SUPABASE_ACCESS_TOKEN: ${{ secrets.NUTSNEWS_SUPABASE_ACCESS_TOKEN }}
@@ -864,11 +880,23 @@ jobs:
                   )
 
           app_envs = parse_app_envs("NUTSNEWS_APP_ENVS_JSON")
+          cache_revalidation_secret = os.environ.get("NUTSNEWS_CACHE_REVALIDATION_SECRET", "").strip()
+          if len(cache_revalidation_secret) < 32 or len(cache_revalidation_secret) > MAX_RUNTIME_SECRET_LENGTH:
+              raise SystemExit("NUTSNEWS_CACHE_REVALIDATION_SECRET must be between 32 and 512 characters.")
           # Extra vars have higher precedence than role set_fact values. Merge
           # here so the reviewed Vercel values are actually passed to the app
           # environment map that the role templates.
           if vercel_envs:
               app_envs.update(vercel_envs)
+          app_envs["NUTSNEWS_CACHE_REVALIDATION_SECRET"] = cache_revalidation_secret
+          cache_purge_api_token = os.environ.get("CLOUDFLARE_CACHE_PURGE_API_TOKEN", "").strip()
+          cloudflare_zone_id = os.environ.get("NUTSNEWS_CLOUDFLARE_ZONE_ID", "").strip()
+          if not cache_purge_api_token or len(cache_purge_api_token) > MAX_RUNTIME_SECRET_LENGTH:
+              raise SystemExit("CLOUDFLARE_CACHE_PURGE_API_TOKEN must be a non-empty scoped token of at most 512 characters.")
+          if not re.fullmatch(r"[0-9a-f]{32}", cloudflare_zone_id):
+              raise SystemExit("NUTSNEWS_CLOUDFLARE_ZONE_ID must be a 32-character lowercase hexadecimal zone ID.")
+          app_envs["CLOUDFLARE_CACHE_PURGE_API_TOKEN"] = cache_purge_api_token
+          app_envs["CLOUDFLARE_ZONE_ID"] = cloudflare_zone_id
           failover_status_hmac_secret = os.environ.get("NUTSNEWS_FAILOVER_STATUS_HMAC_SECRET", "").strip()
           if failover_status_hmac_secret:
               if len(failover_status_hmac_secret) < 32 or len(failover_status_hmac_secret) > MAX_RUNTIME_SECRET_LENGTH:
@@ -1053,6 +1081,8 @@ jobs:
               "vps_service_foundation_backup_keep_yearly": env_int("NUTSNEWS_BACKUP_KEEP_YEARLY", 2),
               "vps_service_foundation_nutsnews_app_envs": app_envs,
               "vps_service_foundation_nutsnews_app_vercel_envs": vercel_envs,
+              "vps_service_foundation_nutsnews_app_secret_env_keys": ["NUTSNEWS_CACHE_REVALIDATION_SECRET", "CLOUDFLARE_CACHE_PURGE_API_TOKEN"],
+              "vps_service_foundation_nutsnews_app_required_secrets": ["NUTSNEWS_CACHE_REVALIDATION_SECRET", "CLOUDFLARE_CACHE_PURGE_API_TOKEN"],
               "vps_service_foundation_nutsnews_app_source_workflow_run_id": os.environ.get(
                   "RELEASE_SOURCE_WORKFLOW_RUN_ID",
                   "",
@@ -1094,6 +1124,7 @@ jobs:
               "vps_service_foundation_free_tier_cloudflare_api_token": os.environ.get("NUTSNEWS_CLOUDFLARE_USAGE_API_TOKEN", ""),
               "vps_service_foundation_free_tier_cloudflare_usage_api_url": optional_https_url("NUTSNEWS_CLOUDFLARE_USAGE_API_URL"),
               "vps_service_foundation_free_tier_cloudflare_account_id": os.environ.get("NUTSNEWS_CLOUDFLARE_ACCOUNT_ID", ""),
+              "vps_service_foundation_free_tier_cloudflare_zone_id": os.environ.get("NUTSNEWS_CLOUDFLARE_ZONE_ID", ""),
               "vps_service_foundation_free_tier_better_stack_api_token": os.environ.get("NUTSNEWS_BETTER_STACK_API_TOKEN", ""),
               "vps_service_foundation_free_tier_better_stack_usage_api_url": optional_https_url("NUTSNEWS_BETTER_STACK_USAGE_API_URL"),
               "vps_service_foundation_free_tier_supabase_access_token": os.environ.get("NUTSNEWS_SUPABASE_ACCESS_TOKEN", ""),

@@ -71,6 +71,7 @@ APP_PUBLIC_ROUTE_ENABLED = os.environ.get("NUTSNEWS_APP_PUBLIC_ROUTE_ENABLED", "
     "on",
 }
 APP_CONTAINER_NAME = os.environ.get("NUTSNEWS_APP_CONTAINER_NAME", "nutsnews-app").strip()
+APP_CACHE_VOLUME_NAME = os.environ.get("NUTSNEWS_APP_CACHE_VOLUME_NAME", "nutsnews-app-cache").strip()
 APP_CONTAINER_PORT = int(os.environ.get("NUTSNEWS_APP_CONTAINER_PORT", "3000") or 0)
 APP_IMAGE = os.environ.get("NUTSNEWS_APP_IMAGE", "").strip()
 APP_IMAGE_REPO = os.environ.get("NUTSNEWS_APP_IMAGE_REPO", "").strip()
@@ -2208,6 +2209,13 @@ def alert_state(
         alerts.append(alert_item("resource.root_inode_usage", "warning", "Root inode usage is above 85 percent."))
     if memory.get("used_percent", 0) >= 90:
         alerts.append(alert_item("resource.memory_usage", "warning", "Memory usage is above 90 percent."))
+    image_cache = app.get("image_cache", {}) if isinstance(app, dict) else {}
+    if isinstance(image_cache, dict) and image_cache.get("available"):
+        if safe_int(image_cache.get("bytes"), 0) > safe_int(image_cache.get("max_bytes"), 0):
+            alerts.append(alert_item("cache.image_storage_bytes", "warning", "Next.js optimized-image storage exceeds its 10 GB bound."))
+        oldest_age = image_cache.get("oldest_file_age_seconds")
+        if isinstance(oldest_age, int) and oldest_age > safe_int(image_cache.get("max_age_seconds"), 0):
+            alerts.append(alert_item("cache.image_storage_age", "warning", "Next.js optimized-image storage contains files older than 30 days."))
     swap_usage_state = str(swap.get("usage_state") or "unknown")
     if swap_usage_state == "critical":
         alerts.append(alert_item("resource.swap_usage", "critical", "Swap usage is above the critical threshold."))
@@ -2403,6 +2411,7 @@ def app_state(docker: dict[str, Any]) -> dict[str, Any]:
     expected_reference = APP_IMAGE if APP_IMAGE_DIGEST else ""
     last_deployment_result = str(marker.get("deployment_result") or marker.get("status") or "not_deployed")
 
+    image_cache = image_cache_state()
     state = {
         "enabled": APP_ENABLED,
         "health_path": APP_HEALTH_PATH,
@@ -2437,6 +2446,7 @@ def app_state(docker: dict[str, Any]) -> dict[str, Any]:
         },
         "container_name": APP_CONTAINER_NAME,
         "container_port": APP_CONTAINER_PORT,
+        "image_cache": image_cache,
         "secrets": {
             "env_file": str(APP_ENV_FILE),
             "env_file_present": APP_ENV_FILE.exists(),
@@ -2473,6 +2483,93 @@ def app_state(docker: dict[str, Any]) -> dict[str, Any]:
     }
     state["release_gate"] = release_gate_state(state, marker)
     return state
+
+
+def image_cache_state() -> dict[str, Any]:
+    inspected = run(["docker", "volume", "inspect", APP_CACHE_VOLUME_NAME], timeout=8)
+    if not inspected["ok"]:
+        return {
+            "available": False,
+            "volume": APP_CACHE_VOLUME_NAME,
+            "bytes": 0,
+            "file_count": 0,
+            "oldest_file_age_seconds": None,
+            "error": "Image-cache volume could not be inspected.",
+        }
+
+    try:
+        payload = json.loads(inspected["stdout"])
+        mountpoint = Path(str(payload[0]["Mountpoint"])).resolve()
+    except (IndexError, KeyError, TypeError, ValueError, json.JSONDecodeError):
+        return {
+            "available": False,
+            "volume": APP_CACHE_VOLUME_NAME,
+            "bytes": 0,
+            "file_count": 0,
+            "oldest_file_age_seconds": None,
+            "error": "Image-cache volume metadata was invalid.",
+        }
+
+    allowed_root = Path("/var/lib/docker/volumes").resolve()
+    if allowed_root not in mountpoint.parents or mountpoint.name != "_data":
+        return {
+            "available": False,
+            "volume": APP_CACHE_VOLUME_NAME,
+            "bytes": 0,
+            "file_count": 0,
+            "oldest_file_age_seconds": None,
+            "error": "Image-cache mountpoint was outside the Docker volume root.",
+        }
+
+    total_bytes = 0
+    file_count = 0
+    oldest_modified_at: float | None = None
+
+    try:
+        for current_root, directories, filenames in os.walk(mountpoint, followlinks=False):
+            current_path = Path(current_root)
+            directories[:] = [
+                name for name in directories if not (current_path / name).is_symlink()
+            ]
+            for filename in filenames:
+                candidate = current_path / filename
+                if candidate.is_symlink():
+                    continue
+                stat = candidate.stat()
+                if not candidate.is_file():
+                    continue
+                total_bytes += stat.st_size
+                file_count += 1
+                oldest_modified_at = (
+                    stat.st_mtime
+                    if oldest_modified_at is None
+                    else min(oldest_modified_at, stat.st_mtime)
+                )
+    except OSError:
+        return {
+            "available": False,
+            "volume": APP_CACHE_VOLUME_NAME,
+            "bytes": total_bytes,
+            "file_count": file_count,
+            "oldest_file_age_seconds": None,
+            "error": "Image-cache volume scan failed.",
+        }
+
+    oldest_age = (
+        max(0, int(time.time() - oldest_modified_at))
+        if oldest_modified_at is not None
+        else None
+    )
+    return {
+        "available": True,
+        "volume": APP_CACHE_VOLUME_NAME,
+        "bytes": total_bytes,
+        "file_count": file_count,
+        "oldest_file_age_seconds": oldest_age,
+        "max_bytes": 10 * 1024 * 1024 * 1024,
+        "max_age_seconds": 30 * 24 * 60 * 60,
+        "error": "",
+    }
 
 
 def gate_timestamp_state(expires_at: Any) -> str:

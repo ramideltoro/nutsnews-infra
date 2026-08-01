@@ -1,0 +1,107 @@
+name: Cloudflare Cache Rules Apply
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_mode:
+        description: Plan or apply the imported production cache ruleset.
+        required: true
+        default: plan
+        type: choice
+        options:
+          - plan
+          - apply
+      confirm_apply:
+        description: For apply only, type apply-cache-rules.
+        required: false
+        default: ""
+        type: string
+      cache_policy_mode:
+        description: Baseline verifies the imported no-drift state; coordinated plans or applies the long-lived policy.
+        required: true
+        default: baseline
+        type: choice
+        options:
+          - baseline
+          - coordinated
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cloudflare-cache-rules-apply
+  cancel-in-progress: false
+
+jobs:
+  cache-rules:
+    name: Protected Cloudflare cache rules plan/apply
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: cloudflare-admin
+
+    steps:
+      - name: Validate fixed scope and confirmation
+        shell: bash
+        env:
+          RUN_MODE: ${{ inputs.run_mode }}
+          CONFIRM_APPLY: ${{ inputs.confirm_apply }}
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_REF" != "refs/heads/main" ]]; then
+            echo "Cloudflare cache rules must run from main." >&2
+            exit 1
+          fi
+          if [[ "$RUN_MODE" == "apply" && "$CONFIRM_APPLY" != "apply-cache-rules" ]]; then
+            echo "Apply requires confirm_apply to be exactly apply-cache-rules." >&2
+            exit 1
+          fi
+
+      - name: Checkout reviewed configuration
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Install OpenTofu
+        uses: opentofu/setup-opentofu@a1320f892987e89d278cc92dc5adc984fb93aca4  # v2
+        with:
+          tofu_wrapper: false
+
+      - name: Validate protected inputs by name
+        shell: bash
+        env:
+          BACKEND_CONFIG: ${{ secrets.NUTSNEWS_CLOUDFLARE_CACHE_TOFU_BACKEND_CONFIG }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.NUTSNEWS_CLOUDFLARE_CACHE_API_TOKEN }}
+          CLOUDFLARE_ZONE_ID: ${{ secrets.NUTSNEWS_CLOUDFLARE_CACHE_ZONE_ID }}
+        run: |
+          set -euo pipefail
+          for name in BACKEND_CONFIG CLOUDFLARE_API_TOKEN CLOUDFLARE_ZONE_ID; do
+            if [[ -z "${!name}" ]]; then
+              echo "Missing required cloudflare-admin Environment secret: $name" >&2
+              exit 1
+            fi
+          done
+
+      - name: Plan and optionally apply imported cache rules
+        shell: bash
+        env:
+          RUN_MODE: ${{ inputs.run_mode }}
+          BACKEND_CONFIG: ${{ secrets.NUTSNEWS_CLOUDFLARE_CACHE_TOFU_BACKEND_CONFIG }}
+          TF_VAR_cloudflare_api_token: ${{ secrets.NUTSNEWS_CLOUDFLARE_CACHE_API_TOKEN }}
+          TF_VAR_cloudflare_zone_id: ${{ secrets.NUTSNEWS_CLOUDFLARE_CACHE_ZONE_ID }}
+          TF_VAR_cache_policy_mode: ${{ inputs.cache_policy_mode }}
+        run: |
+          set -euo pipefail
+          umask 077
+          printf '%s\n' "$BACKEND_CONFIG" > "$RUNNER_TEMP/cloudflare-cache-backend.hcl"
+          tofu fmt -check -recursive terraform/cloudflare-cache
+          tofu -chdir=terraform/cloudflare-cache init -input=false -backend-config="$RUNNER_TEMP/cloudflare-cache-backend.hcl"
+          tofu -chdir=terraform/cloudflare-cache validate -no-color
+          tofu -chdir=terraform/cloudflare-cache plan -input=false -no-color -out="$RUNNER_TEMP/cloudflare-cache.tfplan"
+          if [[ "$RUN_MODE" == "apply" ]]; then
+            tofu -chdir=terraform/cloudflare-cache apply -input=false -no-color "$RUNNER_TEMP/cloudflare-cache.tfplan"
+          fi
+
+      - name: Remove protected provider material
+        if: always()
+        shell: bash
+        run: rm -f "$RUNNER_TEMP/cloudflare-cache-backend.hcl" "$RUNNER_TEMP/cloudflare-cache.tfplan"

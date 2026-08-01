@@ -46,7 +46,7 @@ FREE_TIER_ENV_PREFIXES = (
     "NUTSNEWS_GITHUB_",
 )
 CLOUDFLARE_WORKERS_USAGE_QUERY = """
-query NutsNewsWorkersUsage($accountTag: string, $datetimeStart: string, $datetimeEnd: string) {
+query NutsNewsCloudflareUsage($accountTag: string, $zoneTag: string, $datetimeStart: Time, $datetimeEnd: Time) {
   viewer {
     accounts(filter: {accountTag: $accountTag}) {
       workersInvocationsAdaptive(
@@ -55,6 +55,24 @@ query NutsNewsWorkersUsage($accountTag: string, $datetimeStart: string, $datetim
       ) {
         sum {
           requests
+        }
+      }
+    }
+    zones(filter: {zoneTag: $zoneTag}) {
+      httpRequestsAdaptiveGroups(
+        limit: 100,
+        filter: {
+          datetime_geq: $datetimeStart,
+          datetime_leq: $datetimeEnd,
+          requestSource: "eyeball"
+        }
+      ) {
+        count
+        avg {
+          sampleInterval
+        }
+        dimensions {
+          cacheStatus
         }
       }
     }
@@ -1051,10 +1069,12 @@ class FreeTierCollector:
         url_env = str(live.get("url_env", "NUTSNEWS_CLOUDFLARE_USAGE_API_URL")).strip()
         token_env = str(live.get("token_env", "NUTSNEWS_CLOUDFLARE_API_TOKEN")).strip()
         account_id_env = str(live.get("account_id_env", "NUTSNEWS_CLOUDFLARE_ACCOUNT_ID")).strip()
+        zone_id_env = str(live.get("zone_id_env", "NUTSNEWS_CLOUDFLARE_ZONE_ID")).strip()
         url = self.env.get(url_env, "").strip() or "https://api.cloudflare.com/client/v4/graphql"
         token = self.env.get(token_env, "").strip()
         account_id = self.env.get(account_id_env, "").strip()
-        if not url or not token or not account_id:
+        zone_id = self.env.get(zone_id_env, "").strip()
+        if not url or not token or not account_id or not zone_id:
             missing = []
             if not url:
                 missing.append(url_env)
@@ -1062,6 +1082,8 @@ class FreeTierCollector:
                 missing.append(token_env)
             if not account_id:
                 missing.append(account_id_env)
+            if not zone_id:
+                missing.append(zone_id_env)
             return ApiResult(
                 "not configured",
                 detail=f"Missing {', '.join(missing)}; configure Cloudflare GraphQL read-only usage access.",
@@ -1076,6 +1098,7 @@ class FreeTierCollector:
             "query": CLOUDFLARE_WORKERS_USAGE_QUERY,
             "variables": {
                 "accountTag": account_id,
+                "zoneTag": zone_id,
                 "datetimeStart": datetime_start,
                 "datetimeEnd": datetime_end,
             },
@@ -1114,10 +1137,36 @@ class FreeTierCollector:
             value = safe_float(nested(row, "sum.requests"))
             if value is not None:
                 requests += value
+        zones = nested(data, "data.viewer.zones")
+        zone_rows = zones[0].get("httpRequestsAdaptiveGroups") if isinstance(zones, list) and zones and isinstance(zones[0], dict) else None
+        zone_requests = 0.0
+        cached_requests = 0.0
+        origin_requests = 0.0
+        if isinstance(zone_rows, list):
+            for row in zone_rows:
+                if not isinstance(row, dict):
+                    continue
+                count = safe_float(row.get("count")) or 0.0
+                interval = safe_float(nested(row, "avg.sampleInterval")) or 1.0
+                estimated_requests = count * max(interval, 1.0)
+                cache_status = str(nested(row, "dimensions.cacheStatus") or "unknown").lower()
+                zone_requests += estimated_requests
+                if cache_status in {"hit", "stale"}:
+                    cached_requests += estimated_requests
+                else:
+                    origin_requests += estimated_requests
+
+        metrics = {
+            "workers_requests": requests,
+            "zone_requests": zone_requests,
+            "zone_cached_requests": cached_requests,
+            "zone_origin_requests": origin_requests,
+            "zone_cache_hit_ratio_pct": (cached_requests / zone_requests * 100.0) if zone_requests else 0.0,
+        }
         return ApiResult(
             "live",
-            metrics={"workers_requests": requests},
-            detail="Workers requests loaded from Cloudflare GraphQL Analytics API. Pages and R2 quota metrics require a normalized snapshot or a dedicated collector.",
+            metrics=metrics,
+            detail="Workers usage plus sampled zone cache-hit and origin-bound request volume loaded from Cloudflare GraphQL Analytics API.",
         )
 
     def collect_github_actions(self, live: dict[str, Any]) -> ApiResult:

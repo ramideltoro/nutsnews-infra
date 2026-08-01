@@ -9,6 +9,18 @@
     "env_file": "/etc/nutsnews/nutsnews-app.env"
   },
   "variables": {
+    "CLOUDFLARE_CACHE_PURGE_API_TOKEN": {
+      "category": "server_side_secret",
+      "sync": true,
+      "destination": "CLOUDFLARE_CACHE_PURGE_API_TOKEN",
+      "reason": "Zone-scoped token used by the application after committed editorial edits or removals."
+    },
+    "CLOUDFLARE_ZONE_ID": {
+      "category": "safe_to_synchronize",
+      "sync": true,
+      "destination": "CLOUDFLARE_ZONE_ID",
+      "reason": "Cloudflare zone identifier required for targeted application cache purges."
+    },
     "ADMIN_EMAILS": {
       "category": "safe_to_synchronize",
       "sync": true,
@@ -197,6 +209,12 @@
       "sync": true,
       "destination": "NUTSNEWS_BACKEND_API_TOKEN",
       "reason": "Server-side backend PostgreSQL provider credential required by the app runtime when backend PostgreSQL is primary."
+    },
+    "NUTSNEWS_CACHE_REVALIDATION_SECRET": {
+      "category": "server_side_secret",
+      "sync": true,
+      "destination": "NUTSNEWS_CACHE_REVALIDATION_SECRET",
+      "reason": "Shared HMAC credential used only by the Worker and internal app cache-revalidation endpoint."
     },
     "NUTSNEWS_BACKEND_POSTGRES_PRIMARY_CONFIRMATION": {
       "category": "safe_to_synchronize",
