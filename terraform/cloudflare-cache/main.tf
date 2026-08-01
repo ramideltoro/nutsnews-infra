@@ -1,3 +1,7 @@
+data "cloudflare_rulesets" "zone" {
+  zone_id = var.cloudflare_zone_id
+}
+
 locals {
   production_host_expression  = "http.host in {\"nutsnews.com\" \"www.nutsnews.com\"}"
   cacheable_method_expression = "http.request.method in {\"GET\" \"HEAD\"}"
@@ -18,6 +22,13 @@ locals {
     "has_key(http.request.headers, \"next-router-state-tree\")",
     "http.request.headers[\"purpose\"][0] eq \"prefetch\"",
   ])
+  request_transform_entrypoints = [
+    for ruleset in data.cloudflare_rulesets.zone.rulesets : {
+      id   = ruleset.id
+      kind = ruleset.kind
+      name = ruleset.name
+    } if ruleset.phase == "http_request_transform" && ruleset.kind == "zone"
+  ]
   baseline_cache_rules = [
     {
       ref         = "c98bc1f5ad7940d69a365ea7c9f2d6d0"
