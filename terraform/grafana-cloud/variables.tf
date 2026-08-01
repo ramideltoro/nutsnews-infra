@@ -114,8 +114,17 @@ variable "synthetic_http_checks" {
 
   validation {
     condition = alltrue([
-      for check in values(var.synthetic_http_checks) : check.frequency_ms >= 900000
+      for check in values(var.synthetic_http_checks) :
+      check.frequency_ms >= 10000 && check.frequency_ms <= 3600000
     ])
-    error_message = "Synthetic checks must run no more frequently than every 15 minutes."
+    error_message = "Synthetic checks must run between every 10 seconds and every 60 minutes."
+  }
+
+  validation {
+    condition = alltrue([
+      for check in values(var.synthetic_http_checks) :
+      check.timeout_ms >= 1000 && check.timeout_ms <= 60000
+    ])
+    error_message = "Synthetic check timeouts must be between 1 and 60 seconds."
   }
 }

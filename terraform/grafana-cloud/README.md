@@ -115,7 +115,7 @@ synthetic_http_checks = {
 }
 ```
 
-Keep real targets in protected variables or untracked local tfvars. The module requires a 15-minute or slower interval and blocks apply when the projected monthly API executions exceed 70% of the configured free-tier assumption.
+Keep real targets in protected variables or untracked local tfvars. The module accepts Grafana's 10-second through 60-minute API-check interval range and blocks plan/apply when the projected monthly API executions exceed 70% of the configured free-tier assumption. The protected validator emits only counts, interval bounds, and the projected execution total; it never emits check names, targets, probe IDs, or credentials.
 
 Set `TF_VAR_synthetic_http_checks` to `{}` to disable Synthetic Monitoring resources while keeping dashboards and quota alerts managed.
 
@@ -156,4 +156,5 @@ python3 terraform/grafana-cloud/tests/validate_grafana_ownership.py
 python3 terraform/grafana-cloud/tests/validate_worker_uplift_telemetry_scope.py
 python3 terraform/grafana-cloud/tests/validate_worker_uplift_rabbitmq_dashboards.py
 python3 terraform/grafana-cloud/tests/validate_worker_uplift_alerts_slos.py
+python3 terraform/grafana-cloud/tests/test_validate_synthetic_monitoring_inputs.py
 ```
