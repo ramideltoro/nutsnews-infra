@@ -146,6 +146,7 @@ jobs:
             tofu -chdir="$dir" init -backend=false -input=false
             tofu -chdir="$dir" validate -no-color
           done
+          python3 -m unittest tests.test_cloudflare_cache_rules
 
       - name: Skip OpenTofu
         if: steps.detect.outputs.has_files != 'true'
