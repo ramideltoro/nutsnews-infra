@@ -14,7 +14,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from pathlib import Path
 from typing import Any
 
@@ -834,9 +834,31 @@ REPORT_LABEL_KEY_ALLOWLIST = {
 }
 
 
-def _redact_report_urls(value: str) -> str:
-    """Remove URL values from persisted evidence, including validation errors."""
-    return REPORT_URL.sub("[redacted-url]", value)
+def _normalize_sensitive_report_values(values: Iterable[str]) -> tuple[str, ...]:
+    """Return unique nonempty protected values, longest first for exact redaction."""
+    normalized: set[str] = set()
+    for value in values:
+        if not isinstance(value, str) or not value:
+            continue
+        normalized.add(value)
+        url_redacted_value = REPORT_URL.sub("[redacted-url]", value)
+        if url_redacted_value not in {value, "[redacted-url]"}:
+            normalized.add(url_redacted_value)
+    return tuple(
+        sorted(
+            normalized,
+            key=len,
+            reverse=True,
+        )
+    )
+
+
+def _redact_report_string(value: str, sensitive_values: tuple[str, ...]) -> str:
+    """Remove protected exact values and URLs from persisted evidence strings."""
+    value = REPORT_URL.sub("[redacted-url]", value)
+    for sensitive_value in sensitive_values:
+        value = value.replace(sensitive_value, "[redacted-sensitive-value]")
+    return value
 
 
 def _label_structure_summary(value: Any) -> dict[str, Any]:
@@ -961,8 +983,11 @@ def _datasource_generated_alerts_summary(value: Any) -> dict[str, Any]:
     }
 
 
-def sanitize_report_for_output(value: Any) -> Any:
-    """Return upload-safe evidence while leaving validation data intact in memory."""
+def _sanitize_report_for_output(
+    value: Any,
+    sensitive_values: tuple[str, ...],
+) -> Any:
+    """Recursively build upload-safe evidence from validated in-memory data."""
     if isinstance(value, dict):
         sanitized: dict[Any, Any] = {}
         for index, (key, item) in enumerate(value.items()):
@@ -981,19 +1006,45 @@ def sanitize_report_for_output(value: Any) -> Any:
             elif isinstance(key, str) and key in REPORT_LAST_ERROR_KEYS:
                 continue
             else:
-                safe_key = _redact_report_urls(key) if isinstance(key, str) else key
-                safe_item = sanitize_report_for_output(item)
+                safe_key = (
+                    _redact_report_string(key, sensitive_values)
+                    if isinstance(key, str)
+                    else key
+                )
+                safe_item = _sanitize_report_for_output(item, sensitive_values)
             if safe_key in sanitized:
                 safe_key = f"redacted_key_{index}"
             sanitized[safe_key] = safe_item
         return sanitized
     if isinstance(value, list):
-        return [sanitize_report_for_output(item) for item in value]
+        return [_sanitize_report_for_output(item, sensitive_values) for item in value]
     if isinstance(value, tuple):
-        return [sanitize_report_for_output(item) for item in value]
+        return [_sanitize_report_for_output(item, sensitive_values) for item in value]
     if isinstance(value, str):
-        return _redact_report_urls(value)
+        return _redact_report_string(value, sensitive_values)
     return value
+
+
+def sanitize_report_for_output(
+    value: Any,
+    sensitive_values: Iterable[str] = (),
+) -> Any:
+    """Return upload-safe evidence while leaving validation data intact in memory."""
+    return _sanitize_report_for_output(
+        value,
+        _normalize_sensitive_report_values(sensitive_values),
+    )
+
+
+def report_contains_sensitive_value(
+    rendered_report: str,
+    sensitive_values: Iterable[str],
+) -> bool:
+    """Fail-closed predicate for protected values surviving final serialization."""
+    return any(
+        isinstance(value, str) and bool(value) and value in rendered_report
+        for value in sensitive_values
+    )
 
 
 def safe_api_path(path: str) -> str:
@@ -1458,6 +1509,34 @@ def parse_desired_synthetic_checks(value: str) -> dict[str, dict[str, Any]]:
             "protected synthetic targets must use one canonical host plus distinct direct-VPS and Vercel-secondary hosts"
         )
     return checks
+
+
+def protected_report_values(
+    grafana_token: str,
+    synthetic_monitoring_token: str,
+    desired_synthetic_checks_raw: str,
+    desired_synthetic_checks: dict[str, dict[str, Any]],
+) -> tuple[str, ...]:
+    """Collect credentials and protected target values that evidence must not expose."""
+    values = [
+        grafana_token,
+        synthetic_monitoring_token,
+        desired_synthetic_checks_raw,
+    ]
+    for job, check in desired_synthetic_checks.items():
+        target = check.get("target")
+        if isinstance(target, str):
+            values.extend(
+                (
+                    target,
+                    validate_synthetic_target(
+                        job,
+                        target,
+                        "protected Synthetic Monitoring target is invalid",
+                    ),
+                )
+            )
+    return _normalize_sensitive_report_values(values)
 
 
 def desired_header_assertions(value: Any) -> list[dict[str, Any]]:
@@ -3775,8 +3854,23 @@ def main() -> int:
         "loki_queries": loki,
         "errors": errors,
     }
-    safe_report = sanitize_report_for_output(report)
+    sensitive_values = protected_report_values(
+        token,
+        synthetic_monitoring_token,
+        desired_synthetic_checks_raw,
+        desired_synthetic_checks,
+    )
+    safe_report = sanitize_report_for_output(
+        report,
+        sensitive_values,
+    )
     text = json.dumps(safe_report, indent=2, sort_keys=True)
+    if report_contains_sensitive_value(text, sensitive_values):
+        print(
+            "Refusing to emit Grafana Cloud verification evidence containing a protected value.",
+            file=sys.stderr,
+        )
+        return 1
     print(text)
     if args.output:
         args.output.parent.mkdir(parents=True, exist_ok=True)

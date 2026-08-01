@@ -123,6 +123,10 @@ for resource_text, name in ((MAIN_TF, "VPS dashboards"), (ALERTS_TF, "VPS alert 
 
 require("plan -refresh-only -detailed-exitcode" in PLAN_WORKFLOW, "Grafana plan workflow must run refresh-only drift detection")
 require("Review and reconcile before apply" in PLAN_WORKFLOW, "drift workflow failure must explain reconciliation")
+require(
+    "terraform/grafana-cloud/scripts/verify_post_apply.py" not in PLAN_WORKFLOW,
+    "Grafana plan must not call the post-apply verifier without apply outputs and its full protected input set",
+)
 require("verify_post_apply.py" in APPLY_WORKFLOW, "Grafana apply workflow must run post-apply verification")
 require("--require-query-data" in APPLY_WORKFLOW, "post-apply verification must require live query data")
 require("grafana-cloud-post-apply-verification" in APPLY_WORKFLOW, "verification report artifact missing")

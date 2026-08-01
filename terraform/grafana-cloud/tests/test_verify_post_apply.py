@@ -299,16 +299,17 @@ class VerifyPostApplyTests(unittest.TestCase):
 
     def test_grafana_transport_errors_are_status_and_path_only(self) -> None:
         sentinel = "https://protected-synthetic-target.invalid/readyz?key=secret"
+        credential = "post-apply-api-credential-sentinel"
         client = MODULE.GrafanaClient(
-            "https://nutsnews.grafana.net", "sensitive-token"
+            "https://nutsnews.grafana.net", credential
         )
         headers = Message()
         http_error = urllib.error.HTTPError(
             "https://nutsnews.grafana.net/api/health",
             502,
-            f"attacker reason {sentinel}",
+            f"attacker reason {sentinel} {credential}",
             headers,
-            io.BytesIO(f"attacker body {sentinel}".encode()),
+            io.BytesIO(f"attacker body {sentinel} {credential}".encode()),
         )
         client.opener = RaisingOpener(http_error)
         with self.assertRaises(RuntimeError) as raised:
@@ -318,9 +319,12 @@ class VerifyPostApplyTests(unittest.TestCase):
             "Grafana API GET /api/health failed with HTTP 502",
         )
         self.assertNotIn("protected-synthetic-target", str(raised.exception))
+        self.assertNotIn(credential, str(raised.exception))
 
         client.opener = RaisingOpener(
-            urllib.error.URLError(f"attacker transport reason {sentinel}")
+            urllib.error.URLError(
+                f"attacker transport reason {sentinel} {credential}"
+            )
         )
         with self.assertRaises(RuntimeError) as raised:
             client.request("GET", f"/api/health?upstream={sentinel}")
@@ -329,6 +333,7 @@ class VerifyPostApplyTests(unittest.TestCase):
             "Grafana API GET /api/health failed before an HTTP response",
         )
         self.assertNotIn("protected-synthetic-target", str(raised.exception))
+        self.assertNotIn(credential, str(raised.exception))
 
     def test_urlsplit_nfkc_failure_never_echoes_untrusted_netloc(self) -> None:
         sentinel = "protected-synthetic-target.invalid"
@@ -405,8 +410,28 @@ class VerifyPostApplyTests(unittest.TestCase):
         self.assertEqual(result["non_finite_sample_count"], 0)
         self.assertEqual(result["invalid_sample_count"], 0)
 
-    def test_whole_report_removes_label_values_and_url_sentinels(self) -> None:
-        sentinel = "https://protected-synthetic-target.invalid/readyz?key=secret"
+    def test_whole_report_removes_target_and_credential_sentinels(self) -> None:
+        sentinel = "https://protected-synthetic-target.invalid/readyz"
+        untrusted_url = f"{sentinel}?key=secret"
+        target_hostname = "protected-synthetic-target.invalid"
+        credential = "post-apply-service-account-token-sentinel"
+        synthetic_credential = "post-apply-synthetic-token-sentinel"
+        desired_checks = {
+            "canonical_homepage": {
+                "target": "https://canonical-target.invalid/"
+            },
+            "canonical_readiness": {
+                "target": "https://canonical-target.invalid/readyz"
+            },
+            "canonical_articles_api": {
+                "target": "https://canonical-target.invalid/api/articles"
+            },
+            "vps_readiness": {"target": sentinel},
+            "vercel_secondary_readiness": {
+                "target": "https://secondary-target.invalid/readyz"
+            },
+        }
+        desired_checks_raw = json.dumps(desired_checks, sort_keys=True)
         validation_result = {
             "query": "probe_success",
             "status": "success",
@@ -423,18 +448,38 @@ class VerifyPostApplyTests(unittest.TestCase):
         raw_report = {
             "status": "fail",
             "prometheus_queries": {"synthetic": validation_result},
-            "errors": [f"upstream returned {sentinel}"],
-            sentinel: {"detail": sentinel},
+            "errors": [
+                f"upstream returned {untrusted_url}",
+                f"provider diagnostic mentioned {target_hostname}",
+                f"provider diagnostic echoed Bearer {credential}",
+                f"provider diagnostic echoed Bearer {synthetic_credential}",
+                f"provider diagnostic echoed protected JSON {desired_checks_raw}",
+            ],
+            untrusted_url: {"detail": sentinel},
         }
 
-        safe_report = MODULE.sanitize_report_for_output(raw_report)
+        sensitive_values = MODULE.protected_report_values(
+            credential,
+            synthetic_credential,
+            desired_checks_raw,
+            desired_checks,
+        )
+        safe_report = MODULE.sanitize_report_for_output(raw_report, sensitive_values)
         serialized = json.dumps(safe_report, sort_keys=True)
 
         self.assertEqual(
             validation_result["series_labels"][0]["instance"], sentinel
         )
+        self.assertFalse(
+            MODULE.report_contains_sensitive_value(serialized, sensitive_values)
+        )
         self.assertNotIn("protected-synthetic-target.invalid", serialized)
         self.assertNotIn("key=secret", serialized)
+        self.assertNotIn(credential, serialized)
+        self.assertNotIn(synthetic_credential, serialized)
+        self.assertNotIn("canonical-target.invalid", serialized)
+        self.assertNotIn("secondary-target.invalid", serialized)
+        self.assertNotIn(desired_checks_raw, serialized)
         query_report = safe_report["prometheus_queries"]["synthetic"]
         self.assertNotIn("series_labels", query_report)
         self.assertEqual(
@@ -446,7 +491,16 @@ class VerifyPostApplyTests(unittest.TestCase):
             },
         )
         self.assertEqual(query_report["sample_values"], [1.0])
-        self.assertEqual(safe_report["errors"], ["upstream returned [redacted-url]"])
+        self.assertEqual(
+            safe_report["errors"],
+            [
+                "upstream returned [redacted-url]",
+                "provider diagnostic mentioned [redacted-sensitive-value]",
+                "provider diagnostic echoed Bearer [redacted-sensitive-value]",
+                "provider diagnostic echoed Bearer [redacted-sensitive-value]",
+                "provider diagnostic echoed protected JSON [redacted-sensitive-value]",
+            ],
+        )
 
     def test_alert_evidence_retains_only_structural_status_summaries(self) -> None:
         sentinel = "opaque-provider-alert-sentinel"
