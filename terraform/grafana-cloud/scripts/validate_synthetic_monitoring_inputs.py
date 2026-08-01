@@ -18,7 +18,7 @@ MAX_TIMEOUT_MS = 60_000
 DEFAULT_FREQUENCY_MS = 1_800_000
 DEFAULT_TIMEOUT_MS = 5_000
 DEFAULT_FREE_API_EXECUTIONS_MONTHLY = 100_000
-FREE_TIER_GUARDRAIL_RATIO = 0.70
+FREE_TIER_GUARDRAIL_RATIO = 0.90
 MILLISECONDS_PER_30_DAY_MONTH = 2_592_000_000
 
 
@@ -110,7 +110,7 @@ def validate_inputs(
     if projected_executions > guardrail:
         report["error_code"] = "synthetic_api_execution_guardrail_exceeded"
         raise QuotaGuardrailError(
-            "Configured Synthetic Monitoring checks exceed 70% of the current free API execution assumption.",
+            "Configured Synthetic Monitoring checks exceed 90% of the current free API execution assumption.",
             report,
         )
     return report

@@ -354,7 +354,7 @@ locals {
     length(var.synthetic_monitoring_probe_ids) * 1 * (43200 / (check.frequency_ms / 60000))
   ])
 
-  synthetic_monthly_api_guardrail = var.free_synthetic_api_executions_monthly * 0.70
+  synthetic_monthly_api_guardrail = var.free_synthetic_api_executions_monthly * 0.90
 
   quota_alert_thresholds = {
     "70" = 0.70

@@ -191,7 +191,7 @@ Optional Synthetic Monitoring secrets:
 - `NUTSNEWS_GRAFANA_SYNTHETIC_PROBE_IDS_JSON`: JSON array of probe IDs.
 - `NUTSNEWS_GRAFANA_SYNTHETIC_HTTP_CHECKS_JSON`: JSON object of HTTP checks.
 
-Keep real target URLs in the protected secret JSON or local untracked variables, not in Git. The source-controlled validator accepts Grafana API checks from 10 seconds through 60 minutes, enforces HTTPS targets and bounded timeouts, and fails closed above the 70% monthly execution guardrail. Its artifact is value-free: counts, interval bounds, and projected executions only.
+Keep real target URLs in the protected secret JSON or local untracked variables, not in Git. The source-controlled validator accepts Grafana API checks from 10 seconds through 60 minutes, enforces HTTPS targets and bounded timeouts, and fails closed above the 90% monthly execution guardrail. Its artifact is value-free: counts, interval bounds, and projected executions only. The separate live-usage alert thresholds remain at 70%, 85%, and 95%.
 
 ### Secret Inventory
 
@@ -238,7 +238,7 @@ Synthetic Monitoring execution estimate:
 probes x tests x rounded-duration-minutes x (43200 / frequency-minutes)
 ```
 
-The OpenTofu module blocks apply when configured API checks exceed 70% of the current free API execution assumption. Browser checks and cloud k6 runs are not enabled by default.
+The OpenTofu module blocks apply when configured API checks exceed 90% of the current free API execution assumption, retaining a 10% hard buffer. Browser checks and cloud k6 runs are not enabled by default.
 
 ## Intentionally Excluded
 
