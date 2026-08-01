@@ -115,7 +115,7 @@ synthetic_http_checks = {
 }
 ```
 
-Keep real targets in protected variables or untracked local tfvars. The module accepts Grafana's 10-second through 60-minute API-check interval range and blocks plan/apply when the projected monthly API executions exceed 70% of the configured free-tier assumption. The protected validator emits only counts, interval bounds, and the projected execution total; it never emits check names, targets, probe IDs, or credentials.
+Keep real targets in protected variables or untracked local tfvars. The module accepts Grafana's 10-second through 60-minute API-check interval range and blocks plan/apply when the projected monthly API executions exceed 90% of the configured free-tier assumption. This preserves a 10% hard buffer while allowing the current value-free 86,400-execution configuration. The protected validator emits only counts, interval bounds, and the projected execution total; it never emits check names, targets, probe IDs, or credentials.
 
 Set `TF_VAR_synthetic_http_checks` to `{}` to disable Synthetic Monitoring resources while keeping dashboards and quota alerts managed.
 

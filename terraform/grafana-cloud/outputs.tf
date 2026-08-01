@@ -29,7 +29,7 @@ output "synthetic_monthly_api_execution_estimate" {
 }
 
 output "synthetic_monthly_api_execution_guardrail" {
-  description = "70% guardrail of the configured free Synthetic Monitoring API execution assumption."
+  description = "90% guardrail of the configured free Synthetic Monitoring API execution assumption."
   value       = local.synthetic_monthly_api_guardrail
 }
 

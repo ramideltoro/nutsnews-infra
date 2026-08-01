@@ -29,6 +29,20 @@ def checks(*, frequency_ms: int = 300_000, enabled: bool = True) -> str:
     )
 
 
+def check_set(count: int, *, frequency_ms: int = 300_000) -> str:
+    return json.dumps(
+        {
+            f"fixture-{index}": {
+                "target": f"https://example-{index}.invalid/health",
+                "frequency_ms": frequency_ms,
+                "timeout_ms": 5_000,
+                "enabled": True,
+            }
+            for index in range(count)
+        }
+    )
+
+
 class SyntheticMonitoringInputsTest(unittest.TestCase):
     def test_accepts_frequency_below_legacy_fifteen_minute_floor(self) -> None:
         report = MODULE.validate_inputs("[1]", checks(), token_present=True)
@@ -57,7 +71,7 @@ class SyntheticMonitoringInputsTest(unittest.TestCase):
         self.assertEqual(report["projected_monthly_api_executions"], 0)
 
     def test_rejects_projected_executions_above_guardrail(self) -> None:
-        with self.assertRaisesRegex(MODULE.QuotaGuardrailError, "exceed 70%") as raised:
+        with self.assertRaisesRegex(MODULE.QuotaGuardrailError, "exceed 90%") as raised:
             MODULE.validate_inputs("[1]", checks(frequency_ms=10_000), token_present=True)
         report = raised.exception.report
         self.assertEqual(report["status"], "fail")
@@ -69,6 +83,20 @@ class SyntheticMonitoringInputsTest(unittest.TestCase):
         )
         self.assertNotIn("fixture", json.dumps(report))
         self.assertNotIn("example.invalid", json.dumps(report))
+
+    def test_current_value_free_shape_stays_below_guardrail(self) -> None:
+        report = MODULE.validate_inputs("[1, 2]", check_set(5), token_present=True)
+        self.assertEqual(report["projected_monthly_api_executions"], 86_400)
+        self.assertEqual(report["monthly_api_execution_guardrail"], 90_000)
+        self.assertEqual(report["status"], "pass")
+        self.assertNotIn("fixture", json.dumps(report))
+        self.assertNotIn("example-", json.dumps(report))
+
+    def test_one_more_current_shape_check_fails_closed(self) -> None:
+        with self.assertRaises(MODULE.QuotaGuardrailError) as raised:
+            MODULE.validate_inputs("[1, 2]", check_set(6), token_present=True)
+        self.assertEqual(raised.exception.report["projected_monthly_api_executions"], 103_680)
+        self.assertEqual(raised.exception.report["monthly_api_execution_guardrail"], 90_000)
 
     def test_rejects_non_https_target_without_echoing_it(self) -> None:
         bad = checks().replace("https://", "http://")
