@@ -13,9 +13,9 @@ locals {
     "http.request.uri.path eq \"/readyz\"",
   ])
   router_variant_expression = join(" or ", [
-    "http.request.headers[\"rsc\"][0] eq \"1\"",
-    "http.request.headers[\"next-router-prefetch\"][0] eq \"1\"",
-    "http.request.headers[\"next-router-state-tree\"][0] ne \"\"",
+    "has_key(http.request.headers, \"rsc\")",
+    "has_key(http.request.headers, \"next-router-prefetch\")",
+    "has_key(http.request.headers, \"next-router-state-tree\")",
     "http.request.headers[\"purpose\"][0] eq \"prefetch\"",
   ])
   baseline_cache_rules = [
