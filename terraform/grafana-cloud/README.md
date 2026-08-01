@@ -102,6 +102,8 @@ Synthetic checks are disabled unless both of these are supplied:
 
 When synthetic checks are enabled, also supply `GRAFANA_SM_ACCESS_TOKEN` from the protected GitHub Environment secret `NUTSNEWS_GRAFANA_SYNTHETIC_MONITORING_ACCESS_TOKEN`. The Grafana provider uses this separate Synthetic Monitoring token for `grafana_synthetic_monitoring_check` resources.
 
+Also supply the stack-region API endpoint as `GRAFANA_SM_URL` from protected secret `NUTSNEWS_GRAFANA_SYNTHETIC_MONITORING_URL`. Copy the endpoint from **Testing & synthetics > Synthetics > Config > General**; the protected validator requires a bounded HTTPS `grafana.net` endpoint whenever checks are enabled. A valid token sent to another regional endpoint is rejected, so both protected plan and apply map this value explicitly and fail closed when it is absent or malformed.
+
 Example shape for the checks variable:
 
 ```hcl
