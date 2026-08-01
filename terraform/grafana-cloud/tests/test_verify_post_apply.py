@@ -59,6 +59,24 @@ class RaisingOpener:
         raise self.error
 
 
+class ReturningOpener:
+    def __init__(self, response: Any) -> None:
+        self.response = response
+
+    def open(self, request: urllib.request.Request, timeout: int) -> Any:
+        return self.response
+
+
+class TrackingBody(io.BytesIO):
+    def __init__(self, value: bytes) -> None:
+        super().__init__(value)
+        self.read_called = False
+
+    def read(self, *args: Any, **kwargs: Any) -> bytes:
+        self.read_called = True
+        return super().read(*args, **kwargs)
+
+
 def remote_synthetic_check(job: str, check_id: int, probes: list[int] | None = None) -> dict:
     body_matches: list[str] = []
     body_not_matches: list[str] = []
@@ -226,6 +244,20 @@ def remote_slo(
 
 
 class VerifyPostApplyTests(unittest.TestCase):
+    def test_synthetic_execution_guardrail_is_exactly_ninety_thousand(self) -> None:
+        errors: list[str] = []
+        MODULE.validate_synthetic_execution_guardrail(90_000, errors)
+        self.assertFalse(errors)
+
+        MODULE.validate_synthetic_execution_guardrail(95_000, errors)
+        self.assertEqual(
+            errors,
+            [
+                "Terraform synthetic execution guardrail must remain exactly 90,000 "
+                "monthly API executions"
+            ],
+        )
+
     def test_grafana_origins_are_pinned_to_their_api_roles(self) -> None:
         expected = {
             "https://nutsnews.grafana.net": "https://nutsnews.grafana.net",
@@ -304,12 +336,15 @@ class VerifyPostApplyTests(unittest.TestCase):
             "https://nutsnews.grafana.net", credential
         )
         headers = Message()
+        response_body = TrackingBody(
+            f"attacker body {sentinel} {credential}".encode()
+        )
         http_error = urllib.error.HTTPError(
             "https://nutsnews.grafana.net/api/health",
             502,
             f"attacker reason {sentinel} {credential}",
             headers,
-            io.BytesIO(f"attacker body {sentinel} {credential}".encode()),
+            response_body,
         )
         client.opener = RaisingOpener(http_error)
         with self.assertRaises(RuntimeError) as raised:
@@ -320,6 +355,8 @@ class VerifyPostApplyTests(unittest.TestCase):
         )
         self.assertNotIn("protected-synthetic-target", str(raised.exception))
         self.assertNotIn(credential, str(raised.exception))
+        self.assertFalse(response_body.read_called)
+        self.assertTrue(raised.exception.__suppress_context__)
 
         client.opener = RaisingOpener(
             urllib.error.URLError(
@@ -414,6 +451,7 @@ class VerifyPostApplyTests(unittest.TestCase):
         sentinel = "https://protected-synthetic-target.invalid/readyz"
         untrusted_url = f"{sentinel}?key=secret"
         target_hostname = "protected-synthetic-target.invalid"
+        unexpected_live_instance = "unexpected-live-instance.private.invalid"
         credential = "post-apply-service-account-token-sentinel"
         synthetic_credential = "post-apply-synthetic-token-sentinel"
         desired_checks = {
@@ -439,6 +477,7 @@ class VerifyPostApplyTests(unittest.TestCase):
             "series_labels": [
                 {
                     "instance": sentinel,
+                    "target": unexpected_live_instance,
                     "probe": "public-probe-a",
                     "attacker_label": sentinel,
                 }
@@ -447,13 +486,14 @@ class VerifyPostApplyTests(unittest.TestCase):
         }
         raw_report = {
             "status": "fail",
-            "prometheus_queries": {"synthetic": validation_result},
+            "prometheus_queries": {"backend_api_up": validation_result},
             "errors": [
                 f"upstream returned {untrusted_url}",
                 f"provider diagnostic mentioned {target_hostname}",
                 f"provider diagnostic echoed Bearer {credential}",
                 f"provider diagnostic echoed Bearer {synthetic_credential}",
                 f"provider diagnostic echoed protected JSON {desired_checks_raw}",
+                f"unexpected live target label {unexpected_live_instance}",
             ],
             untrusted_url: {"detail": sentinel},
         }
@@ -464,8 +504,8 @@ class VerifyPostApplyTests(unittest.TestCase):
             desired_checks_raw,
             desired_checks,
         )
-        safe_report = MODULE.sanitize_report_for_output(raw_report, sensitive_values)
-        serialized = json.dumps(safe_report, sort_keys=True)
+        serialized = MODULE.serialize_report_for_output(raw_report, sensitive_values)
+        safe_report = json.loads(serialized)
 
         self.assertEqual(
             validation_result["series_labels"][0]["instance"], sentinel
@@ -480,26 +520,419 @@ class VerifyPostApplyTests(unittest.TestCase):
         self.assertNotIn("canonical-target.invalid", serialized)
         self.assertNotIn("secondary-target.invalid", serialized)
         self.assertNotIn(desired_checks_raw, serialized)
-        query_report = safe_report["prometheus_queries"]["synthetic"]
-        self.assertNotIn("series_labels", query_report)
+        self.assertNotIn(unexpected_live_instance, serialized)
+        query_report = safe_report["prometheus_queries"]["results"][
+            "backend_api_up"
+        ]
         self.assertEqual(
-            query_report["series_labels_summary"],
+            query_report["label_structure"],
             {
                 "series_count": 1,
                 "invalid_series_count": 0,
                 "allowlisted_label_keys": ["probe"],
             },
         )
-        self.assertEqual(query_report["sample_values"], [1.0])
+        self.assertEqual(query_report["finite_sample_count"], 1)
         self.assertEqual(
             safe_report["errors"],
-            [
-                "upstream returned [redacted-url]",
-                "provider diagnostic mentioned [redacted-sensitive-value]",
-                "provider diagnostic echoed Bearer [redacted-sensitive-value]",
-                "provider diagnostic echoed Bearer [redacted-sensitive-value]",
-                "provider diagnostic echoed protected JSON [redacted-sensitive-value]",
+            {
+                "error_count": 6,
+                "invalid_error_count": 0,
+                "category_counts": {"other": 2, "synthetic_monitoring": 4},
+            },
+        )
+        self.assertEqual(safe_report["unexpected_top_level_field_count"], 1)
+
+    def test_complete_artifact_never_contains_an_http_error_body(self) -> None:
+        body_sentinel = "provider-http-error-body-private-sentinel"
+        response_body = TrackingBody(body_sentinel.encode())
+        client = MODULE.GrafanaClient(
+            "https://nutsnews.grafana.net", "protected-api-token"
+        )
+        client.opener = RaisingOpener(
+            urllib.error.HTTPError(
+                "https://nutsnews.grafana.net/api/folders/private",
+                503,
+                f"provider reason {body_sentinel}",
+                Message(),
+                response_body,
+            )
+        )
+        errors: list[str] = []
+        MODULE.safe_check(
+            "folder inventory",
+            lambda: client.request("GET", "/api/folders/private"),
+            errors,
+            {},
+        )
+
+        artifact = MODULE.serialize_report_for_output(
+            {"status": "fail", "errors": errors},
+            ("protected-api-token",),
+        )
+
+        self.assertFalse(response_body.read_called)
+        self.assertNotIn(body_sentinel, artifact)
+        self.assertNotIn("provider reason", artifact)
+        self.assertIn(
+            "Grafana API GET /api/folders/private failed with HTTP 503",
+            errors[0],
+        )
+        self.assertEqual(json.loads(artifact)["errors"]["error_count"], 1)
+
+    def test_invalid_api_response_body_is_reduced_to_a_fixed_error(self) -> None:
+        body_sentinel = "invalid-json-provider-body-private-sentinel"
+        client = MODULE.GrafanaClient(
+            "https://nutsnews.grafana.net", "protected-api-token"
+        )
+        response = urllib.response.addinfourl(
+            io.BytesIO(f"not-json {body_sentinel}".encode()),
+            Message(),
+            "https://nutsnews.grafana.net/api/health",
+            200,
+        )
+        client.opener = ReturningOpener(response)
+        errors: list[str] = []
+        MODULE.safe_check(
+            "Grafana health",
+            lambda: client.request("GET", "/api/health"),
+            errors,
+            {},
+        )
+
+        artifact = MODULE.serialize_report_for_output(
+            {"status": "fail", "errors": errors},
+            ("protected-api-token",),
+        )
+
+        self.assertNotIn(body_sentinel, artifact)
+        self.assertIn("Grafana API GET /api/health returned invalid JSON", errors[0])
+        self.assertEqual(json.loads(artifact)["errors"]["error_count"], 1)
+
+    def test_datasource_uids_are_removed_from_every_proxy_error_path(self) -> None:
+        datasource_uids = (
+            "private-prometheus-datasource-uid",
+            "private-loki-datasource-uid",
+            "private-usage-datasource-uid",
+        )
+        errors: list[str] = []
+        for index, datasource_uid in enumerate(datasource_uids):
+            path = f"/api/datasources/proxy/uid/{datasource_uid}/api/v1/query?query=up"
+            client = MODULE.GrafanaClient(
+                "https://nutsnews.grafana.net", "protected-api-token"
+            )
+            if index == 0:
+                client.opener = RaisingOpener(
+                    urllib.error.HTTPError(
+                        f"https://nutsnews.grafana.net{path}",
+                        502,
+                        "private provider reason",
+                        Message(),
+                        io.BytesIO(b"private provider body"),
+                    )
+                )
+            elif index == 1:
+                client.opener = RaisingOpener(
+                    urllib.error.URLError("private transport detail")
+                )
+            else:
+                client.opener = ReturningOpener(
+                    urllib.response.addinfourl(
+                        io.BytesIO(b"not-json"),
+                        Message(),
+                        f"https://nutsnews.grafana.net{path}",
+                        200,
+                    )
+                )
+            with self.assertRaises(RuntimeError) as raised:
+                client.request("GET", path)
+            rendered_error = str(raised.exception)
+            self.assertNotIn(datasource_uid, rendered_error)
+            self.assertIn("[redacted-datasource-uid]", rendered_error)
+            errors.append(rendered_error)
+
+        protected_values = MODULE.protected_report_values(
+            "protected-api-token",
+            "protected-synthetic-token",
+            "{}",
+            {},
+            *datasource_uids,
+        )
+        artifact = MODULE.serialize_report_for_output(
+            {"status": "fail", "errors": errors}, protected_values
+        )
+        for datasource_uid in datasource_uids:
+            self.assertNotIn(datasource_uid, artifact)
+        self.assertEqual(json.loads(artifact)["errors"]["error_count"], 3)
+
+    def test_successful_slo_json_is_projected_without_raw_provider_fields(self) -> None:
+        sentinel = "private-provider-slo-value\nwith-newline"
+        payload = {
+            "uuid": sentinel,
+            "name": sentinel,
+            "description": sentinel,
+            "objectives": [{"value": sentinel, "window": sentinel}],
+            "readOnly": {
+                "status": {"type": "updated", "message": sentinel},
+                "provider_extension": sentinel,
+            },
+            "provider_extension": {sentinel: sentinel},
+        }
+        client = MODULE.GrafanaClient(
+            "https://nutsnews.grafana.net", "protected-api-token"
+        )
+        client.opener = ReturningOpener(
+            urllib.response.addinfourl(
+                io.BytesIO(json.dumps(payload).encode()),
+                Message(),
+                "https://nutsnews.grafana.net/api/plugins/grafana-slo-app/resources/v1/slo",
+                200,
+            )
+        )
+        remote = client.request(
+            "GET", "/api/plugins/grafana-slo-app/resources/v1/slo/private"
+        )
+        self.assertEqual(remote["name"], sentinel)
+
+        artifact = MODULE.serialize_report_for_output(
+            {
+                "status": "fail",
+                "grafana_slos": {
+                    "public_availability": {
+                        **remote,
+                        "recording_rule_count": 10,
+                        "alert_rule_count": 2,
+                        "recorded_sample_state": "required-finite-samples",
+                        "recorded_samples": {
+                            "grafana_slo_objective": {
+                                "query": sentinel,
+                                "status": sentinel,
+                                "result_count": 1,
+                                "series_labels": [
+                                    {
+                                        "grafana_slo_uuid": sentinel,
+                                        "service": sentinel,
+                                    }
+                                ],
+                                "sample_values": [0.995],
+                            }
+                        },
+                    }
+                },
+            }
+        )
+        safe_report = json.loads(artifact)
+
+        for representation in (
+            sentinel,
+            repr(sentinel),
+            json.dumps(sentinel),
+            sentinel.encode("unicode_escape").decode("ascii"),
+        ):
+            self.assertNotIn(representation, artifact)
+        slo = safe_report["grafana_slos"]["slos"]["public_availability"]
+        self.assertEqual(slo["recording_rule_count"], 10)
+        self.assertEqual(slo["alert_rule_count"], 2)
+        for raw_field in ("uuid", "name", "description", "objectives", "readOnly"):
+            self.assertNotIn(raw_field, slo)
+
+    def test_label_values_worker_inventory_and_error_reprs_never_reach_artifact(self) -> None:
+        label_keys = (
+            "job",
+            "queue",
+            "version",
+            "revision",
+            "service",
+            "environment",
+            "deployment_environment",
+            "adapter",
+        )
+        sentinels = {
+            key: f"private-{key}-value\nsecond-line" for key in label_keys
+        }
+        errors = []
+        for value in sentinels.values():
+            errors.extend((value, repr(value), json.dumps(value)))
+        report = {
+            "status": "fail",
+            "prometheus_queries": {
+                "backend_api_up": {
+                    "status": sentinels["job"],
+                    "result_count": 1,
+                    "series_labels": [sentinels],
+                    "sample_values": [1.0],
+                }
+            },
+            "worker_rollout": {
+                "phase": sentinels["environment"],
+                "host_expected_active": float("nan"),
+                "host_deployment_mode": sentinels["deployment_environment"],
+                "delivery_service_count": 7,
+                "readiness_ok_services": [sentinels["service"]],
+                "deployment_identity_services": [sentinels["adapter"]],
+                "build_identity_services": [sentinels["version"]],
+                "host_verified_deployed_identity_services": [sentinels["revision"]],
+            },
+            "synthetic_monitoring_inventory": {
+                "enabled_api_check_count": 1,
+                "enabled_browser_check_count": 0,
+                "monthly_api_execution_estimate": 100,
+                "monthly_api_execution_ceiling": 90_000,
+                "execution_estimate_complete": True,
+                "checks": [
+                    {
+                        "job": sentinels["job"],
+                        "check_id": sentinels["queue"],
+                        "enabled": True,
+                        "terraform_managed": False,
+                    }
+                ],
+            },
+            "errors": errors,
+        }
+        artifact = MODULE.serialize_report_for_output(report)
+        safe_report = json.loads(artifact)
+
+        for value in sentinels.values():
+            for representation in (
+                value,
+                repr(value),
+                json.dumps(value),
+                value.encode("unicode_escape").decode("ascii"),
+            ):
+                self.assertNotIn(representation, artifact)
+        self.assertEqual(safe_report["errors"]["error_count"], len(errors))
+        self.assertEqual(
+            safe_report["worker_rollout"]["ownership_state"], "invalid"
+        )
+        self.assertEqual(
+            safe_report["synthetic_monitoring_inventory"]["inventory_check_count"],
+            1,
+        )
+
+    def test_serialized_report_is_strict_json_with_nonfinite_inputs(self) -> None:
+        artifact = MODULE.serialize_report_for_output(
+            {
+                "status": "fail",
+                "terraform_state": {
+                    "synthetic_execution_estimate": float("nan"),
+                    "synthetic_execution_guardrail": float("inf"),
+                    "synthetic_execution_major_threshold": float("-inf"),
+                },
+                "worker_rollout": {
+                    "phase": "production-runtime-v1-required",
+                    "host_expected_active": float("nan"),
+                },
+                "prometheus_queries": {
+                    "backend_api_up": {
+                        "status": "success",
+                        "result_count": 3,
+                        "sample_values": [float("nan"), float("inf"), float("-inf")],
+                        "series_labels": [],
+                    }
+                },
+            }
+        )
+
+        self.assertNotIn("NaN", artifact)
+        self.assertNotIn("Infinity", artifact)
+        parsed = json.loads(
+            artifact,
+            parse_constant=lambda value: self.fail(
+                f"non-standard JSON constant survived: {value}"
+            ),
+        )
+        self.assertIsNone(
+            parsed["terraform_state"]["synthetic_execution_estimate"]
+        )
+        self.assertEqual(
+            parsed["prometheus_queries"]["results"]["backend_api_up"][
+                "finite_sample_count"
             ],
+            0,
+        )
+
+    def test_every_provider_bearing_top_level_section_uses_bounded_projection(self) -> None:
+        sentinel = "private-provider-top-level-sentinel"
+        source_owned_uid = sorted(MODULE._source_owned_external_rule_uids())[0]
+        safe_fingerprint = "a" * 64
+        artifact = MODULE.serialize_report_for_output(
+            {
+                "status": sentinel,
+                "folders": {sentinel: sentinel},
+                "contact_points": [
+                    {
+                        "name": sentinel,
+                        "email_integration_count": 1,
+                        "recipient_configuration_present": True,
+                        "resolved_notifications_enabled": True,
+                        "provider_extension": sentinel,
+                    }
+                ],
+                "notification_policy": {
+                    "receiver": sentinel,
+                    "group_by": [sentinel],
+                    "timings": [sentinel],
+                    "routes": [{"receiver": sentinel, "severity": sentinel}],
+                },
+                "external_rule_inventory": {
+                    "definition_fingerprint_baseline_status": sentinel,
+                    "rules": [
+                        {
+                            "uid": sentinel,
+                            "title": sentinel,
+                            "group": sentinel,
+                            "health": sentinel,
+                            "definition_fingerprint_sha256": sentinel,
+                        },
+                        {
+                            "uid": source_owned_uid,
+                            "title": sentinel,
+                            "health": "ok",
+                            "definition_fingerprint_sha256": safe_fingerprint,
+                        },
+                    ],
+                },
+                "terraform_state": {
+                    "synthetic_execution_estimate": sentinel,
+                    "provider_extension": sentinel,
+                },
+                "loki_queries": {
+                    "backend_host_logs": {
+                        "query": sentinel,
+                        "status": sentinel,
+                        "result_count": 1,
+                        "line_count": 1,
+                        "stream_labels": [{"service": sentinel}],
+                        "provider_extension": sentinel,
+                    }
+                },
+                sentinel: {sentinel: sentinel},
+            }
+        )
+        safe_report = json.loads(artifact)
+
+        self.assertNotIn(sentinel, artifact)
+        self.assertEqual(safe_report["status"], "fail")
+        self.assertEqual(safe_report["unexpected_top_level_field_count"], 1)
+        self.assertEqual(safe_report["folders"]["observed_count"], 1)
+        self.assertFalse(
+            safe_report["notification_policy"]["contract_matches"]
+        )
+        self.assertEqual(
+            safe_report["external_rule_inventory"]["health_status_counts"][
+                "unknown"
+            ],
+            1,
+        )
+        self.assertEqual(
+            safe_report["external_rule_inventory"][
+                "observed_definition_fingerprints_sha256"
+            ],
+            {source_owned_uid: safe_fingerprint},
+        )
+        self.assertIsNone(
+            safe_report["terraform_state"]["synthetic_execution_estimate"]
         )
 
     def test_alert_evidence_retains_only_structural_status_summaries(self) -> None:
@@ -528,13 +961,7 @@ class VerifyPostApplyTests(unittest.TestCase):
                     "labels": {"alertname": sentinel, "detail": sentinel},
                 },
             ],
-            "rules": [
-                {
-                    "labels": {"owner": sentinel},
-                    "annotations": {"summary": sentinel},
-                    "lastError": sentinel,
-                }
-            ],
+            "provider_extension": {sentinel: sentinel},
         }
 
         safe_report = MODULE.sanitize_report_for_output(raw_report)
@@ -563,21 +990,8 @@ class VerifyPostApplyTests(unittest.TestCase):
                 },
             },
         )
-        self.assertEqual(
-            safe_report["rules"],
-            [
-                {
-                    "label_structure": {
-                        "entry_count": 1,
-                        "container_type": "mapping",
-                    },
-                    "annotation_structure": {
-                        "entry_count": 1,
-                        "container_type": "mapping",
-                    },
-                }
-            ],
-        )
+        self.assertNotIn("provider_extension", safe_report)
+        self.assertEqual(safe_report["unexpected_top_level_field_count"], 1)
         self.assertEqual(
             raw_report["alert_rule_health"][f"private-rule-{sentinel}"][
                 "last_error"
@@ -903,14 +1317,16 @@ class VerifyPostApplyTests(unittest.TestCase):
             monotonic=lambda: next(times),
         )
         self.assertEqual(settled["readOnly"]["status"]["type"], "updated")
-        with self.assertRaisesRegex(RuntimeError, "entered error lifecycle state"):
+        lifecycle_message = "private-provider-lifecycle-detail"
+        with self.assertRaisesRegex(RuntimeError, "entered error lifecycle state") as raised:
             MODULE.wait_for_remote_slo(
-                LifecycleClient([("error", "generated rule failed")]),
+                LifecycleClient([("error", lifecycle_message)]),
                 "slo-public-1",
                 timeout_seconds=0,
                 sleep=lambda _: None,
                 monotonic=lambda: 0,
             )
+        self.assertNotIn(lifecycle_message, str(raised.exception))
 
     def test_recorded_slo_samples_query_only_exact_sli_and_objective_metrics(self) -> None:
         calls: list[str] = []

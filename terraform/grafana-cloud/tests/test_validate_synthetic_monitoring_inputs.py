@@ -28,28 +28,53 @@ def readiness_assertions(identity: str) -> dict[str, object]:
             "ready.*true",
             f"deploymentTarget.*{identity_pattern}",
         ],
+        "fail_if_header_matches_regexp": [],
         "fail_if_header_not_matches_regexp": [
             {"allow_missing": False, "header": "Cache-Control", "regexp": "no-store"}
         ],
     }
 
 
-def valid_checks() -> dict[str, dict[str, object]]:
+def production_http_check(target: str) -> dict[str, object]:
+    """Return the complete protected JSON shape used by production workflows."""
     return {
-        "canonical_homepage": {
-            "target": "https://news.example.com/",
-            "frequency_ms": 300_000,
-            "timeout_ms": 5_000,
-            "valid_status_codes": [200],
+        "target": target,
+        "enabled": True,
+        "frequency_ms": 300_000,
+        "timeout_ms": 5_000,
+        "valid_status_codes": [200],
+        "fail_if_body_matches_regexp": [],
+        "fail_if_body_not_matches_regexp": [],
+        "fail_if_header_matches_regexp": [],
+        "fail_if_header_not_matches_regexp": [],
+    }
+
+
+def valid_checks() -> dict[str, dict[str, object]]:
+    checks = {
+        "canonical_homepage": production_http_check("https://news.example.com/"),
+        "canonical_readiness": production_http_check(
+            "https://news.example.com/readyz"
+        ),
+        "canonical_articles_api": production_http_check(
+            "https://news.example.com/api/articles"
+        ),
+        "vps_readiness": production_http_check("https://vps.example.com/readyz"),
+        "vercel_secondary_readiness": production_http_check(
+            "https://secondary.example.com/readyz"
+        ),
+    }
+    checks["canonical_homepage"].update(
+        {
             "fail_if_body_matches_regexp": ["maintenance"],
             "fail_if_body_not_matches_regexp": ["NutsNews"],
-        },
-        "canonical_readiness": {
-            "target": "https://news.example.com/readyz",
-            **readiness_assertions("production-vps|vercel-production"),
-        },
-        "canonical_articles_api": {
-            "target": "https://news.example.com/api/articles",
+        }
+    )
+    checks["canonical_readiness"].update(
+        readiness_assertions("production-vps|vercel-production")
+    )
+    checks["canonical_articles_api"].update(
+        {
             "fail_if_body_not_matches_regexp": ["articles"],
             "fail_if_header_not_matches_regexp": [
                 {
@@ -58,16 +83,13 @@ def valid_checks() -> dict[str, dict[str, object]]:
                     "regexp": "public|max-age|s-maxage",
                 }
             ],
-        },
-        "vps_readiness": {
-            "target": "https://vps.example.com/readyz",
-            **readiness_assertions("production-vps"),
-        },
-        "vercel_secondary_readiness": {
-            "target": "https://secondary.example.com/readyz",
-            **readiness_assertions("vercel-production"),
-        },
-    }
+        }
+    )
+    checks["vps_readiness"].update(readiness_assertions("production-vps"))
+    checks["vercel_secondary_readiness"].update(
+        readiness_assertions("vercel-production")
+    )
+    return checks
 
 
 class SyntheticMonitoringInputsTest(unittest.TestCase):
@@ -92,8 +114,26 @@ class SyntheticMonitoringInputsTest(unittest.TestCase):
             free_api_executions_monthly=free_api_executions_monthly,
         )
 
-    def test_accepts_exact_production_topology_without_disclosing_values(self) -> None:
-        report = self.validate()
+    def test_accepts_explicit_production_shape_with_reviewed_acknowledgment(self) -> None:
+        checks = valid_checks()
+        expected_fields = {
+            "target",
+            "enabled",
+            "frequency_ms",
+            "timeout_ms",
+            "valid_status_codes",
+            "fail_if_body_matches_regexp",
+            "fail_if_body_not_matches_regexp",
+            "fail_if_header_matches_regexp",
+            "fail_if_header_not_matches_regexp",
+        }
+        self.assertTrue(all(set(check) == expected_fields for check in checks.values()))
+        self.assertTrue(all(check["enabled"] is True for check in checks.values()))
+        self.assertTrue(
+            all(check["frequency_ms"] == 300_000 for check in checks.values())
+        )
+
+        report = self.validate(checks)
         serialized = json.dumps(report)
         self.assertEqual(report["status"], "pass")
         self.assertTrue(report["value_free"])
@@ -107,6 +147,19 @@ class SyntheticMonitoringInputsTest(unittest.TestCase):
         self.assertNotIn("canonical_homepage", serialized)
         self.assertNotIn("news.example.com", serialized)
         self.assertNotIn("101", serialized)
+
+    def test_optional_transport_fields_resolve_to_the_approved_production_contract(self) -> None:
+        checks = valid_checks()
+        for check in checks.values():
+            for field in ("enabled", "frequency_ms", "timeout_ms", "valid_status_codes"):
+                del check[field]
+
+        report = self.validate(checks)
+
+        self.assertEqual(report["enabled_check_count"], 5)
+        self.assertEqual(report["minimum_frequency_seconds"], 300)
+        self.assertEqual(report["maximum_frequency_seconds"], 300)
+        self.assertEqual(report["projected_monthly_api_executions"], 86_400)
 
     def test_requires_exactly_two_unique_positive_probe_ids(self) -> None:
         for probes in ([101], [101, 101], [101, -2], [101, True], [101, 202, 303]):
@@ -298,17 +351,41 @@ class SyntheticMonitoringInputsTest(unittest.TestCase):
 
     def test_fails_at_or_above_ninety_percent_hard_ceiling(self) -> None:
         with self.assertRaisesRegex(
-            MODULE.QuotaGuardrailError, "reach or exceed 90%"
+            MODULE.QuotaGuardrailError, "reach or exceed the effective 90%"
         ) as raised:
-            self.validate(free_api_executions_monthly=96_000)
+            self.validate(free_api_executions_monthly=95_000)
         report = raised.exception.report
         self.assertEqual(report["status"], "fail")
         self.assertEqual(
             report["error_code"], "synthetic_api_execution_guardrail_exceeded"
         )
         self.assertEqual(report["projected_monthly_api_executions"], 86_400)
-        self.assertEqual(report["monthly_api_execution_hard_ceiling"], 86_400)
-        self.assertEqual(report["monthly_api_execution_guardrail"], 86_400)
+        self.assertEqual(report["monthly_api_execution_hard_ceiling"], 90_000)
+        self.assertEqual(report["monthly_api_execution_guardrail"], 85_500)
+
+    def test_absolute_hard_ceiling_never_rises_with_a_larger_allowance(self) -> None:
+        report = self.validate(free_api_executions_monthly=200_000)
+
+        self.assertEqual(report["monthly_api_execution_hard_ceiling"], 90_000)
+        self.assertEqual(report["monthly_api_execution_guardrail"], 90_000)
+        self.assertLess(
+            report["projected_monthly_api_executions"],
+            report["monthly_api_execution_hard_ceiling"],
+        )
+
+    def test_rejects_non_standard_json_numeric_constants(self) -> None:
+        checks_raw = json.dumps(valid_checks()).replace("5000", "NaN", 1)
+        with self.assertRaisesRegex(ValueError, "must be valid JSON"):
+            MODULE.validate_inputs(
+                "[101,202]",
+                checks_raw,
+                token_present=True,
+                grafana_url="https://nutsnews.grafana.net",
+                synthetic_monitoring_url=(
+                    "https://synthetic-monitoring-api.grafana.net"
+                ),
+                major_forecast_acknowledged=True,
+            )
 
     def test_boolean_parser_fails_closed(self) -> None:
         self.assertTrue(MODULE._boolean("true", "ACK"))

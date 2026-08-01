@@ -84,7 +84,12 @@ def validate_api_origin(api_url: str) -> str:
 def validate_policy(
     environment: dict[str, Any], branch_policy_response: dict[str, Any]
 ) -> None:
-    """Validate custom exact-main deployment policy and reviewer protection."""
+    """Validate exact-main, reviewer, self-review, and admin-bypass protection."""
+
+    if environment.get("can_admins_bypass") is not False:
+        raise PolicyAuditError(
+            "production-vps must disable administrator bypass for environment protections"
+        )
 
     deployment_policy = _require_mapping(
         environment.get("deployment_branch_policy"),
@@ -210,8 +215,8 @@ def main() -> int:
         return 1
     print(
         "production-vps environment policy audit passed: "
-        "exact-main custom branch policy, required reviewer, and self-review "
-        "prevention are present"
+        "exact-main custom branch policy, required reviewer, self-review prevention, "
+        "and disabled administrator bypass are present"
     )
     return 0
 

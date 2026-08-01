@@ -456,7 +456,8 @@ locals {
     length(var.synthetic_monitoring_probe_ids) * 1 * (43200 / (nonsensitive(var.synthetic_http_checks[name].frequency_ms) / 60000))
   ])
 
-  synthetic_monthly_api_guardrail       = var.free_synthetic_api_executions_monthly * 0.90
+  synthetic_monthly_api_hard_ceiling    = 90000
+  synthetic_monthly_api_guardrail       = min(local.synthetic_monthly_api_hard_ceiling, var.free_synthetic_api_executions_monthly * 0.90)
   synthetic_monthly_api_major_threshold = var.free_synthetic_api_executions_monthly * 0.85
 
   quota_alert_thresholds = {

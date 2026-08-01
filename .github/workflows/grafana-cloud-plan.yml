@@ -66,6 +66,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     environment: production-vps
+    concurrency:
+      group: grafana-cloud-apply
+      queue: max
+      cancel-in-progress: false
 
     steps:
       - name: Checkout

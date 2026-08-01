@@ -7,7 +7,7 @@ resource "grafana_folder" "observability" {
 
     precondition {
       condition     = local.synthetic_monthly_api_executions < local.synthetic_monthly_api_guardrail
-      error_message = "Configured Synthetic Monitoring checks must remain below 90% of the current free API execution assumption. Reduce checks or probes before applying."
+      error_message = "Configured Synthetic Monitoring checks must remain below both 90% of the current free API execution assumption and the absolute 90,000-execution monthly ceiling. Reduce checks or probes before applying."
     }
 
     precondition {

@@ -373,7 +373,12 @@ require(
     and 'probe_success{job=\\"canonical_articles_api\\"} == 1' in SLOS,
     "synthetic SLOs must select exact source-controlled check jobs",
 )
-require("* 0.90" in LOCALS, "synthetic API execution guardrail must be 90% of the free allowance")
+require(
+    "synthetic_monthly_api_hard_ceiling    = 90000" in LOCALS
+    and "min(local.synthetic_monthly_api_hard_ceiling, var.free_synthetic_api_executions_monthly * 0.90)"
+    in LOCALS,
+    "synthetic API execution guardrail must be the lower of 90,000 and 90% of the free allowance",
+)
 require("* 0.85" in LOCALS, "synthetic API execution major threshold must remain 85% of the free allowance")
 require(
     "local.synthetic_monthly_api_executions < local.synthetic_monthly_api_guardrail" in MAIN,
@@ -1267,6 +1272,7 @@ for token in (
     require(token in VERIFY, f"finite usage/series post-apply assertion missing {token}")
 for token in (
     'synthetic_execution_estimate != 86400',
+    "synthetic_execution_guardrail != SYNTHETIC_API_EXECUTION_CEILING_MONTHLY",
     "synthetic_execution_estimate >= synthetic_execution_guardrail",
     "synthetic_execution_major_threshold != 85000",
     "rollout_decision_enforcement_state is not True",

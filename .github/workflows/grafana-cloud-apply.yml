@@ -32,7 +32,7 @@ jobs:
     if: ${{ github.repository == 'ramideltoro/nutsnews-infra' && github.ref == 'refs/heads/main' }}
     needs: audit-production-vps-policy
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     environment: production-vps
 
     steps:
@@ -179,7 +179,7 @@ jobs:
         with:
           name: grafana-cloud-post-apply-verification
           path: ${{ runner.temp }}/grafana-cloud-post-apply-verification.json
-          if-no-files-found: ignore
+          if-no-files-found: error
 
       - name: Upload value-free Synthetic Monitoring input evidence
         if: always()

@@ -808,9 +808,10 @@ APPROVED_SYNTHETIC_ASSERTIONS: dict[str, dict[str, list[Any]]] = {
     },
 }
 REPORT_URL = re.compile(r"https?://[^\s\"'<>\\]+", re.IGNORECASE | re.ASCII)
-REPORT_LABEL_CONTAINER_KEYS = {"series_labels", "stream_labels"}
-REPORT_PRIVATE_MAPPING_KEYS = {"annotations", "labels"}
-REPORT_LAST_ERROR_KEYS = {"lastError", "last_error"}
+REPORT_DATASOURCE_UID_PATH = re.compile(
+    r"(?P<prefix>/api/datasources/(?:proxy/)?uid/)[^/]+",
+    re.ASCII,
+)
 REPORT_LABEL_KEY_ALLOWLIST = {
     "__name__",
     "check",
@@ -832,15 +833,80 @@ REPORT_LABEL_KEY_ALLOWLIST = {
     "stage",
     "worker_service",
 }
+REPORT_QUERY_STATUSES = {"error", "success"}
+REPORT_SLO_SAMPLE_STATES = {
+    "dashboard-only-no-terminal-events",
+    "dashboard-only-recorded-samples-visible",
+    "not-evaluated",
+    "required-finite-samples",
+}
+REPORT_WORKER_PHASES = {
+    "not-evaluated",
+    "production-runtime-v1-required",
+    "shadow-runtime-identity-visible",
+}
+REPORT_EXTERNAL_BASELINE_STATES = {
+    "approved",
+    "pending_authenticated_rollout",
+}
+REPORT_EXTERNAL_DISPOSITIONS = {"remove_via_integration_upgrade", "retain"}
+REPORT_EXTERNAL_STATES = {
+    "pending-supported-upgrade",
+    "removed-by-supported-integration-upgrade",
+    "retained",
+}
+REPORT_EXTERNAL_FINGERPRINT_STATES = {
+    "drifted",
+    "matched-approved-baseline",
+    "not-required-obsolete-upgrade-rule",
+    "pending-approved-baseline",
+}
+REPORT_ERROR_CATEGORIES: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("synthetic_monitoring", ("synthetic", "probe")),
+    ("grafana_slo", ("grafana slo", "slo ")),
+    ("logs", ("loki", "log ", "log-")),
+    ("alerting", ("alert", "contact point", "notification policy", "rule")),
+    ("terraform_state", ("terraform",)),
+    (
+        "telemetry",
+        (
+            "prometheus",
+            "alloy",
+            "rabbitmq",
+            "worker",
+            "backend",
+            "caddy",
+            "relay",
+            "postgres",
+            "collector",
+        ),
+    ),
+    ("api_transport", ("grafana api",)),
+)
+
+
+def _reject_json_constant(value: str) -> None:
+    """Reject Python's non-standard NaN/Infinity JSON extensions."""
+    raise ValueError(f"non-standard JSON numeric constant: {value}")
 
 
 def _normalize_sensitive_report_values(values: Iterable[str]) -> tuple[str, ...]:
-    """Return unique nonempty protected values, longest first for exact redaction."""
+    """Return protected values and common escaped representations, longest first."""
     normalized: set[str] = set()
     for value in values:
         if not isinstance(value, str) or not value:
             continue
-        normalized.add(value)
+        normalized.update(
+            {
+                value,
+                repr(value),
+                json.dumps(value, ensure_ascii=True),
+                json.dumps(value, ensure_ascii=False),
+                value.encode("unicode_escape").decode("ascii"),
+                urllib.parse.quote(value, safe=""),
+                urllib.parse.quote_plus(value, safe=""),
+            }
+        )
         url_redacted_value = REPORT_URL.sub("[redacted-url]", value)
         if url_redacted_value not in {value, "[redacted-url]"}:
             normalized.add(url_redacted_value)
@@ -851,14 +917,6 @@ def _normalize_sensitive_report_values(values: Iterable[str]) -> tuple[str, ...]
             reverse=True,
         )
     )
-
-
-def _redact_report_string(value: str, sensitive_values: tuple[str, ...]) -> str:
-    """Remove protected exact values and URLs from persisted evidence strings."""
-    value = REPORT_URL.sub("[redacted-url]", value)
-    for sensitive_value in sensitive_values:
-        value = value.replace(sensitive_value, "[redacted-sensitive-value]")
-    return value
 
 
 def _label_structure_summary(value: Any) -> dict[str, Any]:
@@ -887,13 +945,416 @@ def _label_structure_summary(value: Any) -> dict[str, Any]:
     }
 
 
-def _private_mapping_structure_summary(value: Any) -> dict[str, Any]:
-    """Describe a rule-owned mapping/list without retaining its keys or values."""
-    if isinstance(value, dict):
-        return {"entry_count": len(value), "container_type": "mapping"}
-    if isinstance(value, (list, tuple)):
-        return {"entry_count": len(value), "container_type": "list"}
-    return {"entry_count": 0, "container_type": "invalid"}
+def _safe_nonnegative_integer(value: Any) -> int | None:
+    """Return a JSON-safe nonnegative integer or null for untrusted values."""
+    if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
+        return value
+    if (
+        isinstance(value, float)
+        and math.isfinite(value)
+        and value >= 0
+        and value.is_integer()
+    ):
+        return int(value)
+    return None
+
+
+def _safe_finite_number(value: Any) -> int | float | None:
+    """Return a finite JSON number or null for nonnumeric/nonfinite input."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    if isinstance(value, float) and not math.isfinite(value):
+        return None
+    return value
+
+
+def _safe_boolean(value: Any) -> bool | None:
+    return value if isinstance(value, bool) else None
+
+
+def _bounded_string(value: Any, approved: set[str], fallback: str = "unknown") -> str:
+    normalized = str(value).strip().lower()
+    return normalized if normalized in approved else fallback
+
+
+def _bounded_counts(values: Iterable[Any], approved: set[str]) -> dict[str, int]:
+    counts = {key: 0 for key in sorted(approved)}
+    counts["unknown"] = 0
+    for value in values:
+        category = _bounded_string(value, approved)
+        counts[category] += 1
+    return counts
+
+
+def _source_owned_external_rule_uids() -> set[str]:
+    """Load the public catalog UIDs that may key safe fingerprint evidence."""
+    catalog = json.loads(
+        EXTERNAL_RULE_CATALOG.read_text(encoding="utf-8"),
+        parse_constant=_reject_json_constant,
+    )
+    rules = catalog.get("rules") if isinstance(catalog, dict) else None
+    return {
+        str(rule["uid"])
+        for rule in (rules if isinstance(rules, list) else [])
+        if isinstance(rule, dict) and isinstance(rule.get("uid"), str)
+    }
+
+
+def _errors_summary(value: Any) -> dict[str, Any]:
+    """Retain only bounded error categories, never exception/provider text."""
+    if not isinstance(value, list):
+        return {
+            "error_count": 0,
+            "invalid_error_count": 1,
+            "category_counts": {},
+        }
+    category_counts: dict[str, int] = {}
+    invalid_error_count = 0
+    for error in value:
+        if not isinstance(error, str):
+            invalid_error_count += 1
+            category = "invalid"
+        else:
+            lowered = error.lower()
+            category = "other"
+            for candidate, tokens in REPORT_ERROR_CATEGORIES:
+                if any(token in lowered for token in tokens):
+                    category = candidate
+                    break
+        category_counts[category] = category_counts.get(category, 0) + 1
+    return {
+        "error_count": len(value),
+        "invalid_error_count": invalid_error_count,
+        "category_counts": dict(sorted(category_counts.items())),
+    }
+
+
+def _query_result_summary(value: Any) -> dict[str, Any]:
+    """Project a Prometheus/Loki response into value-free structural evidence."""
+    if not isinstance(value, dict):
+        return {
+            "status": "unknown",
+            "result_count": None,
+            "finite_sample_count": 0,
+            "non_finite_sample_count": None,
+            "invalid_sample_count": None,
+            "line_count": None,
+            "label_structure": _label_structure_summary(None),
+        }
+    samples = value.get("sample_values")
+    finite_sample_count = (
+        sum(
+            isinstance(sample, (int, float))
+            and not isinstance(sample, bool)
+            and (not isinstance(sample, float) or math.isfinite(sample))
+            for sample in samples
+        )
+        if isinstance(samples, list)
+        else 0
+    )
+    labels = value.get("series_labels")
+    if labels is None:
+        labels = value.get("stream_labels")
+    return {
+        "status": _bounded_string(value.get("status"), REPORT_QUERY_STATUSES),
+        "result_count": _safe_nonnegative_integer(value.get("result_count")),
+        "finite_sample_count": finite_sample_count,
+        "non_finite_sample_count": _safe_nonnegative_integer(
+            value.get("non_finite_sample_count", 0)
+        ),
+        "invalid_sample_count": _safe_nonnegative_integer(
+            value.get("invalid_sample_count", 0)
+        ),
+        "line_count": _safe_nonnegative_integer(value.get("line_count")),
+        "label_structure": _label_structure_summary(labels),
+    }
+
+
+def _query_collection_summary(
+    value: Any,
+    approved_names: Iterable[str],
+) -> dict[str, Any]:
+    """Retain per-query evidence only for source-owned query names."""
+    approved = set(approved_names)
+    if not isinstance(value, dict):
+        return {
+            "expected_query_count": len(approved),
+            "observed_query_count": 0,
+            "approved_query_result_count": 0,
+            "unexpected_query_count": 0,
+            "results": {},
+        }
+    results = {
+        name: _query_result_summary(value[name])
+        for name in sorted(approved)
+        if name in value
+    }
+    return {
+        "expected_query_count": len(approved),
+        "observed_query_count": len(value),
+        "approved_query_result_count": len(results),
+        "unexpected_query_count": len(set(value) - approved),
+        "results": results,
+    }
+
+
+def _folder_summary(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        return {"expected_count": 2, "observed_count": 0, "verified_count": 0}
+    return {
+        "expected_count": 2,
+        "observed_count": len(value),
+        "verified_count": sum(isinstance(title, str) and bool(title) for title in value.values()),
+    }
+
+
+def _contact_point_summary(value: Any) -> dict[str, Any]:
+    points = value if isinstance(value, list) else []
+    valid_points = [point for point in points if isinstance(point, dict)]
+    return {
+        "managed_contact_point_count": len(valid_points),
+        "email_integration_count": sum(
+            _safe_nonnegative_integer(point.get("email_integration_count")) or 0
+            for point in valid_points
+        ),
+        "recipient_configuration_present_count": sum(
+            point.get("recipient_configuration_present") is True
+            for point in valid_points
+        ),
+        "resolved_notifications_enabled_count": sum(
+            point.get("resolved_notifications_enabled") is True
+            for point in valid_points
+        ),
+    }
+
+
+def _notification_policy_summary(value: Any) -> dict[str, Any]:
+    expected_group_by = ["alertname", "service", "deployment_environment"]
+    expected_root_timings = ["5m", "15m", "6h"]
+    expected_routes = {
+        "critical|major": ["30s", "5m", "1h"],
+        "warning|minor|low": ["5m", "15m", "6h"],
+    }
+    if not isinstance(value, dict):
+        return {
+            "root_contract_matches": False,
+            "expected_route_count": len(expected_routes),
+            "observed_route_count": 0,
+            "matched_route_count": 0,
+            "contract_matches": False,
+        }
+    routes = value.get("routes") if isinstance(value.get("routes"), list) else []
+    matched_route_count = 0
+    for severity, timings in expected_routes.items():
+        matches = [
+            route
+            for route in routes
+            if isinstance(route, dict)
+            and route.get("severity") == severity
+            and route.get("receiver") == CONTACT_POINT_NAME
+            and route.get("group_by") == expected_group_by
+            and route.get("timings") == timings
+            and route.get("matcher") == [["severity", "=~", severity]]
+        ]
+        matched_route_count += len(matches) == 1
+    root_contract_matches = (
+        value.get("receiver") == CONTACT_POINT_NAME
+        and value.get("group_by") == expected_group_by
+        and value.get("timings") == expected_root_timings
+    )
+    return {
+        "root_contract_matches": root_contract_matches,
+        "expected_route_count": len(expected_routes),
+        "observed_route_count": len(routes),
+        "matched_route_count": matched_route_count,
+        "contract_matches": (
+            root_contract_matches
+            and len(routes) == len(expected_routes)
+            and matched_route_count == len(expected_routes)
+        ),
+    }
+
+
+def _slo_summary(value: Any) -> dict[str, Any]:
+    slos = value if isinstance(value, dict) else {}
+    safe_slos: dict[str, Any] = {}
+    for key in sorted(EXPECTED_SLO_SPECS):
+        item = slos.get(key)
+        if not isinstance(item, dict):
+            continue
+        safe_slos[key] = {
+            "recording_rule_count": _safe_nonnegative_integer(
+                item.get("recording_rule_count")
+            ),
+            "alert_rule_count": _safe_nonnegative_integer(item.get("alert_rule_count")),
+            "recorded_sample_state": _bounded_string(
+                item.get("recorded_sample_state"), REPORT_SLO_SAMPLE_STATES
+            ),
+            "recorded_samples": _query_collection_summary(
+                item.get("recorded_samples"), GRAFANA_SLO_RECORDED_METRICS
+            ),
+        }
+    return {
+        "expected_count": len(EXPECTED_SLO_SPECS),
+        "observed_count": len(slos),
+        "verified_count": len(safe_slos),
+        "unexpected_slo_count": len(set(slos) - set(EXPECTED_SLO_SPECS)),
+        "slos": safe_slos,
+    }
+
+
+def _worker_rollout_summary(value: Any) -> dict[str, Any]:
+    rollout = value if isinstance(value, dict) else {}
+    list_fields = {
+        "readiness_ok_services": WORKER_SERVICES,
+        "deployment_identity_services": WORKER_SERVICES,
+        "build_identity_services": WORKER_SERVICES,
+        "host_verified_deployed_identity_services": WORKER_SERVICES,
+    }
+    service_counts: dict[str, int] = {}
+    approved_set_matches: dict[str, bool] = {}
+    for field, expected in list_fields.items():
+        items = rollout.get(field)
+        service_counts[field] = len(items) if isinstance(items, list) else 0
+        approved_set_matches[field] = (
+            isinstance(items, list)
+            and all(isinstance(item, str) for item in items)
+            and set(items) == expected
+            and len(items) == len(expected)
+        )
+    host_expected_active = _safe_finite_number(rollout.get("host_expected_active"))
+    ownership_state = (
+        "active"
+        if host_expected_active == 1
+        else "shadow"
+        if host_expected_active == 0
+        else "not-evaluated"
+        if rollout.get("phase") == "not-evaluated"
+        else "invalid"
+    )
+    return {
+        "phase": _bounded_string(
+            rollout.get("phase"), REPORT_WORKER_PHASES, "not-evaluated"
+        ),
+        "ownership_state": ownership_state,
+        "deployment_mode": _bounded_string(
+            rollout.get("host_deployment_mode"), {"production", "shadow"}
+        ),
+        "delivery_service_count": _safe_nonnegative_integer(
+            rollout.get("delivery_service_count")
+        ),
+        "service_counts": service_counts,
+        "approved_service_set_matches": approved_set_matches,
+    }
+
+
+def _external_rule_inventory_summary(value: Any) -> dict[str, Any]:
+    inventory = value if isinstance(value, dict) else {}
+    rules = inventory.get("rules") if isinstance(inventory.get("rules"), list) else []
+    valid_rules = [rule for rule in rules if isinstance(rule, dict)]
+    source_owned_uids = _source_owned_external_rule_uids()
+    fingerprints = {
+        str(rule["uid"]): str(rule["definition_fingerprint_sha256"]).lower()
+        for rule in valid_rules
+        if isinstance(rule.get("uid"), str)
+        and rule.get("uid") in source_owned_uids
+        and isinstance(rule.get("definition_fingerprint_sha256"), str)
+        and re.fullmatch(
+            r"[0-9a-fA-F]{64}", str(rule["definition_fingerprint_sha256"])
+        )
+        is not None
+    }
+    return {
+        "expected_retained_count": _safe_nonnegative_integer(
+            inventory.get("expected_retained_count")
+        ),
+        "expected_post_upgrade_count": _safe_nonnegative_integer(
+            inventory.get("expected_post_upgrade_count")
+        ),
+        "definition_fingerprint_baseline_status": _bounded_string(
+            inventory.get("definition_fingerprint_baseline_status"),
+            REPORT_EXTERNAL_BASELINE_STATES,
+        ),
+        "definition_drift_validation": _safe_boolean(
+            inventory.get("definition_drift_validation")
+        ),
+        "observed_live_count": _safe_nonnegative_integer(
+            inventory.get("observed_live_count")
+        ),
+        "rule_count": len(valid_rules),
+        "invalid_rule_count": len(rules) - len(valid_rules),
+        "observed_definition_fingerprints_sha256": dict(sorted(fingerprints.items())),
+        "kind_counts": _bounded_counts(
+            (rule.get("kind") for rule in valid_rules), {"alert", "recording"}
+        ),
+        "health_status_counts": _bounded_counts(
+            (_bounded_rule_health(rule.get("health")) for rule in valid_rules),
+            {"error", "nodata", "ok"},
+        ),
+        "disposition_counts": _bounded_counts(
+            (rule.get("disposition") for rule in valid_rules),
+            REPORT_EXTERNAL_DISPOSITIONS,
+        ),
+        "state_counts": _bounded_counts(
+            (rule.get("state") for rule in valid_rules), REPORT_EXTERNAL_STATES
+        ),
+        "fingerprint_status_counts": _bounded_counts(
+            (rule.get("definition_fingerprint_status") for rule in valid_rules),
+            REPORT_EXTERNAL_FINGERPRINT_STATES,
+        ),
+    }
+
+
+def _terraform_state_summary(value: Any) -> dict[str, Any]:
+    state = value if isinstance(value, dict) else {}
+    integer_fields = {
+        "synthetic_check_count",
+        "synthetic_public_probe_count",
+        "slo_count",
+    }
+    number_fields = {
+        "synthetic_execution_estimate",
+        "synthetic_execution_guardrail",
+        "synthetic_execution_major_threshold",
+    }
+    boolean_fields = {
+        "synthetic_major_forecast_acknowledged",
+        "rollout_decisions_enforced",
+        "worker_terminal_slo_alerting_enabled",
+    }
+    return {
+        **{field: _safe_nonnegative_integer(state.get(field)) for field in sorted(integer_fields)},
+        **{field: _safe_finite_number(state.get(field)) for field in sorted(number_fields)},
+        **{field: _safe_boolean(state.get(field)) for field in sorted(boolean_fields)},
+    }
+
+
+def _synthetic_inventory_summary(value: Any) -> dict[str, Any]:
+    inventory = value if isinstance(value, dict) else {}
+    checks = inventory.get("checks") if isinstance(inventory.get("checks"), list) else []
+    valid_checks = [check for check in checks if isinstance(check, dict)]
+    return {
+        "enabled_api_check_count": _safe_nonnegative_integer(
+            inventory.get("enabled_api_check_count")
+        ),
+        "enabled_browser_check_count": _safe_nonnegative_integer(
+            inventory.get("enabled_browser_check_count")
+        ),
+        "monthly_api_execution_estimate": _safe_finite_number(
+            inventory.get("monthly_api_execution_estimate")
+        ),
+        "monthly_api_execution_ceiling": _safe_finite_number(
+            inventory.get("monthly_api_execution_ceiling")
+        ),
+        "execution_estimate_complete": _safe_boolean(
+            inventory.get("execution_estimate_complete")
+        ),
+        "inventory_check_count": len(valid_checks),
+        "terraform_managed_check_count": sum(
+            check.get("terraform_managed") is True for check in valid_checks
+        ),
+        "enabled_check_count": sum(check.get("enabled") is True for check in valid_checks),
+    }
 
 
 def _bounded_rule_health(value: Any) -> str:
@@ -987,42 +1448,53 @@ def _sanitize_report_for_output(
     value: Any,
     sensitive_values: tuple[str, ...],
 ) -> Any:
-    """Recursively build upload-safe evidence from validated in-memory data."""
-    if isinstance(value, dict):
-        sanitized: dict[Any, Any] = {}
-        for index, (key, item) in enumerate(value.items()):
-            if key == "alert_rule_health":
-                safe_key = key
-                safe_item = _alert_rule_health_summary(item)
-            elif key == "datasource_generated_alerts":
-                safe_key = key
-                safe_item = _datasource_generated_alerts_summary(item)
-            elif isinstance(key, str) and key in REPORT_LABEL_CONTAINER_KEYS:
-                safe_key = f"{key}_summary"
-                safe_item = _label_structure_summary(item)
-            elif isinstance(key, str) and key in REPORT_PRIVATE_MAPPING_KEYS:
-                safe_key = f"{key[:-1] if key.endswith('s') else key}_structure"
-                safe_item = _private_mapping_structure_summary(item)
-            elif isinstance(key, str) and key in REPORT_LAST_ERROR_KEYS:
-                continue
-            else:
-                safe_key = (
-                    _redact_report_string(key, sensitive_values)
-                    if isinstance(key, str)
-                    else key
-                )
-                safe_item = _sanitize_report_for_output(item, sensitive_values)
-            if safe_key in sanitized:
-                safe_key = f"redacted_key_{index}"
-            sanitized[safe_key] = safe_item
-        return sanitized
-    if isinstance(value, list):
-        return [_sanitize_report_for_output(item, sensitive_values) for item in value]
-    if isinstance(value, tuple):
-        return [_sanitize_report_for_output(item, sensitive_values) for item in value]
-    if isinstance(value, str):
-        return _redact_report_string(value, sensitive_values)
-    return value
+    """Project in-memory validation data into a closed, value-free evidence schema."""
+    del sensitive_values  # Projection, not replacement, is the primary trust boundary.
+    if not isinstance(value, dict):
+        raise ValueError("Grafana Cloud verification evidence must be an object.")
+
+    sanitized: dict[str, Any] = {
+        "schema_version": 3,
+        "status": _bounded_string(value.get("status"), {"fail", "pass"}, "fail"),
+    }
+    count_fields = {
+        "dashboard_count",
+        "managed_alert_count",
+        "backend_alert_count",
+        "worker_uplift_alert_count",
+    }
+    for field in sorted(count_fields):
+        if field in value:
+            sanitized[field] = _safe_nonnegative_integer(value.get(field))
+
+    field_projectors: dict[str, Callable[[Any], Any]] = {
+        "folders": _folder_summary,
+        "alert_rule_health": _alert_rule_health_summary,
+        "datasource_generated_alerts": _datasource_generated_alerts_summary,
+        "contact_points": _contact_point_summary,
+        "notification_policy": _notification_policy_summary,
+        "grafana_slos": _slo_summary,
+        "worker_rollout": _worker_rollout_summary,
+        "external_rule_inventory": _external_rule_inventory_summary,
+        "terraform_state": _terraform_state_summary,
+        "prometheus_queries": lambda item: _query_collection_summary(
+            item, PROMETHEUS_QUERIES
+        ),
+        "synthetic_queries": lambda item: _query_collection_summary(
+            item, EXPECTED_SYNTHETIC_CHECKS
+        ),
+        "synthetic_monitoring_inventory": _synthetic_inventory_summary,
+        "usage_queries": lambda item: _query_collection_summary(item, USAGE_QUERIES),
+        "loki_queries": lambda item: _query_collection_summary(item, LOKI_QUERIES),
+        "errors": _errors_summary,
+    }
+    for field, projector in field_projectors.items():
+        if field in value:
+            sanitized[field] = projector(value[field])
+
+    approved_fields = {"status", *count_fields, *field_projectors}
+    sanitized["unexpected_top_level_field_count"] = len(set(value) - approved_fields)
+    return sanitized
 
 
 def sanitize_report_for_output(
@@ -1030,10 +1502,7 @@ def sanitize_report_for_output(
     sensitive_values: Iterable[str] = (),
 ) -> Any:
     """Return upload-safe evidence while leaving validation data intact in memory."""
-    return _sanitize_report_for_output(
-        value,
-        _normalize_sensitive_report_values(sensitive_values),
-    )
+    return _sanitize_report_for_output(value, _normalize_sensitive_report_values(sensitive_values))
 
 
 def report_contains_sensitive_value(
@@ -1047,13 +1516,32 @@ def report_contains_sensitive_value(
     )
 
 
+def serialize_report_for_output(
+    value: Any,
+    sensitive_values: Iterable[str] = (),
+) -> str:
+    """Render the complete upload artifact after value-free structural sanitization."""
+    all_sensitive_values = _normalize_sensitive_report_values(sensitive_values)
+    safe_report = sanitize_report_for_output(value, all_sensitive_values)
+    rendered = json.dumps(safe_report, indent=2, sort_keys=True, allow_nan=False)
+    if report_contains_sensitive_value(rendered, all_sensitive_values):
+        raise ValueError(
+            "Grafana Cloud verification evidence still contains a protected value."
+        )
+    return rendered
+
+
 def safe_api_path(path: str) -> str:
-    """Return only a non-query API path for transport error evidence."""
+    """Return a non-query API path with every datasource UID structurally removed."""
     try:
         parsed = urllib.parse.urlsplit(path)
     except (UnicodeError, ValueError):
         return "/[invalid-path]"
-    return parsed.path if parsed.path.startswith("/") else "/[invalid-path]"
+    if not parsed.path.startswith("/"):
+        return "/[invalid-path]"
+    return REPORT_DATASOURCE_UID_PATH.sub(
+        r"\g<prefix>[redacted-datasource-uid]", parsed.path
+    )
 
 
 def safe_urlsplit(value: str, error_message: str) -> urllib.parse.SplitResult:
@@ -1101,18 +1589,28 @@ class GrafanaClient:
         )
         try:
             with self.opener.open(request, timeout=self.timeout) as response:
-                raw = response.read().decode("utf-8")
+                raw = response.read()
         except urllib.error.HTTPError as exc:
             status = exc.code if isinstance(exc.code, int) else "unknown"
             exc.close()
             raise RuntimeError(
                 f"Grafana API {method} {safe_api_path(path)} failed with HTTP {status}"
-            ) from exc
-        except urllib.error.URLError as exc:
+            ) from None
+        except urllib.error.URLError:
             raise RuntimeError(
                 f"Grafana API {method} {safe_api_path(path)} failed before an HTTP response"
-            ) from exc
-        return json.loads(raw) if raw else {}
+            ) from None
+        try:
+            decoded = raw.decode("utf-8")
+            return (
+                json.loads(decoded, parse_constant=_reject_json_constant)
+                if decoded
+                else {}
+            )
+        except (UnicodeError, ValueError, json.JSONDecodeError):
+            raise RuntimeError(
+                f"Grafana API {method} {safe_api_path(path)} returned invalid JSON"
+            ) from None
 
 
 class SyntheticMonitoringClient(GrafanaClient):
@@ -1191,14 +1689,17 @@ def raw_env(name: str, fallback: str = "") -> str:
 
 
 def load_json(path: Path) -> dict[str, Any]:
-    return json.loads(path.read_text(encoding="utf-8"))
+    return json.loads(
+        path.read_text(encoding="utf-8"),
+        parse_constant=_reject_json_constant,
+    )
 
 
 def prometheus_query(client: GrafanaClient, datasource_uid: str, query: str) -> dict[str, Any]:
     encoded = urllib.parse.urlencode({"query": query})
     response = client.request(
         "GET",
-        f"/api/datasources/proxy/uid/{urllib.parse.quote(datasource_uid)}/api/v1/query?{encoded}",
+        f"/api/datasources/proxy/uid/{urllib.parse.quote(datasource_uid, safe='')}/api/v1/query?{encoded}",
     )
     data = response.get("data", {})
     result = data.get("result", []) if isinstance(data, dict) else []
@@ -1264,7 +1765,7 @@ def loki_query_range(
     )
     response = client.request(
         "GET",
-        f"/api/datasources/proxy/uid/{urllib.parse.quote(datasource_uid)}/loki/api/v1/query_range?{encoded}",
+        f"/api/datasources/proxy/uid/{urllib.parse.quote(datasource_uid, safe='')}/loki/api/v1/query_range?{encoded}",
     )
     data = response.get("data", {})
     result = data.get("result", []) if isinstance(data, dict) else []
@@ -1459,8 +1960,8 @@ def has_synthetic_header_assertion(
 
 def parse_desired_synthetic_checks(value: str) -> dict[str, dict[str, Any]]:
     try:
-        checks = json.loads(value)
-    except json.JSONDecodeError as exc:
+        checks = json.loads(value, parse_constant=_reject_json_constant)
+    except (ValueError, json.JSONDecodeError) as exc:
         raise ValueError(
             "protected Synthetic Monitoring check configuration must be valid JSON"
         ) from exc
@@ -1516,12 +2017,14 @@ def protected_report_values(
     synthetic_monitoring_token: str,
     desired_synthetic_checks_raw: str,
     desired_synthetic_checks: dict[str, dict[str, Any]],
+    *datasource_uids: str,
 ) -> tuple[str, ...]:
-    """Collect credentials and protected target values that evidence must not expose."""
+    """Collect credentials, targets, and datasource identities excluded from evidence."""
     values = [
         grafana_token,
         synthetic_monitoring_token,
         desired_synthetic_checks_raw,
+        *datasource_uids,
     ]
     for job, check in desired_synthetic_checks.items():
         target = check.get("target")
@@ -1536,7 +2039,7 @@ def protected_report_values(
                     ),
                 )
             )
-    return _normalize_sensitive_report_values(values)
+    return tuple(dict.fromkeys(value for value in values if isinstance(value, str) and value))
 
 
 def desired_header_assertions(value: Any) -> list[dict[str, Any]]:
@@ -2223,13 +2726,17 @@ def wait_for_remote_slo(
         if status_type in {"created", "updated"}:
             return item
         if status_type == "error":
-            message = str(status.get("message", "")) if isinstance(status, dict) else ""
             raise RuntimeError(
-                f"Grafana SLO {slo_uuid!r} entered error lifecycle state: {message}"
+                f"Grafana SLO {slo_uuid!r} entered error lifecycle state"
             )
         if monotonic() >= deadline:
+            bounded_status = (
+                status_type
+                if status_type in {"creating", "updating", "deleting"}
+                else "missing-or-unknown"
+            )
             raise RuntimeError(
-                f"Grafana SLO {slo_uuid!r} did not settle: {status_type or 'missing'}"
+                f"Grafana SLO {slo_uuid!r} did not settle: {bounded_status}"
             )
         sleep(10)
 
@@ -2744,6 +3251,18 @@ def validate_external_rule_inventory(
 def terraform_output_value(outputs: dict[str, Any], name: str) -> Any:
     item = outputs.get(name, {})
     return item.get("value") if isinstance(item, dict) else None
+
+
+def validate_synthetic_execution_guardrail(
+    synthetic_execution_guardrail: Any,
+    errors: list[str],
+) -> None:
+    """Require the reviewed absolute monthly Synthetic Monitoring ceiling."""
+    if synthetic_execution_guardrail != SYNTHETIC_API_EXECUTION_CEILING_MONTHLY:
+        errors.append(
+            "Terraform synthetic execution guardrail must remain exactly 90,000 "
+            "monthly API executions"
+        )
 
 
 def validate_worker_runtime_identity_rollout(
@@ -3763,6 +4282,10 @@ def main() -> int:
                 "Terraform synthetic execution estimate must be 86,400 for five checks, "
                 f"two probes, and a five-minute interval; observed {synthetic_execution_estimate!r}"
             )
+        validate_synthetic_execution_guardrail(
+            synthetic_execution_guardrail,
+            errors,
+        )
         if (
             not isinstance(synthetic_execution_guardrail, (int, float))
             or not isinstance(synthetic_execution_estimate, (int, float))
@@ -3859,13 +4382,13 @@ def main() -> int:
         synthetic_monitoring_token,
         desired_synthetic_checks_raw,
         desired_synthetic_checks,
+        prometheus_uid,
+        loki_uid,
+        usage_uid,
     )
-    safe_report = sanitize_report_for_output(
-        report,
-        sensitive_values,
-    )
-    text = json.dumps(safe_report, indent=2, sort_keys=True)
-    if report_contains_sensitive_value(text, sensitive_values):
+    try:
+        text = serialize_report_for_output(report, sensitive_values)
+    except ValueError:
         print(
             "Refusing to emit Grafana Cloud verification evidence containing a protected value.",
             file=sys.stderr,

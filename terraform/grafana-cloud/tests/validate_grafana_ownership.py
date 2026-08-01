@@ -125,10 +125,24 @@ require("plan -refresh-only -detailed-exitcode" in PLAN_WORKFLOW, "Grafana plan 
 require("Review and reconcile before apply" in PLAN_WORKFLOW, "drift workflow failure must explain reconciliation")
 require(
     "terraform/grafana-cloud/scripts/verify_post_apply.py" not in PLAN_WORKFLOW,
-    "Grafana plan must not call the post-apply verifier without apply outputs and its full protected input set",
+    "Grafana plan must not run the apply-only exact-state verifier",
 )
+for token in (
+    "tofu -chdir=terraform/grafana-cloud output -json",
+    "grafana-cloud-current-state-verification",
+    "--require-query-data",
+    "--terraform-outputs",
+):
+    require(token not in PLAN_WORKFLOW, f"Grafana plan contains apply-only evidence: {token}")
+for token in ("group: grafana-cloud-apply", "queue: max", "cancel-in-progress: false"):
+    require(token in PLAN_WORKFLOW, f"Grafana protected plan shared lock is missing {token}")
 require("verify_post_apply.py" in APPLY_WORKFLOW, "Grafana apply workflow must run post-apply verification")
 require("--require-query-data" in APPLY_WORKFLOW, "post-apply verification must require live query data")
+require(
+    'tofu -chdir=terraform/grafana-cloud output -json > "$RUNNER_TEMP/grafana-cloud-outputs.json"'
+    in APPLY_WORKFLOW,
+    "post-apply verification must consume outputs captured after apply",
+)
 require("grafana-cloud-post-apply-verification" in APPLY_WORKFLOW, "verification report artifact missing")
 require(
     '"backend_host_logs": \'{deployment_environment="production",host="backend.nutsnews.com"}\'' in VERIFY_SCRIPT,

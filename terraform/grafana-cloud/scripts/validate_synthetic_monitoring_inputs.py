@@ -32,6 +32,7 @@ DEFAULT_TIMEOUT_MS = 5_000
 DEFAULT_FREE_API_EXECUTIONS_MONTHLY = 100_000
 FREE_TIER_MAJOR_RATIO = 0.85
 FREE_TIER_HARD_CEILING_RATIO = 0.90
+SYNTHETIC_API_EXECUTION_HARD_CEILING_MONTHLY = 90_000
 MILLISECONDS_PER_30_DAY_MONTH = 2_592_000_000
 GRAFANA_UI_HOSTNAME = "nutsnews.grafana.net"
 SYNTHETIC_MONITORING_HOSTNAME = re.compile(
@@ -53,10 +54,14 @@ class QuotaGuardrailError(ValueError):
         self.report = report
 
 
+def _reject_json_constant(value: str) -> None:
+    raise ValueError(f"non-standard JSON numeric constant: {value}")
+
+
 def _json(raw: str, expected: type, variable_name: str) -> Any:
     try:
-        value = json.loads(raw)
-    except json.JSONDecodeError as exc:
+        value = json.loads(raw, parse_constant=_reject_json_constant)
+    except (ValueError, json.JSONDecodeError) as exc:
         raise ValueError(f"{variable_name} must be valid JSON when set.") from exc
     if not isinstance(value, expected):
         expected_name = "array" if expected is list else "object"
@@ -393,7 +398,13 @@ def validate_inputs(
         * len(probes)
         * (MILLISECONDS_PER_30_DAY_MONTH / EXPECTED_FREQUENCY_MS)
     )
-    hard_ceiling = round(free_api_executions_monthly * FREE_TIER_HARD_CEILING_RATIO)
+    allowance_guardrail = round(
+        free_api_executions_monthly * FREE_TIER_HARD_CEILING_RATIO
+    )
+    effective_guardrail = min(
+        SYNTHETIC_API_EXECUTION_HARD_CEILING_MONTHLY,
+        allowance_guardrail,
+    )
     major_threshold = round(free_api_executions_monthly * FREE_TIER_MAJOR_RATIO)
     report = {
         "schema_version": 2,
@@ -405,18 +416,18 @@ def validate_inputs(
         "minimum_frequency_seconds": EXPECTED_FREQUENCY_MS // 1000,
         "maximum_frequency_seconds": EXPECTED_FREQUENCY_MS // 1000,
         "projected_monthly_api_executions": projected_executions,
-        "monthly_api_execution_guardrail": hard_ceiling,
+        "monthly_api_execution_guardrail": effective_guardrail,
         "monthly_api_execution_major_threshold": major_threshold,
-        "monthly_api_execution_hard_ceiling": hard_ceiling,
+        "monthly_api_execution_hard_ceiling": SYNTHETIC_API_EXECUTION_HARD_CEILING_MONTHLY,
         "major_forecast_acknowledged": major_forecast_acknowledged,
         "synthetic_monitoring_endpoint_configured": True,
     }
-    if projected_executions >= hard_ceiling:
+    if projected_executions >= effective_guardrail:
         report["status"] = "fail"
         report["error_code"] = "synthetic_api_execution_guardrail_exceeded"
         raise QuotaGuardrailError(
-            "Configured Synthetic Monitoring checks reach or exceed 90% of the current free API "
-            "execution assumption.",
+            "Configured Synthetic Monitoring checks reach or exceed the effective 90% allowance "
+            "guardrail or the absolute 90,000-execution ceiling.",
             report,
         )
     if projected_executions >= major_threshold and not major_forecast_acknowledged:
@@ -440,7 +451,10 @@ def _write_report(path: Path | None, report: dict[str, Any]) -> None:
     if not path:
         return
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    path.write_text(
+        json.dumps(report, indent=2, sort_keys=True, allow_nan=False) + "\n",
+        encoding="utf-8",
+    )
 
 
 def main() -> int:
@@ -464,7 +478,7 @@ def main() -> int:
             ),
         )
     except QuotaGuardrailError as exc:
-        text = json.dumps(exc.report, indent=2, sort_keys=True)
+        text = json.dumps(exc.report, indent=2, sort_keys=True, allow_nan=False)
         print(text)
         if args.output:
             args.output.parent.mkdir(parents=True, exist_ok=True)
@@ -484,7 +498,7 @@ def main() -> int:
         print(str(exc), file=sys.stderr)
         return 1
 
-    text = json.dumps(report, indent=2, sort_keys=True)
+    text = json.dumps(report, indent=2, sort_keys=True, allow_nan=False)
     print(text)
     _write_report(args.output, report)
     return 0

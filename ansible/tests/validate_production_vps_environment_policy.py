@@ -313,6 +313,7 @@ def validate_repository() -> tuple[int, int]:
         '"custom_branch_policies"',
         '"protected_branches"',
         '"required_reviewers"',
+        'get("can_admins_bypass") is not False',
         'get("prevent_self_review") is not True',
         'policy.get("name") != "main"',
         'policy.get("type") != "branch"',

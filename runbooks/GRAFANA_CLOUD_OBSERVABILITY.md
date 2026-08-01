@@ -181,7 +181,7 @@ Do not paste account IDs, endpoints, access keys, secret keys, or the final back
 ## Grafana Cloud Secrets
 
 Before adding secrets, configure the `production-vps` GitHub Environment with
-both protection layers below:
+all protection controls below:
 
 - Under **Deployment branches and tags**, choose **Selected branches and tags**
   and allow only the exact `main` branch. Do not allow every branch, tags, or a
@@ -189,6 +189,9 @@ both protection layers below:
 - Enable **Required reviewers** with at least one operations reviewer and
   enable **Prevent self-review**. The policy audit fails closed unless both are
   present.
+- Disable **Allow administrators to bypass configured protection rules**. The
+  policy audit treats a missing, malformed, or enabled `can_admins_bypass`
+  response as a blocker.
 
 These repository settings are a required manual control; this GitOps change
 does not mutate them. Manual protected Grafana plan, apply, drill, canary, and
@@ -196,6 +199,10 @@ annotation jobs also require the exact `refs/heads/main` ref at job level, so a
 feature-branch dispatch is skipped before GitHub evaluates the Environment or
 releases its secrets. Confirm the environment rule and reviewers in repository
 settings before the first protected run and during quarterly access review.
+As of the 2026-08-01 read-only audit, the live `production-vps` Environment
+still reports administrator bypass enabled. Protected Grafana plan/apply must
+remain blocked until an administrator disables that repository setting and the
+read-only policy audit passes; do not weaken or skip the prerequisite.
 The unattended daily synthetic inventory audit uses the separate
 `grafana-observability-readonly` Environment described in
 `GRAFANA_OBSERVABILITY_READONLY_ENVIRONMENT.md`; it must not inherit deployment
@@ -240,7 +247,8 @@ Keep real target URLs in the protected secret JSON or local untracked variables,
 The input schema preserves Grafana's 10-second through 60-minute API-check
 bounds and one- through 60-second timeout bounds. Production policy is stricter:
 exactly five enabled checks across two public probes every five minutes, a
-hard failure at or above 90% of the configured allowance, and a protected
+hard failure at or above the lower of 90% of the configured allowance and the
+absolute 90,000-execution monthly ceiling, and a protected
 reviewed acknowledgment in the 85% `major` forecast band. The protected
 preflight artifact is value-free: it contains counts, interval bounds,
 projected executions, thresholds, and the decision state, never check names,
@@ -325,8 +333,9 @@ probes x tests x rounded-duration-minutes x (43200 / frequency-minutes)
 ```
 
 Five checks, two probes, and a five-minute interval project to 86,400 API
-executions in a 30-day month. OpenTofu blocks at 90,000 (90% of the
-configured free allowance) and provisions 70/85/95% forecast alerts. Because
+executions in a 30-day month. OpenTofu blocks at the lower of the absolute
+90,000-execution ceiling and 90% of the configured free allowance, and
+provisions 70/85/95% forecast alerts. Because
 Grafana does not document a Prometheus billing-usage series for synthetic API
 executions, this is a configuration forecast; the post-apply verifier also
 requires exactly five managed checks and two live probe series per check.
@@ -584,6 +593,17 @@ privilege and cardinality review.
 The post-apply verifier is deliberately strict and will fail until the source
 telemetry exists. Roll out in this order:
 
+Current-state note (2026-08-01): Grafana Cloud Apply run `30708192621` on
+`main` revision `c23403e` successfully created check IDs `3997`–`4001`.
+Protected input-validation logs and the OpenTofu apply/output show five checks,
+two probes, a 300-second interval, and exactly 86,400 projected API executions
+per 30-day month. The verifier at that revision did not inspect the Synthetic
+Monitoring API or assert the synthetic Terraform state, so its post-apply
+artifact is not evidence for that topology. The live baseline also does not
+prove unapplied verifier sanitization, notification-policy, native-SLO, or
+environment-policy hardening from a later change; those contracts become
+authoritative only after their protected apply and post-apply verification.
+
 1. Publish and deploy the backend API, worker telemetry, backend Alloy, PostgreSQL, relay, Caddy, and durable content/ownership exporters. Keep worker uplift shadow-owned.
 2. Run the protected VPS apply with Alloy enabled, the bounded Docker/textfile collectors, normalized journal coverage, and the daily 30-hour backup-verification policy.
 3. Run the backend and VPS health audits once and confirm their conclusion, last-success age, collector freshness, and unavailable/disabled states are truthful.
@@ -610,7 +630,9 @@ state, not be masked with a synthetic healthy value.
 4. Confirm the live OpenTofu plan, refresh-only drift check, and value-free
    `grafana-cloud-input-validation` artifact. This artifact proves the protected
    topology and quota decision without disclosing targets; it is not post-apply
-   telemetry evidence.
+   telemetry evidence and does not require the last-applied live stack to
+   already match an unapplied desired change. Exact live convergence and query
+   health verification is apply-only.
 5. Open the `Grafana Cloud Apply` workflow on exact `main`.
 6. Select `grafana-cloud` in `confirm_apply` and approve the `production-vps`
    Environment gate.
@@ -625,14 +647,25 @@ If the backend secret is missing, stop and configure remote state before applyin
 
 1. Confirm the backend folder UID is `nutsnews-backend-ops` and the alert group name is `NutsNews Backend Guardrails`.
 2. Run `Grafana Cloud Plan`; the import blocks should map the existing backend folder, dashboards, and rule group to the infra OpenTofu addresses.
-3. Resolve any duplicate UID, missing object, or refresh-only drift result before merge.
-4. Run `Grafana Cloud Apply` from `main`.
+3. Because the protected plan runs only from exact `main`, merge the reviewed
+   import PR before dispatching it. If the plan reports a duplicate UID, missing
+   object, or refresh-only drift, stop and reconcile it in a follow-up reviewed
+   PR, merge that correction, and rerun the protected plan. Never apply until
+   the plan and drift check are clean.
+4. Run `Grafana Cloud Apply` from exact `main`.
 5. Verify the post-apply report shows backend dashboards, 20 backend alert rules, backend Prometheus query results, RabbitMQ metric-family query results, backend host/source Loki log lines, and worker-uplift RabbitMQ container log lines.
 6. Only after that verification passes, retire backend direct provisioning and remove backend-scoped Grafana management credentials. Leave backend telemetry write credentials in place.
 
 ### Rollback
 
-Rollback is a reviewed GitOps revert. Revert the infra PR on `main`, rerun `Grafana Cloud Plan`, inspect the normal plan and drift check, and run `Grafana Cloud Apply` only if the plan is expected. The managed folders, dashboards, and alert rule groups use `prevent_destroy`, so any destructive rollback requires an explicit reviewed code change that removes that protection.
+Rollback is a reviewed GitOps revert. Revert the infra PR on `main`, rerun
+`Grafana Cloud Plan`, and inspect the normal plan, value-free input evidence,
+and refresh-only drift result. The plan intentionally does not require the
+current live stack to equal the reverted desired state before apply. Run
+`Grafana Cloud Apply` only when the rollback delta is expected, then require the
+new apply-only exact-state/query-health artifact to pass. The managed folders,
+dashboards, and alert rule groups use `prevent_destroy`, so any destructive
+rollback requires an explicit reviewed code change that removes that protection.
 
 ## Enable Alloy On The VPS
 

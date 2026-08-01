@@ -26,6 +26,7 @@ VALIDATOR_SPEC.loader.exec_module(VALIDATOR)
 
 
 VALID_ENVIRONMENT = {
+    "can_admins_bypass": False,
     "protection_rules": [
         {
             "type": "required_reviewers",
@@ -46,8 +47,21 @@ VALID_BRANCH_POLICIES = {
 
 
 class PolicyAuditTests(unittest.TestCase):
-    def test_valid_exact_main_policy_reviewer_and_self_review_prevention_pass(self) -> None:
+    def test_valid_exact_main_policy_reviewer_self_review_and_admin_bypass_pass(self) -> None:
         MODULE.validate_policy(VALID_ENVIRONMENT, VALID_BRANCH_POLICIES)
+
+    def test_enabled_missing_or_malformed_admin_bypass_fails_closed(self) -> None:
+        for can_admins_bypass in (True, None, "false"):
+            with self.subTest(can_admins_bypass=can_admins_bypass):
+                environment = copy.deepcopy(VALID_ENVIRONMENT)
+                if can_admins_bypass is None:
+                    environment.pop("can_admins_bypass")
+                else:
+                    environment["can_admins_bypass"] = can_admins_bypass
+                with self.assertRaisesRegex(
+                    MODULE.PolicyAuditError, "disable administrator bypass"
+                ):
+                    MODULE.validate_policy(environment, VALID_BRANCH_POLICIES)
 
     def test_disabled_or_missing_self_review_prevention_fails_closed(self) -> None:
         for prevent_self_review in (False, None, "true"):
