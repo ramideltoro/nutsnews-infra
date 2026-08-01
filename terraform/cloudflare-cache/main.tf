@@ -72,20 +72,12 @@ locals {
           mode    = "override_origin"
           default = 2592000
         }
-        cache_key = {
-          cache_deception_armor      = true
-          ignore_query_strings_order = true
-          custom_key = {
-            header = {
-              contains = {
-                accept = ["image/avif", "image/webp"]
-              }
-              exclude_origin = false
-            }
-            query_string = {
-              include = {
-                list = ["q", "url", "w"]
-              }
+        vary = {
+          default = { action = "bypass" }
+          headers = {
+            accept = {
+              action      = "normalize"
+              media_types = ["image/avif", "image/webp"]
             }
           }
         }
@@ -124,7 +116,7 @@ locals {
     {
       ref         = "cache-public-feed-apis"
       action      = "set_cache_settings"
-      description = "Cache public feed APIs with functional parameters only"
+      description = "Cache public feed APIs while preserving the full functional query key"
       expression  = "(${local.production_host_expression} and ${local.cacheable_method_expression} and http.request.uri.path in {\"/api/articles\" \"/api/home-feed\"} and not (${local.router_variant_expression}))"
       enabled     = true
       action_parameters = {
@@ -133,15 +125,6 @@ locals {
         edge_ttl = {
           mode    = "override_origin"
           default = 7200
-        }
-        cache_key = {
-          cache_deception_armor      = true
-          ignore_query_strings_order = true
-          custom_key = {
-            query_string = {
-              include = { list = ["category", "cursor", "home", "lang", "page"] }
-            }
-          }
         }
         serve_stale = { disable_stale_while_updating = false }
       }
@@ -158,15 +141,6 @@ locals {
         edge_ttl = {
           mode    = "override_origin"
           default = 21600
-        }
-        cache_key = {
-          cache_deception_armor      = true
-          ignore_query_strings_order = true
-          custom_key = {
-            query_string = {
-              include = { list = ["lang", "limit", "page", "q"] }
-            }
-          }
         }
         serve_stale = { disable_stale_while_updating = false }
       }
@@ -206,13 +180,6 @@ locals {
         edge_ttl = {
           mode    = "override_origin"
           default = 2592000
-        }
-        cache_key = {
-          cache_deception_armor      = true
-          ignore_query_strings_order = true
-          custom_key = {
-            query_string = { include = { list = ["lang"] } }
-          }
         }
         serve_stale = { disable_stale_while_updating = false }
       }
