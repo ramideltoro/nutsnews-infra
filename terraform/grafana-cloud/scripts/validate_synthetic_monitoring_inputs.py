@@ -9,6 +9,7 @@ import os
 import sys
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 
 MIN_FREQUENCY_MS = 10_000
@@ -50,6 +51,7 @@ def validate_inputs(
     checks_raw: str,
     *,
     token_present: bool,
+    synthetic_monitoring_url: str,
     free_api_executions_monthly: int = DEFAULT_FREE_API_EXECUTIONS_MONTHLY,
 ) -> dict[str, Any]:
     probes = _json(probes_raw.strip() or "[]", list, "NUTSNEWS_GRAFANA_SYNTHETIC_PROBE_IDS_JSON")
@@ -87,6 +89,35 @@ def validate_inputs(
             "NUTSNEWS_GRAFANA_SYNTHETIC_MONITORING_ACCESS_TOKEN is required "
             "when synthetic probes and enabled HTTP checks are configured."
         )
+    endpoint_configured = bool(synthetic_monitoring_url.strip())
+    if probes and enabled_frequencies:
+        if not endpoint_configured:
+            raise ValueError(
+                "NUTSNEWS_GRAFANA_SYNTHETIC_MONITORING_URL is required "
+                "when synthetic probes and enabled HTTP checks are configured."
+            )
+        parsed_endpoint = urlparse(synthetic_monitoring_url.strip())
+        try:
+            port = parsed_endpoint.port
+        except ValueError as exc:
+            raise ValueError(
+                "NUTSNEWS_GRAFANA_SYNTHETIC_MONITORING_URL must be a bounded HTTPS Grafana endpoint."
+            ) from exc
+        if (
+            parsed_endpoint.scheme != "https"
+            or not parsed_endpoint.hostname
+            or not parsed_endpoint.hostname.endswith(".grafana.net")
+            or parsed_endpoint.username is not None
+            or parsed_endpoint.password is not None
+            or port not in (None, 443)
+            or parsed_endpoint.path not in ("", "/")
+            or parsed_endpoint.params
+            or parsed_endpoint.query
+            or parsed_endpoint.fragment
+        ):
+            raise ValueError(
+                "NUTSNEWS_GRAFANA_SYNTHETIC_MONITORING_URL must be a bounded HTTPS Grafana endpoint."
+            )
 
     projected_executions = round(
         sum(
@@ -106,6 +137,7 @@ def validate_inputs(
         "maximum_frequency_seconds": max(enabled_frequencies) // 1000 if enabled_frequencies else None,
         "projected_monthly_api_executions": projected_executions,
         "monthly_api_execution_guardrail": guardrail,
+        "synthetic_monitoring_endpoint_configured": endpoint_configured,
     }
     if projected_executions > guardrail:
         report["error_code"] = "synthetic_api_execution_guardrail_exceeded"
@@ -130,6 +162,9 @@ def main() -> int:
             os.environ.get("NUTSNEWS_GRAFANA_SYNTHETIC_HTTP_CHECKS_JSON", ""),
             token_present=bool(
                 os.environ.get("NUTSNEWS_GRAFANA_SYNTHETIC_MONITORING_ACCESS_TOKEN", "").strip()
+            ),
+            synthetic_monitoring_url=os.environ.get(
+                "NUTSNEWS_GRAFANA_SYNTHETIC_MONITORING_URL", ""
             ),
         )
     except QuotaGuardrailError as exc:
