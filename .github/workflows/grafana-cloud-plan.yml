@@ -177,23 +177,15 @@ jobs:
         run: |
           set -euo pipefail
 
-          set +e
-          tofu -chdir=terraform/grafana-cloud plan -refresh-only -detailed-exitcode -input=false -no-color
-          exit_code="$?"
-          set -e
-
-          case "$exit_code" in
-            0)
-              echo "No Grafana Cloud drift detected."
-              ;;
-            2)
-              echo "Grafana Cloud drift detected. Review and reconcile before apply." >&2
-              exit 2
-              ;;
-            *)
-              exit "$exit_code"
-              ;;
-          esac
+          refresh_plan="$RUNNER_TEMP/grafana-cloud-refresh-only.tfplan"
+          trap 'rm -f "$refresh_plan"' EXIT
+          tofu -chdir=terraform/grafana-cloud plan \
+            -refresh-only \
+            -input=false \
+            -no-color \
+            -out="$refresh_plan"
+          tofu -chdir=terraform/grafana-cloud show -json "$refresh_plan" \
+            | python3 terraform/grafana-cloud/scripts/validate_refresh_only_plan.py
 
       - name: Upload value-free protected-input evidence
         if: always()

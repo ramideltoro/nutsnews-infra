@@ -115,6 +115,19 @@ plan_upload_step = workflow_step(
 )
 for token in ("grafana-cloud-input-validation", "if-no-files-found: error"):
     require(token in plan_upload_step, f"Grafana Cloud plan input artifact is missing {token}.")
+drift_step = workflow_step(PLAN_TEXT, "Run Grafana Cloud drift check")
+for token in (
+    "-refresh-only",
+    '-out="$refresh_plan"',
+    'show -json "$refresh_plan"',
+    "validate_refresh_only_plan.py",
+    "trap 'rm -f \"$refresh_plan\"' EXIT",
+):
+    require(token in drift_step, f"Grafana Cloud resource-drift guard is missing {token}.")
+require(
+    "-detailed-exitcode" not in drift_step,
+    "Grafana Cloud drift guard must not classify root output changes as resource drift.",
+)
 
 require(
     "timeout-minutes: 45" in workflow_job(TEXT, "apply"),

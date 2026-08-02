@@ -121,8 +121,18 @@ require(
 for resource_text, name in ((MAIN_TF, "VPS dashboards"), (ALERTS_TF, "VPS alert groups")):
     require("prevent_destroy = true" in resource_text, f"{name} must be lifecycle-protected")
 
-require("plan -refresh-only -detailed-exitcode" in PLAN_WORKFLOW, "Grafana plan workflow must run refresh-only drift detection")
-require("Review and reconcile before apply" in PLAN_WORKFLOW, "drift workflow failure must explain reconciliation")
+for token in (
+    "plan \\\n            -refresh-only",
+    '-out="$refresh_plan"',
+    'show -json "$refresh_plan"',
+    "validate_refresh_only_plan.py",
+    "trap 'rm -f \"$refresh_plan\"' EXIT",
+):
+    require(token in PLAN_WORKFLOW, f"Grafana plan workflow resource-drift check is missing {token}")
+require(
+    "-detailed-exitcode" not in PLAN_WORKFLOW,
+    "Grafana plan workflow must not mistake root output changes for resource drift",
+)
 require(
     "terraform/grafana-cloud/scripts/verify_post_apply.py" not in PLAN_WORKFLOW,
     "Grafana plan must not run the apply-only exact-state verifier",
