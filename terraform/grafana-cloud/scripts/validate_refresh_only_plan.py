@@ -3,7 +3,9 @@
 
 Root output changes are configuration/state bookkeeping, not evidence that a
 remote Grafana resource changed outside OpenTofu. The plan JSON exposes actual
-remote changes separately in ``resource_drift``.
+remote changes separately in ``resource_drift``. Grafana's notification policy
+API also normalizes omitted timing lists to empty lists; that exact semantic
+no-op is ignored while every non-empty or otherwise changed policy still fails.
 """
 
 from __future__ import annotations
@@ -15,6 +17,50 @@ from typing import Any
 
 class RefreshPlanError(ValueError):
     """Raised when the refresh-only plan JSON cannot be trusted."""
+
+
+NOTIFICATION_POLICY_ADDRESS = "grafana_notification_policy.operations_email"
+EMPTY_TIMING_KEYS = {"active_timings", "mute_timings"}
+
+
+def _without_empty_timing_defaults(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {
+            key: _without_empty_timing_defaults(item)
+            for key, item in value.items()
+            if not (key in EMPTY_TIMING_KEYS and item == [])
+        }
+    if isinstance(value, list):
+        return [_without_empty_timing_defaults(item) for item in value]
+    return value
+
+
+def _contains_empty_timing_default(value: Any) -> bool:
+    if isinstance(value, dict):
+        return any(
+            (key in EMPTY_TIMING_KEYS and item == [])
+            or _contains_empty_timing_default(item)
+            for key, item in value.items()
+        )
+    if isinstance(value, list):
+        return any(_contains_empty_timing_default(item) for item in value)
+    return False
+
+
+def _is_notification_policy_empty_timing_normalization(
+    address: str, change: dict[str, Any], actions: list[str]
+) -> bool:
+    before = change.get("before")
+    after = change.get("after")
+    return (
+        address == NOTIFICATION_POLICY_ADDRESS
+        and actions == ["update"]
+        and isinstance(before, dict)
+        and isinstance(after, dict)
+        and before != after
+        and _contains_empty_timing_default(after)
+        and _without_empty_timing_defaults(after) == before
+    )
 
 
 def resource_drift_findings(payload: Any) -> list[tuple[str, tuple[str, ...]]]:
@@ -46,7 +92,9 @@ def resource_drift_findings(payload: Any) -> list[tuple[str, tuple[str, ...]]]:
             or not all(isinstance(action, str) and action for action in actions)
         ):
             raise RefreshPlanError("Refresh-only plan contains malformed drift actions.")
-        if actions != ["no-op"]:
+        if actions != ["no-op"] and not _is_notification_policy_empty_timing_normalization(
+            address, change, actions
+        ):
             findings.append((address, tuple(actions)))
     return findings
 
