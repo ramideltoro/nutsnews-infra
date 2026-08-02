@@ -195,6 +195,15 @@ require(
     "Protected apply must prove that Alloy exposes active Docker log targets.",
 )
 require(
+    r"regex_findall('(?m)^loki_source_docker_target_entries_total(?:\{[^\n]*\})?\s+[0-9.eE+-]+$')"
+    in TASKS,
+    "Alloy Docker target proof must use YAML-single-quoted regex escapes exactly once.",
+)
+require(
+    r"loki_source_docker_target_entries_total(?:\\{" not in TASKS,
+    "Alloy Docker target proof must not search for literal regex escape text.",
+)
+require(
     "status               = \"status\"" in ALLOY_CONFIG and "uri                  = \"request.uri\"" in ALLOY_CONFIG,
     "Docker/Caddy JSON parsing must extract status and URI as structured metadata.",
 )

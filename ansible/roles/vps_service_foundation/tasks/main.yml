@@ -1240,13 +1240,13 @@
       retries: 6
       delay: 10
       until: >-
-        vps_service_foundation_alloy_metrics.status == 200
-        and
-        (
-          vps_service_foundation_alloy_metrics.content
-          | regex_findall('(?m)^loki_source_docker_target_entries_total(?:\\{[^\\n]*\\})?\\s+[0-9.eE+-]+$')
-          | length
-        ) >= 2
+          vps_service_foundation_alloy_metrics.status == 200
+          and
+          (
+            vps_service_foundation_alloy_metrics.content
+            | regex_findall('(?m)^loki_source_docker_target_entries_total(?:\{[^\n]*\})?\s+[0-9.eE+-]+$')
+            | length
+          ) >= 2
       when:
         - vps_service_foundation_grafana_alloy_enabled | bool
         - vps_service_foundation_grafana_alloy_collect_docker_logs | bool
