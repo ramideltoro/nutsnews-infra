@@ -172,11 +172,11 @@ EXPECTED_WORKER_QUEUES = {
     *(f"nutsnews.worker.{stage}.v1.dlq" for stage in WORKER_QUEUE_STAGES),
 }
 WORKER_QUEUE_SELECTOR = (
-    r'nutsnews\.worker\.(fetch|canonicalization|enrichment|approval|translation|persistence|publication)'
-    r'\.v1(\.retry-(30s|5m|30m)|\.dlq)?'
+    r'nutsnews[.]worker[.](fetch|canonicalization|enrichment|approval|translation|persistence|publication)'
+    r'[.]v1([.]retry-(30s|5m|30m)|[.]dlq)?'
 )
 WORKER_MAIN_QUEUE_SELECTOR = (
-    r'nutsnews\.worker\.(fetch|canonicalization|enrichment|approval|translation|persistence|publication)\.v1'
+    r'nutsnews[.]worker[.](fetch|canonicalization|enrichment|approval|translation|persistence|publication)[.]v1'
 )
 RABBITMQ_QUEUE_FAMILY_EXPECTATIONS = {
     "backend_rabbitmq_queue_messages": EXPECTED_WORKER_QUEUES,
@@ -373,15 +373,15 @@ PROMETHEUS_QUERIES = {
         7,
     ),
     "backend_rabbitmq_queue_acked": (
-        f'rabbitmq_detailed_queue_messages_acked_total{{job="nutsnews-rabbitmq-queues",environment="production",instance="backend.nutsnews.com",host="backend.nutsnews.com",queue=~"{WORKER_QUEUE_SELECTOR}"}}',
+        f'(rabbitmq_detailed_queue_messages_acked_total{{job="nutsnews-rabbitmq-queues",environment="production",instance="backend.nutsnews.com",host="backend.nutsnews.com",queue=~"{WORKER_QUEUE_SELECTOR}"}}) or on (queue) (0 * rabbitmq_detailed_queue_messages{{job="nutsnews-rabbitmq-queues",environment="production",instance="backend.nutsnews.com",host="backend.nutsnews.com",queue=~"{WORKER_QUEUE_SELECTOR}"}})',
         35,
     ),
     "backend_rabbitmq_queue_delivered": (
-        f'rabbitmq_detailed_queue_messages_delivered_total{{job="nutsnews-rabbitmq-queues",environment="production",instance="backend.nutsnews.com",host="backend.nutsnews.com",queue=~"{WORKER_QUEUE_SELECTOR}"}}',
+        f'(rabbitmq_detailed_queue_messages_delivered_total{{job="nutsnews-rabbitmq-queues",environment="production",instance="backend.nutsnews.com",host="backend.nutsnews.com",queue=~"{WORKER_QUEUE_SELECTOR}"}}) or on (queue) (0 * rabbitmq_detailed_queue_messages{{job="nutsnews-rabbitmq-queues",environment="production",instance="backend.nutsnews.com",host="backend.nutsnews.com",queue=~"{WORKER_QUEUE_SELECTOR}"}})',
         35,
     ),
     "backend_rabbitmq_queue_redelivered": (
-        f'rabbitmq_detailed_queue_messages_redelivered_total{{job="nutsnews-rabbitmq-queues",environment="production",instance="backend.nutsnews.com",host="backend.nutsnews.com",queue=~"{WORKER_QUEUE_SELECTOR}"}}',
+        f'(rabbitmq_detailed_queue_messages_redelivered_total{{job="nutsnews-rabbitmq-queues",environment="production",instance="backend.nutsnews.com",host="backend.nutsnews.com",queue=~"{WORKER_QUEUE_SELECTOR}"}}) or on (queue) (0 * rabbitmq_detailed_queue_messages{{job="nutsnews-rabbitmq-queues",environment="production",instance="backend.nutsnews.com",host="backend.nutsnews.com",queue=~"{WORKER_QUEUE_SELECTOR}"}})',
         35,
     ),
     "backend_rabbitmq_canary": (

@@ -95,7 +95,7 @@ class ObservabilityTextfileExporterTests(unittest.TestCase):
         self.assertIn('nutsnews_docker_container_running{service="caddy"} 1', samples)
         self.assertIn('nutsnews_docker_container_healthy{service="caddy"} 1', samples)
         self.assertIn('nutsnews_docker_container_cpu_percent{service="caddy"} 1.5', samples)
-        self.assertIn('nutsnews_docker_container_memory_used_bytes{service="caddy"} 1.04858e+07', samples)
+        self.assertIn('nutsnews_docker_container_memory_used_bytes{service="caddy"} 10485760', samples)
         self.assertIn('nutsnews_docker_stats_available{service="web"} 0', samples)
         self.assertFalse(any("container=" in item or "compose_project=" in item for item in samples))
 
@@ -164,7 +164,7 @@ class ObservabilityTextfileExporterTests(unittest.TestCase):
                 f'web_revision="{web_revision}",'
                 'web_target="production-vps"} 1',
                 "nutsnews_production_ownership_available 1",
-                "nutsnews_production_ownership_last_success_timestamp_seconds 1.8e+09",
+                "nutsnews_production_ownership_last_success_timestamp_seconds 1800000000",
             ],
         )
         self.assertFalse(hasattr(EXPORTER, "PRODUCTION_OWNERSHIP"))
@@ -246,9 +246,18 @@ class ObservabilityTextfileExporterTests(unittest.TestCase):
         self.assertIn("nutsnews_email_reporting_last_report_exit_code 2", samples)
         self.assertIn('nutsnews_email_reporting_last_report_conclusion{outcome="critical"} 1', samples)
         self.assertIn('nutsnews_email_reporting_last_report_conclusion{outcome="success"} 0', samples)
-        self.assertIn("nutsnews_email_reporting_last_report_run_timestamp_seconds 1.78546e+09", samples)
-        self.assertIn("nutsnews_email_reporting_last_report_success_timestamp_seconds 1.78537e+09", samples)
-        self.assertIn("nutsnews_email_reporting_last_report_delivery_success_timestamp_seconds 1.78546e+09", samples)
+        self.assertIn("nutsnews_email_reporting_last_report_run_timestamp_seconds 1785456300", samples)
+        self.assertIn("nutsnews_email_reporting_last_report_success_timestamp_seconds 1785369900", samples)
+        self.assertIn("nutsnews_email_reporting_last_report_delivery_success_timestamp_seconds 1785456300", samples)
+
+    def test_sample_preserves_epoch_timestamp_precision(self) -> None:
+        rendered = EXPORTER.sample(
+            "nutsnews_example_timestamp_seconds",
+            1_785_662_843.125,
+        )
+
+        self.assertEqual(rendered, "nutsnews_example_timestamp_seconds 1785662843.125")
+        self.assertLess(abs(float(rendered.split()[1]) - 1_785_662_843.125), 0.001)
 
 
 if __name__ == "__main__":

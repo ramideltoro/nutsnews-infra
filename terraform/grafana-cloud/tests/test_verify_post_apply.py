@@ -244,6 +244,22 @@ def remote_slo(
 
 
 class VerifyPostApplyTests(unittest.TestCase):
+    def test_rabbitmq_queue_selectors_are_valid_promql_string_literals(self) -> None:
+        for selector in (
+            MODULE.WORKER_QUEUE_SELECTOR,
+            MODULE.WORKER_MAIN_QUEUE_SELECTOR,
+        ):
+            self.assertNotIn(r"\.", selector)
+            self.assertIn("[.]", selector)
+
+        for name in (
+            "backend_rabbitmq_queue_acked",
+            "backend_rabbitmq_queue_delivered",
+            "backend_rabbitmq_queue_redelivered",
+        ):
+            query = MODULE.PROMETHEUS_QUERIES[name][0]
+            self.assertIn("or on (queue) (0 * rabbitmq_detailed_queue_messages", query)
+
     def test_synthetic_execution_guardrail_is_exactly_ninety_thousand(self) -> None:
         errors: list[str] = []
         MODULE.validate_synthetic_execution_guardrail(90_000, errors)
