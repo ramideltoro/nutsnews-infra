@@ -429,28 +429,31 @@ reported as having human receipt evidence.
 
 The Grafana Linux/node_exporter integration inventory classifies 24 alerts and
 16 recording rules in
-`terraform/grafana-cloud/catalog/non-terraform-alert-rules.json`. Twenty-four
-alerts plus 11 node-exporter recording rules are long-term retained. Five
+`terraform/grafana-cloud/catalog/non-terraform-alert-rules.json`. Eleven
+node-exporter recording rules are long-term retained. Five
 legacy Asserts recording rules remain live because the authenticated integration
 API reports 1.6.2 installed, 1.6.2 available, and `has_update=false`. Never
 delete those five UIDs directly. Re-review and use the supported integration
-upgrade only after Grafana offers it. The verifier accepts the exact reviewed
-40-rule unavailable-upgrade shape or the exact 35-rule post-upgrade shape and
-rejects partial or unknown replacements.
+upgrade only after Grafana offers it. After alert migration, the verifier
+accepts the exact 16-rule alerts-disabled shape or the exact 11-rule
+post-upgrade shape. It rejects the initial 40-rule shape as an incomplete
+migration and rejects partial or unknown inventories.
 
-Run `Grafana Linux Integration Alert Normalization` in apply mode with exact
-confirmation `linux-integration-alerts` to restore the NutsNews contract on the
-24 alert UIDs. The protected workflow updates only labels and annotations
-through the Alerting Provisioning API, preserves vendor query definitions and
-provenance, changes no recording rules, and verifies every write. It fails
-closed on rule identity, source-severity, provenance, or live integration-version
-drift. The standard context is owner, route, service, environment, normalized
-severity, dashboard, and runbook. Re-run after a vendor refresh if verification
-detects that the vendor overwrote this context. The committed
+First run the protected Grafana apply to create the 24 exact source-reviewed
+Terraform replacements. Then run `Grafana Linux Integration Alert Migration`
+in apply mode with exact confirmation `linux-integration-alert-migration`.
+The workflow proves every live vendor definition matches its replacement,
+verifies all replacements and all 16 recording rules, then disables only the
+vendor alert bundle through the integration's supported `configurable_alerts`
+control. Logs and recording rules remain enabled. It fails closed before
+mutation on rule identity, source-severity, provenance, query, context, or live
+integration-version drift, and verifies the final state after mutation. The
+standard replacement context is owner, route, service, environment, normalized
+severity, dashboard, and runbook. The committed
 fingerprint policy begins in `pending_authenticated_rollout`, so the first
 authenticated verification exports each deterministic live definition hash and
 intentionally fails. Review those live definitions, commit
-`definitionFingerprintSha256` on all 35 long-term retained rules, and change
+`definitionFingerprintSha256` on all 11 long-term retained rules, and change
 `baselineStatus` to `approved`; only then does the verifier compare definitions
 and allow a drift-validation claim. Do not invent hashes or describe the
 pending bootstrap report as fingerprint validation.
@@ -636,7 +639,7 @@ authoritative only after their protected apply and post-apply verification.
 1. Publish and deploy the backend API, worker telemetry, backend Alloy, PostgreSQL, relay, Caddy, and durable content/ownership exporters. Keep worker uplift shadow-owned.
 2. Run the protected VPS apply with Alloy enabled, the bounded Docker/textfile collectors, normalized journal coverage, and the daily 30-hour backup-verification policy.
 3. Run the backend and VPS health audits once and confirm their conclusion, last-success age, collector freshness, and unavailable/disabled states are truthful.
-4. Resolve the Linux integration alert-normalization and authenticated fingerprint-baseline blockers; do not waive either as vendor metadata.
+4. Apply and verify the 24 Terraform Linux alert replacements, run the protected integration alert migration, and approve the 11-rule recording baseline; do not waive any stage as vendor metadata.
 5. Run Grafana Cloud Plan, review the live diff, then run the protected apply and require the complete post-apply verification artifact to pass.
 6. Fire and resolve the notification canary once, retain its API transition record, then run the separate human receipt attestation with distinct SHA-256 references for retained firing and recovery evidence keyed to the same stable canary ID; do not claim independent verification because the workflow does not fetch the private store.
 7. Run every failure drill in dry-run mode and review its exact target, alert UIDs, fixed hold period, recovery, and sanitized evidence plan.

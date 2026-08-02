@@ -1849,7 +1849,7 @@ class VerifyPostApplyTests(unittest.TestCase):
             legacy_errors,
         )
         self.assertTrue(
-            any("catalog says the supported Grafana Linux integration upgrade" in error for error in legacy_errors)
+            any("vendor alert bundle" in error for error in legacy_errors)
         )
         catalog["integrationUpgradeStatus"] = "not_available_from_live_api"
         del provisioned["obsolete-1"]

@@ -146,6 +146,7 @@ jobs:
           python3 terraform/grafana-cloud/tests/test_validate_synthetic_monitoring_inputs.py
           python3 terraform/grafana-cloud/tests/validate_observability_enhancements.py
           python3 terraform/grafana-cloud/tests/test_verify_post_apply.py
+          python3 terraform/grafana-cloud/tests/test_migrate_linux_integration_alerts.py
           python3 terraform/grafana-cloud/tests/test_notification_canary.py
           python3 terraform/grafana-cloud/tests/test_deployment_annotation.py
           tofu -chdir=terraform/grafana-cloud init -input=false -backend-config="$RUNNER_TEMP/grafana-backend.hcl"
