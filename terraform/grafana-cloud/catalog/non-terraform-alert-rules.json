@@ -8,6 +8,9 @@
   },
   "owner": "grafana-cloud-linux-integration",
   "source": "Grafana Cloud Linux/node_exporter integration",
+  "integrationVersionObserved": "1.6.2",
+  "integrationVersionAvailable": "1.6.2",
+  "integrationUpgradeStatus": "not_available_from_live_api",
   "integrationVersionTarget": "1.6.3",
   "integrationEvidenceUrl": "https://grafana.com/docs/grafana-cloud/observe-and-act/monitor-infrastructure/integrations/integration-reference/integration-linux-node/#changelog",
   "contextPolicy": {
@@ -21,9 +24,12 @@
     },
     "severityNormalization": {"info": "low", "warning": "warning", "critical": "critical"},
     "requiredAlertAnnotations": ["summary", "description", "dashboard_url", "runbook_url"],
-    "requiredAlertAnnotationValues": {"dashboard_url": "/d/nutsnews-vps-overview"},
-    "normalizationStatus": "blocked_pending_owned_replacements_or_supported_vendor_relabel",
-    "normalizationRolloutBlocker": "The 24 retained Linux integration alerts do not yet satisfy the universal NutsNews routing and dashboard-context contract. Post-apply verification must fail closed until an authenticated review either proves a supported in-place vendor relabel or provisions Terraform-owned normalized equivalents and removes vendor alerts only after duplicate equivalence is proven. Root-policy fallback is not accepted as normalization."
+    "requiredAlertAnnotationValues": {
+      "dashboard_url": "/d/nutsnews-vps-overview",
+      "runbook_url": "https://github.com/ramideltoro/nutsnews-infra/blob/main/runbooks/GRAFANA_CLOUD_OBSERVABILITY.md"
+    },
+    "normalizationStatus": "approved",
+    "normalizationMechanism": "Protected exact-main workflow updates only the reviewed 24 alert UIDs through Grafana's Alerting Provisioning API, preserves vendor definitions and provenance, changes no recording rules, and verifies every rule after write."
   },
   "definitionFingerprintPolicy": {
     "algorithm": "sha256",
@@ -34,7 +40,7 @@
   },
   "duplicateReview": {
     "retained": "The 24 alert rules and 11 node-exporter recording rules are not proven duplicates of nutsnews-infra-managed rules and remain integration-owned.",
-    "obsolete": "Grafana Linux integration 1.6.3 removes the five Asserts resource recording rules because the Asserts base pipeline now provides them. Remove them only by upgrading the supported integration, never by blind UID deletion."
+    "obsolete": "The five Asserts resource recording rules remain live because the stack's authenticated integration API reports 1.6.2 installed, 1.6.2 available, and has_update=false. Keep them until Grafana offers the supported integration upgrade; never delete them by UID."
   },
   "legacyObservedRuleCount": 40,
   "expectedRetainedRuleCount": 35,
@@ -76,12 +82,12 @@
     {"uid": "0160fb80-7873-506d-af67-dd6a94878344", "group": "node-exporter", "title": "NodeSystemdServiceCrashlooping", "kind": "alert", "severity": "warning", "disposition": "retain", "sourceDetail": "linux integration"},
     {"uid": "eb5f628f-be95-5b1c-be2f-b8c216a7e029", "group": "node-exporter", "title": "NodeSystemdServiceFailed", "kind": "alert", "severity": "warning", "disposition": "retain", "sourceDetail": "linux integration"},
     {"uid": "e643033c-eb08-57ce-9744-80532cf7d521", "group": "node-exporter", "title": "NodeTextFileCollectorScrapeError", "kind": "alert", "severity": "warning", "disposition": "retain", "sourceDetail": "linux integration"},
-    {"uid": "a3455147-f220-53f4-8261-8551a6e86d17", "group": "node-exporter-filesystem", "title": "NodeFilesystemAlmostOutOfFiles", "kind": "alert", "severity": "warning", "disposition": "retain", "sourceDetail": "linux integration"},
-    {"uid": "bbf5608b-b69e-58e7-b102-1bc5df13af0d", "group": "node-exporter-filesystem", "title": "NodeFilesystemAlmostOutOfFiles", "kind": "alert", "severity": "critical", "disposition": "retain", "sourceDetail": "linux integration"},
+    {"uid": "a3455147-f220-53f4-8261-8551a6e86d17", "group": "node-exporter-filesystem", "title": "NodeFilesystemAlmostOutOfFiles", "kind": "alert", "severity": "critical", "disposition": "retain", "sourceDetail": "linux integration"},
+    {"uid": "bbf5608b-b69e-58e7-b102-1bc5df13af0d", "group": "node-exporter-filesystem", "title": "NodeFilesystemAlmostOutOfFiles", "kind": "alert", "severity": "warning", "disposition": "retain", "sourceDetail": "linux integration"},
     {"uid": "3363e973-98e8-5d7e-a3b8-8bf7c1d49752", "group": "node-exporter-filesystem", "title": "NodeFilesystemAlmostOutOfSpace", "kind": "alert", "severity": "warning", "disposition": "retain", "sourceDetail": "linux integration"},
     {"uid": "c9f53ea6-643b-57e5-ac9c-7b665f9bfd05", "group": "node-exporter-filesystem", "title": "NodeFilesystemAlmostOutOfSpace", "kind": "alert", "severity": "critical", "disposition": "retain", "sourceDetail": "linux integration"},
-    {"uid": "3aaba02e-f615-5511-b01d-3ddae0bfb177", "group": "node-exporter-filesystem", "title": "NodeFilesystemFilesFillingUp", "kind": "alert", "severity": "warning", "disposition": "retain", "sourceDetail": "linux integration"},
-    {"uid": "5b082cee-4c7f-5d52-8143-e83d6341a9c2", "group": "node-exporter-filesystem", "title": "NodeFilesystemFilesFillingUp", "kind": "alert", "severity": "critical", "disposition": "retain", "sourceDetail": "linux integration"},
+    {"uid": "3aaba02e-f615-5511-b01d-3ddae0bfb177", "group": "node-exporter-filesystem", "title": "NodeFilesystemFilesFillingUp", "kind": "alert", "severity": "critical", "disposition": "retain", "sourceDetail": "linux integration"},
+    {"uid": "5b082cee-4c7f-5d52-8143-e83d6341a9c2", "group": "node-exporter-filesystem", "title": "NodeFilesystemFilesFillingUp", "kind": "alert", "severity": "warning", "disposition": "retain", "sourceDetail": "linux integration"},
     {"uid": "b6c13892-f082-5da8-8128-656f6a52a4ca", "group": "node-exporter.rules", "title": "instance:node_cpu_utilisation:rate5m", "kind": "recording", "disposition": "retain", "sourceDetail": "linux integration"},
     {"uid": "b25577f5-20f6-5aa8-b463-c888ad91bb8b", "group": "node-exporter.rules", "title": "instance:node_load1_per_cpu:ratio", "kind": "recording", "disposition": "retain", "sourceDetail": "linux integration"},
     {"uid": "c6bab08b-436c-53ca-a449-d9fe6a380f29", "group": "node-exporter.rules", "title": "instance:node_memory_utilisation:ratio", "kind": "recording", "disposition": "retain", "sourceDetail": "linux integration"},

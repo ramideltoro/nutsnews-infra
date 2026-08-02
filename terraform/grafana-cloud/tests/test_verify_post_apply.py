@@ -1704,6 +1704,7 @@ class VerifyPostApplyTests(unittest.TestCase):
                 "baselineStatus": "pending_authenticated_rollout",
             },
             "legacyObservedRuleCount": 3,
+            "integrationUpgradeStatus": "not_available_from_live_api",
             "expectedRetainedRuleCount": 2,
             "expectedPostUpgradeRuleCount": 2,
             "expectedPostUpgradeKindCounts": {"alert": 1, "recording": 1},
@@ -1838,6 +1839,7 @@ class VerifyPostApplyTests(unittest.TestCase):
             "query": "sum(up)",
             "health": "ok",
         }
+        catalog["integrationUpgradeStatus"] = "completed_supported_integration_upgrade"
         legacy_errors: list[str] = []
         MODULE.validate_external_rule_inventory(
             catalog,
@@ -1847,8 +1849,9 @@ class VerifyPostApplyTests(unittest.TestCase):
             legacy_errors,
         )
         self.assertTrue(
-            any("supported Grafana Linux integration upgrade" in error for error in legacy_errors)
+            any("catalog says the supported Grafana Linux integration upgrade" in error for error in legacy_errors)
         )
+        catalog["integrationUpgradeStatus"] = "not_available_from_live_api"
         del provisioned["obsolete-1"]
         del ruler["obsolete-1"]
 

@@ -3025,6 +3025,12 @@ def validate_external_rule_inventory(
         for uid, item in expected_rules.items()
         if item.get("disposition") == "remove_via_integration_upgrade"
     }
+    upgrade_status = str(catalog.get("integrationUpgradeStatus", ""))
+    if upgrade_status not in {
+        "not_available_from_live_api",
+        "completed_supported_integration_upgrade",
+    }:
+        errors.append("integration upgrade availability status is invalid")
     folder_rules = {
         uid: rule
         for uid, rule in provisioned_rules.items()
@@ -3225,11 +3231,11 @@ def validate_external_rule_inventory(
     legacy_count = catalog.get("legacyObservedRuleCount")
     post_upgrade_count = catalog.get("expectedPostUpgradeRuleCount")
     if observed_folder_count == legacy_count and legacy_count != post_upgrade_count:
-        errors.append(
-            "integration folder still contains the reviewed legacy rule set; perform "
-            "the supported Grafana Linux integration upgrade to remove only the five "
-            "vendor-obsolete Asserts recording rules before rollout acceptance"
-        )
+        if upgrade_status != "not_available_from_live_api":
+            errors.append(
+                "integration folder still contains the reviewed legacy rule set after "
+                "the catalog says the supported Grafana Linux integration upgrade is available"
+            )
     elif observed_folder_count != post_upgrade_count:
         errors.append(
             "integration folder is in neither the reviewed legacy shape nor the required "

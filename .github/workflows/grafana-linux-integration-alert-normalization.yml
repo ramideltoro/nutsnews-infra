@@ -1,0 +1,97 @@
+name: Grafana Linux Integration Alert Normalization
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Plan is read-only; apply updates and verifies the reviewed 24 alert UIDs.
+        required: true
+        type: choice
+        options:
+          - plan
+          - apply
+      confirmation:
+        description: Apply requires linux-integration-alerts; plan requires blank.
+        required: false
+        default: ""
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: grafana-cloud-apply
+  queue: max
+  cancel-in-progress: false
+
+jobs:
+  audit-production-vps-policy:
+    name: Audit production-vps environment protection
+    if: ${{ github.repository == 'ramideltoro/nutsnews-infra' && github.ref == 'refs/heads/main' }}
+    permissions:
+      actions: read
+      contents: read
+    uses: ./.github/workflows/production-vps-environment-policy-audit.yml
+
+  normalize:
+    name: Normalize reviewed Linux integration alerts
+    if: ${{ github.repository == 'ramideltoro/nutsnews-infra' && github.ref == 'refs/heads/main' }}
+    needs: audit-production-vps-policy
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: production-vps
+
+    steps:
+      - name: Validate exact-main mutation guard
+        shell: bash
+        env:
+          MODE: ${{ inputs.mode }}
+          CONFIRMATION: ${{ inputs.confirmation }}
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_REF" != "refs/heads/main" ]]; then
+            echo "Linux integration normalization must run from main." >&2
+            exit 1
+          fi
+          expected_confirmation=""
+          if [[ "$MODE" == "apply" ]]; then
+            expected_confirmation="linux-integration-alerts"
+          elif [[ "$MODE" != "plan" ]]; then
+            echo "Unsupported normalization mode." >&2
+            exit 1
+          fi
+          if [[ "$CONFIRMATION" != "$expected_confirmation" ]]; then
+            echo "The confirmation does not match the fixed normalization contract." >&2
+            exit 1
+          fi
+
+      - name: Checkout reviewed implementation
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Validate normalization implementation
+        run: |
+          set -euo pipefail
+          python3 terraform/grafana-cloud/tests/test_normalize_linux_integration_alerts.py
+          python3 terraform/grafana-cloud/tests/validate_observability_enhancements.py
+
+      - name: Plan or apply exact reviewed alert normalization
+        env:
+          GRAFANA_URL: ${{ secrets.NUTSNEWS_GRAFANA_CLOUD_URL }}
+          GRAFANA_SERVICE_ACCOUNT_TOKEN: ${{ secrets.NUTSNEWS_GRAFANA_CLOUD_SERVICE_ACCOUNT_TOKEN }}
+          MODE: ${{ inputs.mode }}
+        run: |
+          set -euo pipefail
+          python3 terraform/grafana-cloud/scripts/normalize_linux_integration_alerts.py \
+            --mode "$MODE" \
+            --output "$RUNNER_TEMP/grafana-linux-integration-alert-normalization.json"
+
+      - name: Upload value-free normalization evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
+        with:
+          name: grafana-linux-integration-alert-normalization-${{ github.run_id }}
+          path: ${{ runner.temp }}/grafana-linux-integration-alert-normalization.json
+          if-no-files-found: error
+          retention-days: 90
