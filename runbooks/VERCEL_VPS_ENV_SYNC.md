@@ -20,7 +20,9 @@ server-side consumers while retaining `NEXT_PUBLIC_SUPABASE_URL` for browser
 code. `ACTIONS_READ_TOKEN` is synchronized because the production-readiness
 dashboard can use it for GitHub Actions status. The Auth.js Google OAuth and
 session secrets are synchronized as server-only values because Auth.js reads
-the `AUTH_*` convention internally.
+the `AUTH_*` convention internally. Production analytics is also fail-closed:
+`NEXT_PUBLIC_GA_ID` must be present and synchronize to
+`NUTSNEWS_PUBLIC_GA_ID=G-8VXSG5NWM4`.
 
 The read-only failover visibility dashboard also depends on this sync. The
 VPS runtime receives `NUTSNEWS_FAILOVER_CONTROLLER_STATUS_URL` and the
@@ -54,12 +56,12 @@ removal procedures.
   `production-vps` Environment approval plus the exact confirmation string.
 
 An enabled production render fails before materialization unless the merged
-map contains the complete runtime-safety and public Supabase contract. This
-guard also applies when `sync_vercel_production=false`, so that option cannot
-silently replace a working production environment with an incomplete map. The
-managed Compose health check uses `/readyz`; `/healthz` remains a liveness and
-immutable-identity endpoint, not proof that runtime policy and data access are
-usable.
+map contains the complete runtime-safety and public Supabase contract plus the
+exact production Google Analytics ID. With `sync_vercel_production=false`, the
+workflow excludes production from the deployment set, so it neither replaces
+nor validates the live production environment. The managed Compose health check
+uses `/readyz`; `/healthz` remains a liveness and immutable-identity endpoint,
+not proof that runtime policy and data access are usable.
 
 The workflow is serialized with the existing production VPS concurrency group.
 It reads the VPS env file only through a read-only SSH command that emits names
@@ -80,12 +82,13 @@ metadata, structured encrypted envelopes, newlines, and invalid runtime shapes
 before writing the private temporary selection file. Auth.js values are checked
 semantically: `AUTH_GOOGLE_ID` must match a Google Web client ID, `AUTH_GOOGLE_SECRET`
 must be nonempty, `AUTH_SECRET` must be at least 32 characters, and
-`ADMIN_EMAILS` must be a comma-separated list of email addresses. Failures name
-only the affected variables; response bodies and values are never printed. The
-failover controller status URL must be the HTTPS
-`nutsnews-controller.nutsnews.workers.dev/status` endpoint, and the status HMAC
-secret must be present and look like usable plaintext whenever either failover
-status variable is selected.
+`ADMIN_EMAILS` must be a comma-separated list of email addresses. The
+synchronized analytics destination must equal the reviewed production
+measurement ID, `G-8VXSG5NWM4`. Failures name only the affected variables;
+response bodies and values are never printed. The failover controller status
+URL must be the HTTPS `nutsnews-controller.nutsnews.workers.dev/status`
+endpoint, and the status HMAC secret must be present and look like usable
+plaintext whenever either failover status variable is selected.
 
 If Vercel returns HTTP 403 while retrieving a selected secret, the protected
 token does not have access to decrypt that project variable. Create or rotate
@@ -107,6 +110,9 @@ Production through the dashboard or secure stdin-based CLI/API flow, rerun
 check mode, and use the protected apply only after the name-only diff is
 reviewed. Verify the VPS over read-only SSH and confirm the application health
 endpoint. The GitOps rollback source is Vercel, not a hand-edited VPS env file.
+Removing or rotating the production analytics ID also requires a reviewed
+contract change; otherwise check and apply modes intentionally fail before
+materialization.
 
 Official references:
 

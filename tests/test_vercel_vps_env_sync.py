@@ -106,6 +106,7 @@ def valid_runtime_fixture(**overrides: str) -> dict[str, str]:
     values = {
         **REQUIRED_AUTH_VALUES,
         **HOME_SERVER_STATS_VALUES,
+        "NUTSNEWS_PUBLIC_GA_ID": sync.PRODUCTION_GA_ID,
     }
     values.update(overrides)
     return values
@@ -131,6 +132,21 @@ class VercelVpsEnvSyncTests(unittest.TestCase):
 
     def test_current_production_inventory_is_explicitly_classified(self) -> None:
         self.assertEqual(set(self.mapping["variables"]), CURRENT_VERCEL_PRODUCTION_NAMES)
+
+    def test_production_google_analytics_id_is_required_and_exact(self) -> None:
+        sync.validate_selected_values(valid_runtime_fixture())
+
+        for invalid_values in (
+            valid_runtime_fixture(NUTSNEWS_PUBLIC_GA_ID="G-DIFFERENT1"),
+            {
+                key: value
+                for key, value in valid_runtime_fixture().items()
+                if key != "NUTSNEWS_PUBLIC_GA_ID"
+            },
+        ):
+            with self.subTest(invalid_values=sorted(invalid_values)):
+                with self.assertRaisesRegex(SystemExit, "NUTSNEWS_PUBLIC_GA_ID"):
+                    sync.validate_selected_values(invalid_values)
 
     def test_added_variable_reports_name_only(self) -> None:
         output = io.StringIO()

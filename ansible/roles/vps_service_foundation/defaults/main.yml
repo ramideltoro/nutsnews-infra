@@ -829,6 +829,7 @@ vps_service_foundation_nutsnews_production_required_runtime_env_values:
   NUTSNEWS_SIDE_EFFECTS_MODE: live
   NUTSNEWS_DATA_ENVIRONMENT: production
   NUTSNEWS_SUPABASE_CREDENTIALS_ENV: production
+  NUTSNEWS_PUBLIC_GA_ID: G-8VXSG5NWM4
 vps_service_foundation_nutsnews_production_required_runtime_env_keys:
   - NUTSNEWS_RUNTIME_ENV
   - NUTSNEWS_SIDE_EFFECTS_MODE
@@ -838,6 +839,7 @@ vps_service_foundation_nutsnews_production_required_runtime_env_keys:
   - NUTSNEWS_PRODUCTION_SUPABASE_PROJECT_REF
   - NUTSNEWS_PUBLIC_SUPABASE_URL
   - NUTSNEWS_PUBLIC_SUPABASE_ANON_KEY
+  - NUTSNEWS_PUBLIC_GA_ID
 
 # The legacy production inputs above remain the reviewed release-manifest
 # interface used by the existing promotion workflow. Runtime deployment uses

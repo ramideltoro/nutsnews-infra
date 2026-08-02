@@ -1528,6 +1528,7 @@ jobs:
             --expected-config-generation "production-${RELEASE_BUILD_ID}-${RELEASE_MIGRATION_HEAD}" \
             --expected-database-provider-mode "$RELEASE_DATABASE_PROVIDER_MODE" \
             --expected-production-writes-paused "$PRODUCTION_WRITES_PAUSED" \
+            --expected-ga-id G-8VXSG5NWM4 \
             --production-safe-surfaces
 
       - name: Run production admin backend operation smoke

@@ -33,6 +33,7 @@ MAX_RUNTIME_AUTH_SECRET_LENGTH = 512
 BACKEND_POSTGRES_PRIMARY_CONFIRMATION = "enable-backend-postgres-primary"
 ADMIN_CANONICAL_ORIGIN = "https://www.nutsnews.com"
 ADMIN_DIRECT_ORIGIN = "https://vps.nutsnews.com"
+PRODUCTION_GA_ID = "G-8VXSG5NWM4"
 FAILOVER_CONTROLLER_STATUS_HOST = "nutsnews-controller.nutsnews.workers.dev"
 MIN_FAILOVER_HMAC_SECRET_LENGTH = 32
 HOME_SERVER_STATS_URL = "https://ai.nutsnews.com/stats"
@@ -233,6 +234,9 @@ def usable_home_server_stats_api_key(value: str) -> bool:
 
 def validate_selected_values(selected: dict[str, str]) -> None:
     invalid: set[str] = set()
+    if selected.get("NUTSNEWS_PUBLIC_GA_ID", "") != PRODUCTION_GA_ID:
+        invalid.add("NUTSNEWS_PUBLIC_GA_ID")
+
     for key in ("AUTH_GOOGLE_ID", "AUTH_GOOGLE_SECRET", "AUTH_SECRET"):
         value = selected.get(key, "")
         if not isinstance(value, str) or not value.strip():
