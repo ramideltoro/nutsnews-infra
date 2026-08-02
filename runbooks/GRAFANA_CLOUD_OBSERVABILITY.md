@@ -430,27 +430,27 @@ reported as having human receipt evidence.
 The Grafana Linux/node_exporter integration inventory classifies 24 alerts and
 16 recording rules in
 `terraform/grafana-cloud/catalog/non-terraform-alert-rules.json`. Twenty-four
-alerts plus 11 node-exporter recording rules remain integration-owned and
-retained. The five legacy Asserts recording rules are marked for removal only
-through the supported Linux integration 1.6.3 upgrade because Grafana's
-changelog identifies the Asserts base pipeline as their replacement. The
-post-apply verifier recognizes the reviewed 40-rule legacy shape for diagnosis
-but fails acceptance until the supported integration upgrade produces the exact
-35-rule post-upgrade shape. Partial or unknown replacement inventories also
-fail. Never delete the five recording-rule UIDs directly. The verifier checks
-retained rule identity, kind, context, query material, and health rather than
-trusting UID presence. The 24 alert rules are an explicit rollout blocker, not
-an accepted metadata exception: every one must gain the standard NutsNews
-owner, route, service, environment, normalized severity, dashboard, and runbook
-context. Keep `normalizationStatus` blocked until an authenticated review either
-proves supported in-place vendor relabeling or compares pinned official
-definitions, provisions source-owned normalized equivalents, and disables the
-vendor duplicates only after equivalence is proven. Root-policy fallback does
-not satisfy normalization. The committed
+alerts plus 11 node-exporter recording rules are long-term retained. Five
+legacy Asserts recording rules remain live because the authenticated integration
+API reports 1.6.2 installed, 1.6.2 available, and `has_update=false`. Never
+delete those five UIDs directly. Re-review and use the supported integration
+upgrade only after Grafana offers it. The verifier accepts the exact reviewed
+40-rule unavailable-upgrade shape or the exact 35-rule post-upgrade shape and
+rejects partial or unknown replacements.
+
+Run `Grafana Linux Integration Alert Normalization` in apply mode with exact
+confirmation `linux-integration-alerts` to restore the NutsNews contract on the
+24 alert UIDs. The protected workflow updates only labels and annotations
+through the Alerting Provisioning API, preserves vendor query definitions and
+provenance, changes no recording rules, and verifies every write. It fails
+closed on rule identity, source-severity, provenance, or live integration-version
+drift. The standard context is owner, route, service, environment, normalized
+severity, dashboard, and runbook. Re-run after a vendor refresh if verification
+detects that the vendor overwrote this context. The committed
 fingerprint policy begins in `pending_authenticated_rollout`, so the first
 authenticated verification exports each deterministic live definition hash and
 intentionally fails. Review those live definitions, commit
-`definitionFingerprintSha256` on all 35 retained rules, and change
+`definitionFingerprintSha256` on all 35 long-term retained rules, and change
 `baselineStatus` to `approved`; only then does the verifier compare definitions
 and allow a drift-validation claim. Do not invent hashes or describe the
 pending bootstrap report as fingerprint validation.

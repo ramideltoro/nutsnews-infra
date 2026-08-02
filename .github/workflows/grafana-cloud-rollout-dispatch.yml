@@ -15,6 +15,7 @@ on:
           - vps-check
           - vps-apply
           - notification-canary-fire-resolve
+          - linux-integration-alert-normalize
           - failure-drill-dry-run
           - failure-drill-execute
       confirmation:
@@ -104,6 +105,9 @@ jobs:
             notification-canary-fire-resolve)
               expected_confirmation="notification-canary"
               ;;
+            linux-integration-alert-normalize)
+              expected_confirmation="linux-integration-alerts"
+              ;;
             failure-drill-dry-run|failure-drill-execute)
               expected_confirmation=""
               ;;
@@ -175,6 +179,11 @@ jobs:
               workflow="grafana-notification-canary.yml"
               display_title="Grafana Notification Canary"
               dispatch_args+=(--field action=fire-resolve --field confirm_canary="$CONFIRMATION")
+              ;;
+            linux-integration-alert-normalize)
+              workflow="grafana-linux-integration-alert-normalization.yml"
+              display_title="Grafana Linux Integration Alert Normalization"
+              dispatch_args+=(--field mode=apply --field confirmation="$CONFIRMATION")
               ;;
             failure-drill-dry-run|failure-drill-execute)
               workflow="grafana-failure-drill.yml"

@@ -43,6 +43,12 @@ PROMOTION_WORKFLOW = (REPO / ".github/workflows/nutsnews-release-promotion.yml")
 ROLLBACK_WORKFLOW = (REPO / ".github/workflows/protected-nutsnews-rollback.yml").read_text(encoding="utf-8")
 PROVIDER_WORKFLOW = (REPO / ".github/workflows/protected-vercel-provider-switch.yml").read_text(encoding="utf-8")
 FAILURE_WORKFLOW = (REPO / ".github/workflows/grafana-failure-drill.yml").read_text(encoding="utf-8")
+LINUX_NORMALIZATION_WORKFLOW = (
+    REPO / ".github/workflows/grafana-linux-integration-alert-normalization.yml"
+).read_text(encoding="utf-8")
+LINUX_NORMALIZER = (
+    ROOT / "scripts/normalize_linux_integration_alerts.py"
+).read_text(encoding="utf-8")
 FAILURE_CONTRACT = json.loads((REPO / "config/grafana-failure-drills.json").read_text(encoding="utf-8"))
 FAILURE_RUNNER = (REPO / "scripts/grafana_failure_drill.py").read_text(encoding="utf-8")
 BACKEND_DRILL_EVIDENCE = (REPO / "scripts/validate_backend_drill_evidence.py").read_text(
@@ -112,6 +118,7 @@ for workflow, name in (
     (ANNOTATION_WORKFLOW, "deployment annotation"),
     (CANARY_WORKFLOW, "notification canary"),
     (FAILURE_WORKFLOW, "failure drill"),
+    (LINUX_NORMALIZATION_WORKFLOW, "Linux integration alert normalization"),
 ):
     require(
         "queue: max" in workflow and "cancel-in-progress: false" in workflow,
@@ -133,15 +140,18 @@ for token in (
     "protected-ansible-apply.yml",
     "grafana-notification-canary.yml",
     "grafana-failure-drill.yml",
+    "grafana-linux-integration-alert-normalization.yml",
     "grafana-plan",
     "grafana-apply",
     "vps-check",
     "vps-apply",
     "notification-canary-fire-resolve",
+    "linux-integration-alert-normalize",
     "failure-drill-dry-run",
     "failure-drill-execute",
     "config/grafana-failure-drills.json",
     "execute-grafana-failure-drill:$target:$DRILL",
+    "linux-integration-alerts",
     "GH_TOKEN: ${{ github.token }}",
     '.actor.login == "github-actions[bot]"',
     "The exact-main production-vps policy releases secrets without a manual reviewer",
@@ -158,6 +168,31 @@ for forbidden in (
         forbidden not in ROLLOUT_DISPATCH_WORKFLOW,
         f"Observability rollout dispatcher crosses the protected boundary: {forbidden}",
     )
+
+for token in (
+    "environment: production-vps",
+    "github.ref == 'refs/heads/main'",
+    "group: grafana-cloud-apply",
+    "linux-integration-alerts",
+    "normalize_linux_integration_alerts.py",
+    "NUTSNEWS_GRAFANA_CLOUD_SERVICE_ACCOUNT_TOKEN",
+    "retention-days: 90",
+):
+    require(
+        token in LINUX_NORMALIZATION_WORKFLOW,
+        f"Linux integration normalization workflow is incomplete: {token}",
+    )
+for token in (
+    "X-Disable-Provenance",
+    "converted_prometheus",
+    "integrationVersionObserved",
+    "integrationVersionAvailable",
+    "integrationUpgradeStatus",
+    "not_available_from_live_api",
+    "expected_alert_count",
+    "recording_rules_changed",
+):
+    require(token in LINUX_NORMALIZER, f"Linux integration normalizer is incomplete: {token}")
 
 for token in (
     r'(?i)^https://kindcantaloupe2036\\.grafana\\.net(:443)?/?\\z',
@@ -1079,7 +1114,10 @@ require(
         "__converted_prometheus_rule__": "true",
     }
     and external_context["requiredAlertAnnotationValues"]
-    == {"dashboard_url": "/d/nutsnews-vps-overview"},
+    == {
+        "dashboard_url": "/d/nutsnews-vps-overview",
+        "runbook_url": "https://github.com/ramideltoro/nutsnews-infra/blob/main/runbooks/GRAFANA_CLOUD_OBSERVABILITY.md",
+    },
     "vendor alert normalized ownership/routing context drifted",
 )
 require(
@@ -1088,11 +1126,16 @@ require(
     "vendor alert severity mapping must normalize info to low",
 )
 require(
-    external_context["normalizationStatus"]
-    == "blocked_pending_owned_replacements_or_supported_vendor_relabel"
-    and "Post-apply verification must fail closed"
-    in external_context["normalizationRolloutBlocker"],
-    "unresolved vendor normalization must remain an explicit fail-closed rollout blocker",
+    external_context["normalizationStatus"] == "approved"
+    and "Protected exact-main workflow"
+    in external_context["normalizationMechanism"],
+    "vendor normalization must use the approved protected in-place workflow",
+)
+require(
+    EXTERNAL["integrationVersionObserved"] == "1.6.2"
+    and EXTERNAL["integrationVersionAvailable"] == "1.6.2"
+    and EXTERNAL["integrationUpgradeStatus"] == "not_available_from_live_api",
+    "Linux integration upgrade availability must match authenticated live evidence",
 )
 retained_external = [rule for rule in EXTERNAL["rules"] if rule["disposition"] == "retain"]
 obsolete_external = [
