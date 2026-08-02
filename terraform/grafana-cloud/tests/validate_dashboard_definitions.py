@@ -46,11 +46,11 @@ require(
     "Metric/log filters must interpolate the instance variable as a regex matcher.",
 )
 require(
-    'node_exporter_metric_filter = "job=~\\"integrations/node_exporter\\", instance=~\\"$instance\\""' in LOCALS,
+    'node_exporter_metric_filter = "job=~\\"integrations/unix\\", instance=~\\"$instance\\""' in LOCALS,
     "Node exporter panels must use the Grafana Cloud integration job label instead of service_namespace.",
 )
 require(
-    'label_values(up{job=~\\"integrations/node_exporter\\"}, instance)' in TEMPLATE,
+    'label_values(up{job=~\\"integrations/unix\\"}, instance)' in TEMPLATE,
     "Instance variable must be populated from the node exporter integration job.",
 )
 require(

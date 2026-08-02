@@ -370,13 +370,12 @@ filtering is owned by `ramideltoro/nutsnews-backend`. Revert these allowlists
 only through protected check/apply and only after the Usage / Quota dashboard
 proves sufficient headroom.
 
-The VPS host relabel boundary explicitly publishes the embedded Unix exporter
-and its textfile families as `job="integrations/node_exporter"`. Alloy's Unix
-exporter otherwise supplies `integrations/unix` on its targets and overrides
-the scrape block's `job_name`, which would leave host dashboards, readiness
-alerts, ownership panels, failure-drill prechecks, and post-apply verification
-querying a stale identity. Keep this relabel pinned unless all consumers move
-together in one reviewed rollout.
+The VPS host and textfile contract uses `job="integrations/unix"`, matching the
+embedded exporter target identity retained by Grafana Cloud. Do not remap these
+custom families into the reserved `integrations/node_exporter` job: Grafana
+Cloud retains the integration's native Node Exporter families there but not the
+custom `nutsnews_*` textfile families. Dashboards, alerts, drill prechecks, and
+post-apply verification must move with this job identity as one reviewed unit.
 
 ## Alert Delivery And Notification Canary
 
@@ -730,7 +729,7 @@ Rollback is to rerun the protected workflow with `enable_grafana_alloy=true`; th
 Use Grafana Explore after apply:
 
 ```promql
-up{job="integrations/node_exporter",service="host-exporter",deployment_environment="production"}
+up{job="integrations/unix",service="host-exporter",deployment_environment="production"}
 up{job="integrations/nutsnews-vps-alloy",instance="vps.nutsnews.com",service="alloy",deployment_environment="production"}
 up{job="integrations/nutsnews-vps-caddy",instance="vps.nutsnews.com",service="caddy",deployment_environment="production"}
 nutsnews_observability_textfile_last_success_timestamp_seconds{deployment_environment="production"}

@@ -124,7 +124,7 @@ for token in (
     'drop_counter_reason = "docker_debug"',
     'drop_counter_reason = "docker_line_too_large"',
     'max_streams = 500',
-    'job_name        = "integrations/node_exporter"',
+    'job_name        = "integrations/unix"',
     'job_name        = "integrations/nutsnews-vps-alloy"',
     'job_name        = "integrations/nutsnews-vps-caddy"',
     'replacement   = "host-exporter"',
@@ -145,13 +145,9 @@ require(
     '    replacement   = "host-exporter"' in ALLOY_CONFIG,
     "Host scrape identity must preserve service labels emitted by textfile collectors.",
 )
-host_identity = ALLOY_CONFIG.split('prometheus.relabel "host_identity"', 1)[1].split(
-    "{% if vps_service_foundation_grafana_alloy_collect_docker | bool %}", 1
-)[0]
 require(
-    'target_label = "job"' in host_identity
-    and 'replacement  = "integrations/node_exporter"' in host_identity,
-    "Host and textfile metrics must publish the dashboard-backed node_exporter job identity.",
+    'job_name        = "integrations/unix"' in ALLOY_CONFIG,
+    "Host and textfile metrics must publish the embedded Unix exporter job identity.",
 )
 for token in (
     "prometheus_remote_storage_",
