@@ -514,20 +514,15 @@ loki.process "files" {
 discovery.docker "containers" {
   host             = "{{ vps_service_foundation_grafana_alloy_docker_socket }}"
   refresh_interval = "60s"
-
-  filter {
-    name = "label"
-    values = [
-{% for compose_project in vps_service_foundation_grafana_alloy_docker_log_compose_projects %}
-      "com.docker.compose.project={{ compose_project }}",
-{% endfor %}
-    ]
-  }
 }
 
 discovery.relabel "docker_logs" {
   targets = discovery.docker.containers.targets
 
+  // Discover from the local daemon, then enforce the exact project/service
+  // allowlist here. Docker's label filter semantics can combine multiple
+  // values in ways that return no containers when projects are mutually
+  // exclusive; the relabel boundary remains fail-closed before log tailing.
   rule {
     source_labels = ["__meta_docker_container_label_com_docker_compose_project"]
     regex         = "^({{ vps_service_foundation_grafana_alloy_docker_log_compose_projects | join('|') }})$"
