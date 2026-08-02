@@ -191,6 +191,14 @@ require(
     "Docker log tailing must retain the exact project/service relabel allowlist.",
 )
 require(
+    "__meta_docker_container_id|" not in ALLOY_CONFIG,
+    "Docker relabeling must preserve the internal container ID required by loki.source.docker.",
+)
+require(
+    "loki.source.docker requires __meta_docker_container_id" in ALLOY_CONFIG,
+    "The Docker reader identity requirement must remain documented beside label cleanup.",
+)
+require(
     "loki_source_docker_target_entries_total" in TASKS,
     "Protected apply must prove that Alloy exposes active Docker log targets.",
 )
