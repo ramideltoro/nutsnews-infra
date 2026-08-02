@@ -432,6 +432,7 @@ for required in (
     "Install current app smoke helper",
     "Verify active backend PostgreSQL schema contract",
     "scripts/verify_backend_release_schema_contract.mjs",
+    "BACKEND_SCHEMA_PREFLIGHT_ENVS_FILE: ${{ runner.temp }}/backend-schema-preflight-env.json",
     "Run safe production app smoke surfaces",
     "Run production admin backend operation smoke",
     "NUTSNEWS_BACKEND_API_TOKEN",
@@ -475,6 +476,45 @@ assert (
     protected_workflow.index("Verify active backend PostgreSQL schema contract")
     < protected_workflow.index("Run Ansible baseline")
 ), "Protected app release must verify the active backend schema before Ansible can mutate production."
+build_runtime_step = protected_workflow.split("- name: Build runtime extra vars", 1)[1].split(
+    "- name: Verify active backend PostgreSQL schema contract",
+    1,
+)[0]
+preflight_keys_match = re.search(
+    r"backend_schema_preflight_keys = \(\n(?P<body>.*?)\n\s+\)",
+    build_runtime_step,
+    re.DOTALL,
+)
+assert preflight_keys_match, "Runtime materialization must define the backend schema preflight allowlist."
+assert re.findall(r'"(NUTSNEWS_[A-Z_]+)"', preflight_keys_match.group("body")) == [
+    "NUTSNEWS_DATABASE_PROVIDER_MODE",
+    "NUTSNEWS_BACKEND_API_URL",
+    "NUTSNEWS_BACKEND_API_TOKEN",
+], "The backend schema preflight file must contain only the three required merged runtime values."
+assert (
+    build_runtime_step.index("app_envs.update(vercel_envs)")
+    < build_runtime_step.index("backend_schema_preflight_path.write_text")
+), "Backend schema preflight values must be selected after reviewed Vercel values are merged."
+assert "backend_schema_preflight_path.chmod(0o600)" in build_runtime_step, (
+    "Backend schema preflight material must be restricted to mode 0600."
+)
+backend_schema_step = protected_workflow.split("- name: Verify active backend PostgreSQL schema contract", 1)[1].split(
+    "- name: Inspect Cloudflare DDNS record",
+    1,
+)[0]
+assert "secrets.NUTSNEWS_APP_ENVS_JSON" not in backend_schema_step, (
+    "Backend schema preflight must consume the same merged runtime environment that Ansible will deploy."
+)
+assert ".runtime-extra-vars.json" not in backend_schema_step, (
+    "Backend schema verification must not receive the broad protected runtime bundle."
+)
+assert 'NUTSNEWS_APP_ENVS_JSON="$(<"$BACKEND_SCHEMA_PREFLIGHT_ENVS_FILE")"' in backend_schema_step, (
+    "Backend schema verification must receive the allowlisted file through a command-scoped environment."
+)
+cleanup_step = protected_workflow.split("- name: Remove temporary credentials and sync material", 1)[1]
+assert '"$RUNNER_TEMP/backend-schema-preflight-env.json"' in cleanup_step, (
+    "Backend schema preflight material must be removed by the always-run cleanup."
+)
 assert (
     protected_workflow.index("Run safe production app smoke surfaces")
     < protected_workflow.index("Run production admin backend operation smoke")
