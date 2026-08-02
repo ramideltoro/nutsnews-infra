@@ -359,6 +359,17 @@ plans/applies; its false value is only for non-mutating static CI fixtures. The
 90,000 hard ceiling remains independent and prevents adding a check/probe or
 shortening the interval without a reviewed source change.
 
+The production Alloy configs enforce the active-series budget at the scrape
+boundary. VPS Caddy drops every per-client rate-limit family plus request and
+response size and duplicate response-duration histograms; the required
+terminal request rate, status ratios, request-latency histogram, upstream
+errors, upstream health, and TLS expiry signals remain. VPS and backend Alloy
+self-scrapes retain only readiness and configuration, remote-write backlog and
+failure, and Loki retry and drop families. Backend PostgreSQL and worker
+filtering is owned by `ramideltoro/nutsnews-backend`. Revert these allowlists
+only through protected check/apply and only after the Usage / Quota dashboard
+proves sufficient headroom.
+
 ## Alert Delivery And Notification Canary
 
 OpenTofu owns the `NutsNews operations email` contact point using the protected

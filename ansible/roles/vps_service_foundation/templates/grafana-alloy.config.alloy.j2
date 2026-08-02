@@ -120,6 +120,15 @@ prometheus.scrape "alloy" {
 prometheus.relabel "alloy_identity" {
   forward_to = [prometheus.relabel.cost_controls.receiver]
 
+  // Retain only the collector health, remote-write, and Loki delivery families
+  // used by production dashboards and alerts. Internal controller histograms
+  // and graph labels consume series without improving incident decisions.
+  rule {
+    source_labels = ["__name__"]
+    regex         = "^(up|scrape_(duration_seconds|samples_scraped|samples_post_metric_relabeling|series_added)|alloy_build_info|alloy_config_(last_load_successful|last_load_success_timestamp_seconds|load_failures_total)|prometheus_remote_storage_(samples_(pending|failed_total|retries_total|retried_total|total)|enqueue_retries_total|queue_highest_sent_timestamp_seconds)|prometheus_remote_write_wal_(out_of_order_samples_total|storage_active_series)|loki_write_(dropped_entries_total|dropped_bytes_total|batch_retries_total|sent_entries_total)|loki_process_dropped_lines(_by_label)?_total)$"
+    action        = "keep"
+  }
+
   rule {
     target_label = "service"
     replacement  = "alloy"
@@ -149,6 +158,16 @@ prometheus.relabel "caddy_identity" {
     action        = "drop"
     source_labels = ["__name__"]
     regex         = "^(go_.*|process_.*|caddy_admin_.*)$"
+  }
+
+  // Per-client rate-limit keys are unbounded and their processing histogram is
+  // not an operational SLI. Request/response size and duplicate response-time
+  // histograms are also excluded; terminal request rate, status ratios,
+  // request latency, upstream errors, and upstream health remain available.
+  rule {
+    action        = "drop"
+    source_labels = ["__name__"]
+    regex         = "^(caddy_rate_limit_.*|caddy_http_(request|response)_size_bytes_.*|caddy_http_response_duration_seconds_.*)$"
   }
 }
 

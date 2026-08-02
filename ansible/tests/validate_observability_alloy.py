@@ -145,6 +145,21 @@ require(
     '    replacement   = "host-exporter"' in ALLOY_CONFIG,
     "Host scrape identity must preserve service labels emitted by textfile collectors.",
 )
+for token in (
+    "prometheus_remote_storage_",
+    "samples_(pending|failed_total|retries_total|retried_total|total)",
+    "loki_write_",
+    "dropped_entries_total",
+    "batch_retries_total",
+    "caddy_rate_limit_.*",
+    "caddy_http_(request|response)_size_bytes_.*",
+    "caddy_http_response_duration_seconds_.*",
+):
+    require(token in ALLOY_CONFIG, f"Alloy active-series control missing {token}.")
+require(
+    "caddy_http_request_duration_seconds_.*" not in ALLOY_CONFIG,
+    "Caddy request-duration RED histogram must remain in remote write.",
+)
 for scrape_name, expected_address in (
     ("alloy", '127.0.0.1:12345'),
     ("caddy", "{{ vps_service_foundation_grafana_alloy_caddy_metrics_address }}"),
