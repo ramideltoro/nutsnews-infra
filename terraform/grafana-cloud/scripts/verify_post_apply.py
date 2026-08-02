@@ -240,7 +240,7 @@ VPS_ALERT_UIDS = {
 
 PROMETHEUS_QUERIES = {
     "vps_host_exporter": (
-        'up{job="integrations/node_exporter",service="host-exporter",deployment_environment="production",instance="vps.nutsnews.com"} == 1',
+        'up{job="integrations/unix",service="host-exporter",deployment_environment="production",instance="vps.nutsnews.com"} == 1',
         1,
     ),
     "vps_alloy_self": (
@@ -260,7 +260,7 @@ PROMETHEUS_QUERIES = {
         1,
     ),
     "vps_production_ownership": (
-        'nutsnews_production_ownership_info{job="integrations/node_exporter",instance="vps.nutsnews.com",service_namespace="nutsnews",service="host-exporter",host="vps.nutsnews.com",deployment_environment="production"} == 1 and on() (nutsnews_production_ownership_available{job="integrations/node_exporter",instance="vps.nutsnews.com",service_namespace="nutsnews",service="host-exporter",host="vps.nutsnews.com",deployment_environment="production"} == 1) and on() (time() - nutsnews_production_ownership_last_success_timestamp_seconds{job="integrations/node_exporter",instance="vps.nutsnews.com",service_namespace="nutsnews",service="host-exporter",host="vps.nutsnews.com",deployment_environment="production"} < 300)',
+        'nutsnews_production_ownership_info{job="integrations/unix",instance="vps.nutsnews.com",service_namespace="nutsnews",service="host-exporter",host="vps.nutsnews.com",deployment_environment="production"} == 1 and on() (nutsnews_production_ownership_available{job="integrations/unix",instance="vps.nutsnews.com",service_namespace="nutsnews",service="host-exporter",host="vps.nutsnews.com",deployment_environment="production"} == 1) and on() (time() - nutsnews_production_ownership_last_success_timestamp_seconds{job="integrations/unix",instance="vps.nutsnews.com",service_namespace="nutsnews",service="host-exporter",host="vps.nutsnews.com",deployment_environment="production"} < 300)',
         1,
     ),
     "vps_alert_status_available": (
@@ -341,7 +341,7 @@ PROMETHEUS_QUERIES = {
         2,
     ),
     "vps_alloy_ready": (
-        'nutsnews_alloy_ready{job="integrations/node_exporter",instance="vps.nutsnews.com",deployment_environment="production"} == 1',
+        'nutsnews_alloy_ready{job="integrations/unix",instance="vps.nutsnews.com",deployment_environment="production"} == 1',
         1,
     ),
     "backend_alloy_ready": (

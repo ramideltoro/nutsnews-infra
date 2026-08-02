@@ -61,7 +61,7 @@
           "type": "prometheus",
           "uid": "${prometheus_datasource_uid}"
         },
-        "definition": "label_values(up{job=~\"integrations/node_exporter\"}, deployment_environment)",
+        "definition": "label_values(up{job=~\"integrations/unix\"}, deployment_environment)",
         "hide": 0,
         "includeAll": true,
         "label": "Environment",
@@ -69,7 +69,7 @@
         "name": "environment",
         "options": [],
         "query": {
-          "query": "label_values(up{job=~\"integrations/node_exporter\"}, deployment_environment)",
+          "query": "label_values(up{job=~\"integrations/unix\"}, deployment_environment)",
           "refId": "PrometheusVariableQueryEditor-VariableQuery"
         },
         "refresh": 1,
@@ -89,7 +89,7 @@
           "type": "prometheus",
           "uid": "${prometheus_datasource_uid}"
         },
-        "definition": "label_values(up{job=~\"integrations/node_exporter\"}, instance)",
+        "definition": "label_values(up{job=~\"integrations/unix\"}, instance)",
         "hide": 0,
         "includeAll": true,
         "label": "Instance",
@@ -97,7 +97,7 @@
         "name": "instance",
         "options": [],
         "query": {
-          "query": "label_values(up{job=~\"integrations/node_exporter\"}, instance)",
+          "query": "label_values(up{job=~\"integrations/unix\"}, instance)",
           "refId": "PrometheusVariableQueryEditor-VariableQuery"
         },
         "refresh": 1,

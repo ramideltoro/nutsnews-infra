@@ -398,7 +398,7 @@ class VerifyPostApplyTests(unittest.TestCase):
     def test_production_ownership_queries_are_exact_and_freshness_gated(self) -> None:
         vps_query = MODULE.PROMETHEUS_QUERIES["vps_production_ownership"][0]
         for token in (
-            'job="integrations/node_exporter"',
+            'job="integrations/unix"',
             'instance="vps.nutsnews.com"',
             'service_namespace="nutsnews"',
             'service="host-exporter"',
