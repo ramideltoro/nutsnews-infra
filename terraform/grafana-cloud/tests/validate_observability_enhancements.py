@@ -1474,8 +1474,9 @@ for token in (
     "abs(6 - (count(",
     "count by (__name__)",
     'status!="not_configured"',
-    "< bool 0",
-    "> bool 1",
+    "count({__name__=~",
+    "< 0",
+    "> 1",
 ):
     require(token in relay_contract_alert["expr"], f"sync-relay telemetry contract missing {token}")
 require(
