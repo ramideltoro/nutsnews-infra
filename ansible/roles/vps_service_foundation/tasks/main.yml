@@ -1231,6 +1231,9 @@
       when: vps_service_foundation_grafana_alloy_enabled | bool
 
     - name: Observe bounded Grafana Alloy Docker log readers
+      when:
+        - vps_service_foundation_grafana_alloy_enabled | bool
+        - vps_service_foundation_grafana_alloy_collect_docker_logs | bool
       block:
         - name: Wait for bounded Grafana Alloy Docker log readers
           ansible.builtin.uri:
@@ -1281,10 +1284,6 @@
             msg: >-
               The private reader-state query did not satisfy its bounded contract;
               the following assertion reports only counts and booleans.
-      when:
-        - vps_service_foundation_grafana_alloy_enabled | bool
-        - vps_service_foundation_grafana_alloy_collect_docker_logs | bool
-
     - name: Build value-free Grafana Alloy Docker reader diagnostic
       ansible.builtin.set_fact:
         vps_service_foundation_alloy_docker_reader_diagnostic:
