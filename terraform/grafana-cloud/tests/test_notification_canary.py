@@ -116,6 +116,13 @@ class NotificationCanaryTests(unittest.TestCase):
         self.assertEqual(alert["labels"]["severity"], "critical")
         self.assertEqual(set(alert["labels"]), MODULE.REQUIRED_LABELS)
         self.assertIn("run-123", alert["annotations"]["summary"])
+        self.assertEqual(
+            alert["generatorURL"],
+            "https://kindcantaloupe2036.grafana.net/d/nutsnews-vps-overview",
+        )
+        self.assertEqual(
+            alert["annotations"]["dashboard_url"], alert["generatorURL"]
+        )
 
     def test_resolution_reuses_exact_labels_and_start_time(self) -> None:
         start = dt.datetime(2026, 7, 31, tzinfo=dt.timezone.utc)
