@@ -1,0 +1,254 @@
+name: Dispatch Protected Observability Rollout
+
+run-name: Dispatch protected observability ${{ inputs.operation }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      operation:
+        description: Dispatch one fixed protected observability workflow from main.
+        required: true
+        type: choice
+        options:
+          - grafana-plan
+          - grafana-apply
+          - vps-check
+          - vps-apply
+          - notification-canary-fire-resolve
+          - failure-drill-dry-run
+          - failure-drill-execute
+      confirmation:
+        description: Exact confirmation for apply/canary; blank for plan, check, and drill operations.
+        required: false
+        default: ""
+        type: string
+      drill:
+        description: Exact bounded drill; used only for failure-drill operations.
+        required: true
+        default: alloy-stopped
+        type: choice
+        options:
+          - alloy-stopped
+          - textfile-stale
+          - worker-unavailable
+          - rabbitmq-zero-consumer
+          - rabbitmq-growing-dlq
+          - postgres-relay-lag
+          - backend-readiness-failed
+          - synthetic-mismatch
+      synthetic_variant:
+        description: Assertion family for synthetic-mismatch; otherwise use not-applicable.
+        required: true
+        default: not-applicable
+        type: choice
+        options:
+          - not-applicable
+          - status
+          - body
+          - header
+      synthetic_check:
+        description: Approved check for synthetic-mismatch; ignored by other drills.
+        required: true
+        default: canonical_readiness
+        type: choice
+        options:
+          - canonical_articles_api
+          - canonical_homepage
+          - canonical_readiness
+          - vercel_secondary_readiness
+          - vps_readiness
+
+permissions:
+  actions: write  # Dispatch the fixed reviewed target workflow as github-actions[bot].
+  contents: read
+
+concurrency:
+  group: protected-observability-rollout-dispatch
+  cancel-in-progress: false
+
+jobs:
+  dispatch:
+    name: Dispatch fixed protected workflow
+    if: ${{ github.repository == 'ramideltoro/nutsnews-infra' && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout reviewed dispatcher
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Validate fixed dispatch contract
+        shell: bash
+        env:
+          OPERATION: ${{ inputs.operation }}
+          CONFIRMATION: ${{ inputs.confirmation }}
+          DRILL: ${{ inputs.drill }}
+          SYNTHETIC_VARIANT: ${{ inputs.synthetic_variant }}
+          SYNTHETIC_CHECK: ${{ inputs.synthetic_check }}
+        run: |
+          set -euo pipefail
+
+          case "$OPERATION" in
+            grafana-plan|vps-check)
+              expected_confirmation=""
+              ;;
+            grafana-apply)
+              expected_confirmation="grafana-cloud"
+              ;;
+            vps-apply)
+              expected_confirmation="vps.nutsnews.com"
+              ;;
+            notification-canary-fire-resolve)
+              expected_confirmation="notification-canary"
+              ;;
+            failure-drill-dry-run|failure-drill-execute)
+              expected_confirmation=""
+              ;;
+            *)
+              echo "Unsupported protected observability operation: $OPERATION" >&2
+              exit 1
+              ;;
+          esac
+
+          if [[ "$CONFIRMATION" != "$expected_confirmation" ]]; then
+            echo "The confirmation does not match the fixed $OPERATION contract." >&2
+            exit 1
+          fi
+
+          case "$DRILL" in
+            alloy-stopped|textfile-stale|worker-unavailable|rabbitmq-zero-consumer|rabbitmq-growing-dlq|postgres-relay-lag|backend-readiness-failed|synthetic-mismatch) ;;
+            *)
+              echo "Unsupported failure drill: $DRILL" >&2
+              exit 1
+              ;;
+          esac
+          if [[ "$DRILL" == "synthetic-mismatch" ]]; then
+            case "$SYNTHETIC_VARIANT" in status|body|header) ;; *) exit 1 ;; esac
+            case "$SYNTHETIC_CHECK" in
+              canonical_articles_api|canonical_homepage|canonical_readiness|vercel_secondary_readiness|vps_readiness) ;;
+              *) exit 1 ;;
+            esac
+          elif [[ "$SYNTHETIC_VARIANT" != "not-applicable" ]]; then
+            echo "Non-synthetic drills require synthetic_variant=not-applicable." >&2
+            exit 1
+          fi
+
+      - name: Dispatch and resolve exact protected run
+        id: dispatch
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          OPERATION: ${{ inputs.operation }}
+          CONFIRMATION: ${{ inputs.confirmation }}
+          DRILL: ${{ inputs.drill }}
+          SYNTHETIC_VARIANT: ${{ inputs.synthetic_variant }}
+          SYNTHETIC_CHECK: ${{ inputs.synthetic_check }}
+        run: |
+          set -euo pipefail
+
+          dispatch_args=()
+          title_match="exact"
+          case "$OPERATION" in
+            grafana-plan)
+              workflow="grafana-cloud-plan.yml"
+              display_title="Grafana Cloud Plan"
+              ;;
+            grafana-apply)
+              workflow="grafana-cloud-apply.yml"
+              display_title="Grafana Cloud Apply"
+              dispatch_args+=(--field confirm_apply="$CONFIRMATION")
+              ;;
+            vps-check)
+              workflow="protected-ansible-apply.yml"
+              display_title="Protected Ansible Apply (check)"
+              dispatch_args+=(--field run_mode=check)
+              ;;
+            vps-apply)
+              workflow="protected-ansible-apply.yml"
+              display_title="Protected Ansible Apply (apply)"
+              dispatch_args+=(--field run_mode=apply --field confirm_apply="$CONFIRMATION")
+              ;;
+            notification-canary-fire-resolve)
+              workflow="grafana-notification-canary.yml"
+              display_title="Grafana Notification Canary"
+              dispatch_args+=(--field action=fire-resolve --field confirm_canary="$CONFIRMATION")
+              ;;
+            failure-drill-dry-run|failure-drill-execute)
+              workflow="grafana-failure-drill.yml"
+              mode="${OPERATION#failure-drill-}"
+              display_title="Grafana drill $mode $DRILL ("
+              title_match="prefix"
+              target="$(jq -er --arg drill "$DRILL" '.drills[] | select(.id == $drill) | .target' config/grafana-failure-drills.json)"
+              if [[ "$DRILL" == "synthetic-mismatch" ]]; then
+                target="$SYNTHETIC_CHECK"
+              fi
+              confirm_target="not-executing"
+              execute_confirmation="not-executing"
+              if [[ "$mode" == "execute" ]]; then
+                confirm_target="$target"
+                execute_confirmation="execute-grafana-failure-drill:$target:$DRILL"
+              fi
+              dispatch_args+=(
+                --field mode="$mode"
+                --field drill="$DRILL"
+                --field synthetic_variant="$SYNTHETIC_VARIANT"
+                --field synthetic_check="$SYNTHETIC_CHECK"
+                --field confirm_target="$confirm_target"
+                --field confirmation="$execute_confirmation"
+              )
+              ;;
+          esac
+
+          dispatch_started_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          gh workflow run "$workflow" --repo "$GITHUB_REPOSITORY" --ref main "${dispatch_args[@]}"
+
+          target_run_id=""
+          for _attempt in $(seq 1 30); do
+            runs="$(gh api \
+              -H "Accept: application/vnd.github+json" \
+              "/repos/$GITHUB_REPOSITORY/actions/workflows/$workflow/runs?event=workflow_dispatch&branch=main&per_page=20")"
+            matches="$(jq \
+              --arg title "$display_title" \
+              --arg title_match "$title_match" \
+              --arg started "$dispatch_started_at" \
+              --arg sha "$GITHUB_SHA" \
+              '[.workflow_runs[] | select(
+                (($title_match == "exact" and .display_title == $title)
+                  or ($title_match == "prefix" and (.display_title | startswith($title))))
+                and .created_at >= $started
+                and .head_sha == $sha
+                and .actor.login == "github-actions[bot]"
+              )]' <<< "$runs")"
+            match_count="$(jq 'length' <<< "$matches")"
+            if [[ "$match_count" == "1" ]]; then
+              target_run_id="$(jq -r '.[0].id' <<< "$matches")"
+              break
+            fi
+            if [[ "$match_count" != "0" ]]; then
+              echo "Protected observability dispatch matched more than one exact run." >&2
+              exit 1
+            fi
+            sleep 2
+          done
+
+          if [[ ! "$target_run_id" =~ ^[0-9]{6,20}$ ]]; then
+            echo "Could not prove a unique github-actions[bot] protected observability run." >&2
+            exit 1
+          fi
+
+          target_url="https://github.com/$GITHUB_REPOSITORY/actions/runs/$target_run_id"
+          echo "target_run_id=$target_run_id" >> "$GITHUB_OUTPUT"
+          echo "target_url=$target_url" >> "$GITHUB_OUTPUT"
+          echo "Protected $OPERATION run: $target_url" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Report independent-review boundary
+        shell: bash
+        env:
+          TARGET_URL: ${{ steps.dispatch.outputs.target_url }}
+        run: |
+          set -euo pipefail
+          test -n "$TARGET_URL"
+          echo "The protected run was dispatched by github-actions[bot]."
+          echo "A configured human production-vps reviewer must approve any protected job; this dispatcher has no Environment or production secrets."

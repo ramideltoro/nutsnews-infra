@@ -27,6 +27,9 @@ SYNTHETIC_INPUT_VALIDATOR = (
 ).read_text(encoding="utf-8")
 PLAN_WORKFLOW = (REPO / ".github/workflows/grafana-cloud-plan.yml").read_text(encoding="utf-8")
 APPLY_WORKFLOW = (REPO / ".github/workflows/grafana-cloud-apply.yml").read_text(encoding="utf-8")
+ROLLOUT_DISPATCH_WORKFLOW = (
+    REPO / ".github/workflows/grafana-cloud-rollout-dispatch.yml"
+).read_text(encoding="utf-8")
 CANARY_WORKFLOW = (REPO / ".github/workflows/grafana-notification-canary.yml").read_text(encoding="utf-8")
 CANARY = (ROOT / "scripts/exercise_notification_canary.py").read_text(encoding="utf-8")
 CANARY_ATTESTATION = (ROOT / "scripts/attest_notification_canary.py").read_text(encoding="utf-8")
@@ -119,6 +122,42 @@ require(
     "'production-vps-ansible-baseline'" in FAILURE_WORKFLOW,
     "synthetic mutation drill must share the Grafana apply concurrency lock",
 )
+
+for token in (
+    "workflow_dispatch:",
+    "actions: write",
+    "contents: read",
+    "github.ref == 'refs/heads/main'",
+    "grafana-cloud-plan.yml",
+    "grafana-cloud-apply.yml",
+    "protected-ansible-apply.yml",
+    "grafana-notification-canary.yml",
+    "grafana-failure-drill.yml",
+    "grafana-plan",
+    "grafana-apply",
+    "vps-check",
+    "vps-apply",
+    "notification-canary-fire-resolve",
+    "failure-drill-dry-run",
+    "failure-drill-execute",
+    "config/grafana-failure-drills.json",
+    "execute-grafana-failure-drill:$target:$DRILL",
+    "GH_TOKEN: ${{ github.token }}",
+    '.actor.login == "github-actions[bot]"',
+    "A configured human production-vps reviewer must approve any protected job",
+):
+    require(token in ROLLOUT_DISPATCH_WORKFLOW, f"Observability rollout dispatcher is incomplete: {token}")
+for forbidden in (
+    "environment: production-vps",
+    "NUTSNEWS_GRAFANA_CLOUD_TOFU_BACKEND_CONFIG",
+    "NUTSNEWS_GRAFANA_CLOUD_SERVICE_ACCOUNT_TOKEN",
+    "NUTSNEWS_GRAFANA_SYNTHETIC_MONITORING_ACCESS_TOKEN",
+    "NUTSNEWS_VPS_SSH_PRIVATE_KEY",
+):
+    require(
+        forbidden not in ROLLOUT_DISPATCH_WORKFLOW,
+        f"Observability rollout dispatcher crosses the protected boundary: {forbidden}",
+    )
 
 for token in (
     r'(?i)^https://nutsnews\\.grafana\\.net(:443)?/?\\z',

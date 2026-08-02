@@ -199,10 +199,16 @@ annotation jobs also require the exact `refs/heads/main` ref at job level, so a
 feature-branch dispatch is skipped before GitHub evaluates the Environment or
 releases its secrets. Confirm the environment rule and reviewers in repository
 settings before the first protected run and during quarterly access review.
-As of the 2026-08-01 read-only audit, the live `production-vps` Environment
-still reports administrator bypass enabled. Protected Grafana plan/apply must
-remain blocked until an administrator disables that repository setting and the
-read-only policy audit passes; do not weaken or skip the prerequisite.
+The `production-vps` Environment must report administrator bypass disabled
+before protected Grafana plan/apply. In this solo-maintainer repository,
+dispatch Grafana plan/apply, VPS check/apply, the notification canary, and
+failure drills through `Dispatch Protected Observability Rollout` on exact
+`main`. That secretless, fixed-purpose workflow uses `github.token` to create
+the target run as `github-actions[bot]`, leaving the configured human reviewer
+independent of the target run initiator. The dispatcher does not use the
+production Environment, read production secrets, or approve the target run.
+Do not dispatch these protected operations directly when prevent-self-review
+is enabled.
 The unattended daily synthetic inventory audit uses the separate
 `grafana-observability-readonly` Environment described in
 `GRAFANA_OBSERVABILITY_READONLY_ENVIRONMENT.md`; it must not inherit deployment
@@ -625,16 +631,18 @@ state, not be masked with a synthetic healthy value.
 2. Merge the PR after required checks pass and after resolving the documented
    production Environment, vendor-rule, and synthetic-forecast rollout
    decisions.
-3. On exact `main`, manually dispatch `Grafana Cloud Plan` and approve the
-   `production-vps` Environment gate.
+3. On exact `main`, dispatch `Dispatch Protected Observability Rollout` with
+   `operation=grafana-plan` and an empty confirmation. Approve the resulting `Grafana Cloud
+   Plan` run at the `production-vps` Environment gate.
 4. Confirm the live OpenTofu plan, refresh-only drift check, and value-free
    `grafana-cloud-input-validation` artifact. This artifact proves the protected
    topology and quota decision without disclosing targets; it is not post-apply
    telemetry evidence and does not require the last-applied live stack to
    already match an unapplied desired change. Exact live convergence and query
    health verification is apply-only.
-5. Open the `Grafana Cloud Apply` workflow on exact `main`.
-6. Select `grafana-cloud` in `confirm_apply` and approve the `production-vps`
+5. Run `Dispatch Protected Observability Rollout` again on exact `main` with
+   `operation=grafana-apply` and `confirmation=grafana-cloud`.
+6. Approve the resulting `Grafana Cloud Apply` run at the `production-vps`
    Environment gate.
 7. Review the final OpenTofu apply output, dashboard URLs, the value-free input
    artifact, and the `grafana-cloud-post-apply-verification` artifact. The
@@ -669,12 +677,15 @@ rollback requires an explicit reviewed code change that removes that protection.
 
 ## Enable Alloy On The VPS
 
-1. Open the `Protected Ansible Apply` workflow.
-2. Set `run_mode` to `check`.
+1. Open `Dispatch Protected Observability Rollout` on exact `main`.
+2. Set `operation` to `vps-check` and leave `confirmation` blank. The fixed
+   dispatcher sets `run_mode=check` and keeps the reviewed production defaults.
 3. Keep the production default `enable_grafana_alloy=true`.
 4. Keep `confirm_apply` blank.
 5. Review the diff. Alloy should install from the Grafana apt repository, render `/etc/alloy/config.alloy`, render a root-only env file, create the textfile metrics timer, validate the Alloy config, keep cAdvisor/container metrics disabled by default, enable NutsNews Docker log discovery, and verify no recent containerd socket permission errors remain after the service restart.
-6. Rerun with `run_mode=apply`, `confirm_apply=vps.nutsnews.com`, and `enable_grafana_alloy=true`.
+6. Rerun the dispatcher with `operation=vps-apply` and
+   `confirmation=vps.nutsnews.com`; it fixes `run_mode=apply` and retains
+   `enable_grafana_alloy=true` from the protected workflow's reviewed default.
 7. Approve the `production-vps` Environment gate.
 
 The existing protected apply workflow still connects as `nutsnews_ops`, never root SSH, and applies only the declared Ansible baseline.
