@@ -99,7 +99,7 @@ class SyntheticMonitoringInputsTest(unittest.TestCase):
         *,
         probes: list[int] | None = None,
         token_present: bool = True,
-        grafana_url: str = "https://nutsnews.grafana.net",
+        grafana_url: str = "https://kindcantaloupe2036.grafana.net",
         synthetic_monitoring_url: str = "https://synthetic-monitoring-api.grafana.net",
         major_forecast_acknowledged: bool = True,
         free_api_executions_monthly: int = 100_000,
@@ -303,7 +303,7 @@ class SyntheticMonitoringInputsTest(unittest.TestCase):
         rejected = (
             {"grafana_url": "https://other-tenant.grafana.net"},
             {"grafana_url": "https://synthetic-monitoring-api.grafana.net"},
-            {"synthetic_monitoring_url": "https://nutsnews.grafana.net"},
+            {"synthetic_monitoring_url": "https://kindcantaloupe2036.grafana.net"},
             {"synthetic_monitoring_url": "https://other-tenant.grafana.net"},
             {
                 "synthetic_monitoring_url": (
@@ -380,7 +380,7 @@ class SyntheticMonitoringInputsTest(unittest.TestCase):
                 "[101,202]",
                 checks_raw,
                 token_present=True,
-                grafana_url="https://nutsnews.grafana.net",
+                grafana_url="https://kindcantaloupe2036.grafana.net",
                 synthetic_monitoring_url=(
                     "https://synthetic-monitoring-api.grafana.net"
                 ),
@@ -399,7 +399,7 @@ class SyntheticMonitoringInputsTest(unittest.TestCase):
 
     def test_cli_writes_value_free_success_and_failure_evidence(self) -> None:
         base_env = {
-            "NUTSNEWS_GRAFANA_CLOUD_URL": "https://nutsnews.grafana.net",
+            "NUTSNEWS_GRAFANA_CLOUD_URL": "https://kindcantaloupe2036.grafana.net",
             "NUTSNEWS_GRAFANA_SYNTHETIC_MONITORING_URL": (
                 "https://synthetic-monitoring-api.grafana.net"
             ),

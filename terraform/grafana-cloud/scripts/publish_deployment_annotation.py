@@ -19,7 +19,7 @@ from typing import Any
 EVENT_TYPES = {"promotion", "rollback", "failover", "database-provider-change"}
 OUTCOMES = {"started", "succeeded", "failed", "rolled-back"}
 SAFE_VALUE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/@+-]{0,159}$")
-GRAFANA_UI_HOSTNAME = "nutsnews.grafana.net"
+GRAFANA_UI_HOSTNAME = "kindcantaloupe2036.grafana.net"
 
 
 class NoRedirectHandler(urllib.request.HTTPRedirectHandler):

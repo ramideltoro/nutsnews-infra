@@ -161,7 +161,7 @@ for forbidden in (
 
 for token in (
     r'(?i)^https://nutsnews\\.grafana\\.net(:443)?/?\\z',
-    "grafana_url must be the exact query-free https://nutsnews.grafana.net origin using implicit or explicit port 443.",
+    "grafana_url must be the exact query-free https://kindcantaloupe2036.grafana.net origin using implicit or explicit port 443.",
 ):
     require(token in VARIABLES, f"Terraform Grafana origin validation is missing {token}")
 require(
@@ -183,7 +183,7 @@ for workflow, name in ((PLAN_WORKFLOW, "plan"), (APPLY_WORKFLOW, "apply")):
         require(token in workflow, f"Grafana {name} protected-input preflight is missing {token}")
 
 for token in (
-    'GRAFANA_UI_HOSTNAME = "nutsnews.grafana.net"',
+    'GRAFANA_UI_HOSTNAME = "kindcantaloupe2036.grafana.net"',
     "SYNTHETIC_MONITORING_HOSTNAME = re.compile(",
     "PUBLIC_TARGET_HOSTNAME.fullmatch(parsed.hostname) is None",
     "value != value.strip()",
@@ -244,7 +244,7 @@ for script, name in (
     (SYNTHETIC_DRILL, "synthetic drill/watchdog"),
 ):
     require(
-        'GRAFANA_UI_HOSTNAME = "nutsnews.grafana.net"' in script,
+        'GRAFANA_UI_HOSTNAME = "kindcantaloupe2036.grafana.net"' in script,
         f"Grafana {name} must pin UI bearer traffic to the NutsNews tenant",
     )
 for script, name in (
@@ -256,7 +256,7 @@ for script, name in (
         f"Grafana {name} must pin SM bearer traffic to the SM service family",
     )
 require(
-    'GRAFANA_UI_ORIGIN = "https://nutsnews.grafana.net"' in FAILURE_RUNNER
+    'GRAFANA_UI_ORIGIN = "https://kindcantaloupe2036.grafana.net"' in FAILURE_RUNNER
     and "GRAFANA_UI_ORIGIN_SPELLINGS" in FAILURE_RUNNER,
     "failure-drill alert observer must pin bearer traffic to the NutsNews tenant",
 )

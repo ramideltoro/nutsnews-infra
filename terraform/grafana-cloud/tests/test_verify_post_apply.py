@@ -260,8 +260,8 @@ class VerifyPostApplyTests(unittest.TestCase):
 
     def test_grafana_origins_are_pinned_to_their_api_roles(self) -> None:
         expected = {
-            "https://nutsnews.grafana.net": "https://nutsnews.grafana.net",
-            "https://nutsnews.grafana.net/": "https://nutsnews.grafana.net",
+            "https://kindcantaloupe2036.grafana.net": "https://kindcantaloupe2036.grafana.net",
+            "https://kindcantaloupe2036.grafana.net/": "https://kindcantaloupe2036.grafana.net",
         }
         for value, canonical in expected.items():
             with self.subTest(value=value):
@@ -284,23 +284,23 @@ class VerifyPostApplyTests(unittest.TestCase):
                 self.assertEqual(MODULE.validate_synthetic_monitoring_url(value), canonical)
         for value in (
             "",
-            "http://nutsnews.grafana.net",
+            "http://kindcantaloupe2036.grafana.net",
             "https://grafana.net",
-            "https://nutsnews.grafana.net.evil.invalid",
-            "https://nutsnews.grafana.net/api",
-            "https://nutsnews.grafana.net?token=secret",
-            "https://user:secret@nutsnews.grafana.net",
-            "https://nutsnews.grafana.net:444",
-            "https://nutsnews.grafana.net:",
+            "https://kindcantaloupe2036.grafana.net.evil.invalid",
+            "https://kindcantaloupe2036.grafana.net/api",
+            "https://kindcantaloupe2036.grafana.net?token=secret",
+            "https://user:secret@kindcantaloupe2036.grafana.net",
+            "https://kindcantaloupe2036.grafana.net:444",
+            "https://kindcantaloupe2036.grafana.net:",
             "https://bad_.grafana.net",
-            " https://nutsnews.grafana.net",
+            " https://kindcantaloupe2036.grafana.net",
             "https://other-tenant.grafana.net",
             "https://synthetic-monitoring-api.grafana.net",
         ):
             with self.subTest(value=value), self.assertRaises(ValueError):
                 MODULE.GrafanaClient(value, "sensitive-token")
         for value in (
-            "https://nutsnews.grafana.net",
+            "https://kindcantaloupe2036.grafana.net",
             "https://other-tenant.grafana.net",
             "https://synthetic-monitoring-apiattacker.grafana.net",
         ):
@@ -310,7 +310,7 @@ class VerifyPostApplyTests(unittest.TestCase):
     def test_redirect_is_rejected_before_a_second_authenticated_request(self) -> None:
         transport = RedirectingHTTPSHandler()
         client = MODULE.GrafanaClient(
-            "https://nutsnews.grafana.net", "sensitive-token"
+            "https://kindcantaloupe2036.grafana.net", "sensitive-token"
         )
         client.opener = urllib.request.build_opener(
             MODULE.NoRedirectHandler(), transport
@@ -326,21 +326,21 @@ class VerifyPostApplyTests(unittest.TestCase):
         )
         self.assertEqual(
             transport.requests[0].full_url,
-            "https://nutsnews.grafana.net/api/health",
+            "https://kindcantaloupe2036.grafana.net/api/health",
         )
 
     def test_grafana_transport_errors_are_status_and_path_only(self) -> None:
         sentinel = "https://protected-synthetic-target.invalid/readyz?key=secret"
         credential = "post-apply-api-credential-sentinel"
         client = MODULE.GrafanaClient(
-            "https://nutsnews.grafana.net", credential
+            "https://kindcantaloupe2036.grafana.net", credential
         )
         headers = Message()
         response_body = TrackingBody(
             f"attacker body {sentinel} {credential}".encode()
         )
         http_error = urllib.error.HTTPError(
-            "https://nutsnews.grafana.net/api/health",
+            "https://kindcantaloupe2036.grafana.net/api/health",
             502,
             f"attacker reason {sentinel} {credential}",
             headers,
@@ -374,12 +374,12 @@ class VerifyPostApplyTests(unittest.TestCase):
 
     def test_urlsplit_nfkc_failure_never_echoes_untrusted_netloc(self) -> None:
         sentinel = "protected-synthetic-target.invalid"
-        malformed = f"https://nutsnews.grafana.net\uff0f{sentinel}"
+        malformed = f"https://kindcantaloupe2036.grafana.net\uff0f{sentinel}"
         with self.assertRaises(ValueError) as raised:
             MODULE.validate_grafana_cloud_url(malformed, "GRAFANA_URL")
         self.assertEqual(
             str(raised.exception),
-            "GRAFANA_URL must be a query-free HTTPS nutsnews.grafana.net Grafana UI API origin",
+            "GRAFANA_URL must be a query-free HTTPS kindcantaloupe2036.grafana.net Grafana UI API origin",
         )
         self.assertNotIn(sentinel, str(raised.exception))
 
@@ -547,11 +547,11 @@ class VerifyPostApplyTests(unittest.TestCase):
         body_sentinel = "provider-http-error-body-private-sentinel"
         response_body = TrackingBody(body_sentinel.encode())
         client = MODULE.GrafanaClient(
-            "https://nutsnews.grafana.net", "protected-api-token"
+            "https://kindcantaloupe2036.grafana.net", "protected-api-token"
         )
         client.opener = RaisingOpener(
             urllib.error.HTTPError(
-                "https://nutsnews.grafana.net/api/folders/private",
+                "https://kindcantaloupe2036.grafana.net/api/folders/private",
                 503,
                 f"provider reason {body_sentinel}",
                 Message(),
@@ -583,12 +583,12 @@ class VerifyPostApplyTests(unittest.TestCase):
     def test_invalid_api_response_body_is_reduced_to_a_fixed_error(self) -> None:
         body_sentinel = "invalid-json-provider-body-private-sentinel"
         client = MODULE.GrafanaClient(
-            "https://nutsnews.grafana.net", "protected-api-token"
+            "https://kindcantaloupe2036.grafana.net", "protected-api-token"
         )
         response = urllib.response.addinfourl(
             io.BytesIO(f"not-json {body_sentinel}".encode()),
             Message(),
-            "https://nutsnews.grafana.net/api/health",
+            "https://kindcantaloupe2036.grafana.net/api/health",
             200,
         )
         client.opener = ReturningOpener(response)
@@ -619,12 +619,12 @@ class VerifyPostApplyTests(unittest.TestCase):
         for index, datasource_uid in enumerate(datasource_uids):
             path = f"/api/datasources/proxy/uid/{datasource_uid}/api/v1/query?query=up"
             client = MODULE.GrafanaClient(
-                "https://nutsnews.grafana.net", "protected-api-token"
+                "https://kindcantaloupe2036.grafana.net", "protected-api-token"
             )
             if index == 0:
                 client.opener = RaisingOpener(
                     urllib.error.HTTPError(
-                        f"https://nutsnews.grafana.net{path}",
+                        f"https://kindcantaloupe2036.grafana.net{path}",
                         502,
                         "private provider reason",
                         Message(),
@@ -640,7 +640,7 @@ class VerifyPostApplyTests(unittest.TestCase):
                     urllib.response.addinfourl(
                         io.BytesIO(b"not-json"),
                         Message(),
-                        f"https://nutsnews.grafana.net{path}",
+                        f"https://kindcantaloupe2036.grafana.net{path}",
                         200,
                     )
                 )
@@ -679,13 +679,13 @@ class VerifyPostApplyTests(unittest.TestCase):
             "provider_extension": {sentinel: sentinel},
         }
         client = MODULE.GrafanaClient(
-            "https://nutsnews.grafana.net", "protected-api-token"
+            "https://kindcantaloupe2036.grafana.net", "protected-api-token"
         )
         client.opener = ReturningOpener(
             urllib.response.addinfourl(
                 io.BytesIO(json.dumps(payload).encode()),
                 Message(),
-                "https://nutsnews.grafana.net/api/plugins/grafana-slo-app/resources/v1/slo",
+                "https://kindcantaloupe2036.grafana.net/api/plugins/grafana-slo-app/resources/v1/slo",
                 200,
             )
         )

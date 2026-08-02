@@ -80,36 +80,36 @@ class GrafanaFailureDrillTests(unittest.TestCase):
 
     def test_grafana_origin_is_pinned_to_exact_query_free_ui_role(self) -> None:
         for value in (
-            "https://nutsnews.grafana.net",
-            "https://nutsnews.grafana.net/",
-            "https://nutsnews.grafana.net:443",
-            "https://nutsnews.grafana.net:443/",
+            "https://kindcantaloupe2036.grafana.net",
+            "https://kindcantaloupe2036.grafana.net/",
+            "https://kindcantaloupe2036.grafana.net:443",
+            "https://kindcantaloupe2036.grafana.net:443/",
         ):
             with self.subTest(value=value):
                 self.assertEqual(
                     DRILL.validate_api_url(value),
-                    "https://nutsnews.grafana.net",
+                    "https://kindcantaloupe2036.grafana.net",
                 )
         for value in (
             "",
-            "http://nutsnews.grafana.net",
+            "http://kindcantaloupe2036.grafana.net",
             "https://grafana.net",
             "https://other-tenant.grafana.net",
             "https://synthetic-monitoring-api.grafana.net",
-            "https://nutsnews.grafana.net.evil.invalid",
-            "https://nutsnews.grafana.net/api",
-            "https://nutsnews.grafana.net?",
-            "https://nutsnews.grafana.net/?",
-            "https://nutsnews.grafana.net/?token=secret",
-            "https://nutsnews.grafana.net#",
-            "https://nutsnews.grafana.net/#",
-            "https://nutsnews.grafana.net/#fragment",
-            "https://user:secret@nutsnews.grafana.net",
-            "https://nutsnews.grafana.net:444",
-            "https://nutsnews.grafana.net:",
+            "https://kindcantaloupe2036.grafana.net.evil.invalid",
+            "https://kindcantaloupe2036.grafana.net/api",
+            "https://kindcantaloupe2036.grafana.net?",
+            "https://kindcantaloupe2036.grafana.net/?",
+            "https://kindcantaloupe2036.grafana.net/?token=secret",
+            "https://kindcantaloupe2036.grafana.net#",
+            "https://kindcantaloupe2036.grafana.net/#",
+            "https://kindcantaloupe2036.grafana.net/#fragment",
+            "https://user:secret@kindcantaloupe2036.grafana.net",
+            "https://kindcantaloupe2036.grafana.net:444",
+            "https://kindcantaloupe2036.grafana.net:",
             "https://bad_.grafana.net",
-            " https://nutsnews.grafana.net",
-            "\x00https://nutsnews.grafana.net",
+            " https://kindcantaloupe2036.grafana.net",
+            "\x00https://kindcantaloupe2036.grafana.net",
             "https://nutsnews.\ngrafana.net",
         ):
             with self.subTest(value=value), self.assertRaises(SystemExit):
@@ -117,7 +117,7 @@ class GrafanaFailureDrillTests(unittest.TestCase):
 
     def test_malformed_nfkc_netloc_never_echoes_protected_input(self) -> None:
         protected_fragment = "do-not-reflect-this-value"
-        malformed = f"https://nutsnews.grafana.net\uff0f{protected_fragment}"
+        malformed = f"https://kindcantaloupe2036.grafana.net\uff0f{protected_fragment}"
 
         with self.assertRaises(SystemExit) as raised:
             DRILL.validate_api_url(malformed, "NUTSNEWS_GRAFANA_CLOUD_URL")
@@ -133,7 +133,7 @@ class GrafanaFailureDrillTests(unittest.TestCase):
     def test_redirect_is_rejected_before_a_second_authenticated_request(self) -> None:
         transport = RedirectingHTTPSHandler()
         client = DRILL.GrafanaClient(
-            "https://nutsnews.grafana.net", "sensitive-token"
+            "https://kindcantaloupe2036.grafana.net", "sensitive-token"
         )
         self.assertTrue(
             any(
@@ -155,7 +155,7 @@ class GrafanaFailureDrillTests(unittest.TestCase):
         )
         self.assertEqual(
             transport.requests[0].full_url,
-            "https://nutsnews.grafana.net/api/alertmanager/grafana/api/v2/alerts",
+            "https://kindcantaloupe2036.grafana.net/api/alertmanager/grafana/api/v2/alerts",
         )
 
     def test_each_synthetic_target_gets_an_exact_confirmation(self) -> None:

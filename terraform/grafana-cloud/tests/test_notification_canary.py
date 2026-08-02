@@ -57,31 +57,31 @@ class RedirectingHTTPSHandler(urllib.request.HTTPSHandler):
 class NotificationCanaryTests(unittest.TestCase):
     def test_grafana_origin_is_exact_query_free_https_grafana_cloud(self) -> None:
         for value in (
-            "https://nutsnews.grafana.net",
-            "https://nutsnews.grafana.net/",
-            "https://nutsnews.grafana.net:443/",
+            "https://kindcantaloupe2036.grafana.net",
+            "https://kindcantaloupe2036.grafana.net/",
+            "https://kindcantaloupe2036.grafana.net:443/",
         ):
             with self.subTest(value=value):
                 self.assertEqual(
                     MODULE.validate_api_url(value),
-                    "https://nutsnews.grafana.net",
+                    "https://kindcantaloupe2036.grafana.net",
                 )
         for value in (
             "",
-            "http://nutsnews.grafana.net",
+            "http://kindcantaloupe2036.grafana.net",
             "https://grafana.net",
             "https://another-tenant.grafana.net",
             "https://synthetic-monitoring-api.grafana.net",
             "https://synthetic-monitoring-api.us.grafana.net",
-            "https://nutsnews.grafana.net.evil.invalid",
-            "https://nutsnews.grafana.net/api",
-            "https://nutsnews.grafana.net/?token=secret",
-            "https://nutsnews.grafana.net/#fragment",
-            "https://user:secret@nutsnews.grafana.net",
-            "https://nutsnews.grafana.net:444",
-            "https://nutsnews.grafana.net:",
+            "https://kindcantaloupe2036.grafana.net.evil.invalid",
+            "https://kindcantaloupe2036.grafana.net/api",
+            "https://kindcantaloupe2036.grafana.net/?token=secret",
+            "https://kindcantaloupe2036.grafana.net/#fragment",
+            "https://user:secret@kindcantaloupe2036.grafana.net",
+            "https://kindcantaloupe2036.grafana.net:444",
+            "https://kindcantaloupe2036.grafana.net:",
             "https://bad_.grafana.net",
-            " https://nutsnews.grafana.net",
+            " https://kindcantaloupe2036.grafana.net",
         ):
             with self.subTest(value=value), self.assertRaises(ValueError):
                 MODULE.AlertmanagerClient(value, "sensitive-token")
@@ -89,7 +89,7 @@ class NotificationCanaryTests(unittest.TestCase):
     def test_redirect_is_rejected_before_a_second_authenticated_request(self) -> None:
         transport = RedirectingHTTPSHandler()
         client = MODULE.AlertmanagerClient(
-            "https://nutsnews.grafana.net", "sensitive-token"
+            "https://kindcantaloupe2036.grafana.net", "sensitive-token"
         )
         client.opener = urllib.request.build_opener(
             MODULE.NoRedirectHandler(), transport
@@ -105,7 +105,7 @@ class NotificationCanaryTests(unittest.TestCase):
         )
         self.assertEqual(
             transport.requests[0].full_url,
-            "https://nutsnews.grafana.net/api/alertmanager/grafana/api/v2/alerts",
+            "https://kindcantaloupe2036.grafana.net/api/alertmanager/grafana/api/v2/alerts",
         )
 
     def test_payload_routes_to_email_and_has_unique_searchable_name(self) -> None:

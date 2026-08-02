@@ -34,7 +34,7 @@ FREE_TIER_MAJOR_RATIO = 0.85
 FREE_TIER_HARD_CEILING_RATIO = 0.90
 SYNTHETIC_API_EXECUTION_HARD_CEILING_MONTHLY = 90_000
 MILLISECONDS_PER_30_DAY_MONTH = 2_592_000_000
-GRAFANA_UI_HOSTNAME = "nutsnews.grafana.net"
+GRAFANA_UI_HOSTNAME = "kindcantaloupe2036.grafana.net"
 SYNTHETIC_MONITORING_HOSTNAME = re.compile(
     r"synthetic-monitoring-api(?:[.-][a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*\.grafana\.net",
     re.ASCII,
@@ -190,7 +190,7 @@ def validate_grafana_ui_origin(variable_name: str, value: str) -> str:
         variable_name,
         value,
         hostname_is_allowed=lambda hostname: hostname == GRAFANA_UI_HOSTNAME,
-        role="nutsnews.grafana.net Grafana UI",
+        role="kindcantaloupe2036.grafana.net Grafana UI",
     )
 
 

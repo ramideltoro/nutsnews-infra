@@ -236,7 +236,7 @@ class SyntheticFailureDrillTests(unittest.TestCase):
         for value in (
             "http://synthetic-monitoring-api.grafana.net",
             "https://grafana.net",
-            "https://nutsnews.grafana.net",
+            "https://kindcantaloupe2036.grafana.net",
             "https://another-tenant.grafana.net",
             "https://synthetic-monitoring-apiattacker.grafana.net",
             "https://synthetic-monitoring-api-.grafana.net",
@@ -254,14 +254,14 @@ class SyntheticFailureDrillTests(unittest.TestCase):
                 MODULE.SyntheticClient(value, "sensitive-token")
 
         for value in (
-            "https://nutsnews.grafana.net",
-            "https://nutsnews.grafana.net/",
-            "https://nutsnews.grafana.net:443/",
+            "https://kindcantaloupe2036.grafana.net",
+            "https://kindcantaloupe2036.grafana.net/",
+            "https://kindcantaloupe2036.grafana.net:443/",
         ):
             with self.subTest(value=value):
                 self.assertEqual(
                     MODULE.validate_grafana_api_url(value),
-                    "https://nutsnews.grafana.net",
+                    "https://kindcantaloupe2036.grafana.net",
                 )
         for value in (
             "https://another-tenant.grafana.net",
@@ -294,7 +294,7 @@ class SyntheticFailureDrillTests(unittest.TestCase):
 
         grafana_transport = RedirectingHTTPSHandler()
         grafana_client = MODULE.GrafanaClient(
-            "https://nutsnews.grafana.net", "sensitive-grafana-token"
+            "https://kindcantaloupe2036.grafana.net", "sensitive-grafana-token"
         )
         grafana_client.opener = urllib.request.build_opener(
             MODULE.NoRedirectHandler(), grafana_transport
@@ -309,7 +309,7 @@ class SyntheticFailureDrillTests(unittest.TestCase):
         )
         self.assertEqual(
             grafana_transport.requests[0].full_url,
-            "https://nutsnews.grafana.net/api/alertmanager/grafana/api/v2/alerts?active=true&silenced=false&inhibited=false",
+            "https://kindcantaloupe2036.grafana.net/api/alertmanager/grafana/api/v2/alerts?active=true&silenced=false&inhibited=false",
         )
 
     def test_dry_run_resolves_exact_check_without_update_and_is_sanitized(self) -> None:
@@ -743,7 +743,7 @@ class SyntheticFailureDrillTests(unittest.TestCase):
                     },
                 }
 
-        samples = CaptureGrafanaClient("https://nutsnews.grafana.net", "token").probe_samples(
+        samples = CaptureGrafanaClient("https://kindcantaloupe2036.grafana.net", "token").probe_samples(
             "grafanacloud-prom", 1_000
         )
         query = urllib.parse.parse_qs(urllib.parse.urlsplit(paths[0]).query)["query"][0]
