@@ -1684,6 +1684,12 @@ class VerifyPostApplyTests(unittest.TestCase):
                 ):
                     if not http.get(field):
                         http[field] = None
+                for field in (
+                    "failIfHeaderMatchesRegexp",
+                    "failIfHeaderNotMatchesRegexp",
+                ):
+                    for assertion in http.get(field) or []:
+                        assertion["allowMissing"] = None
                 errors: list[str] = []
                 MODULE.validate_remote_synthetic_contract(
                     check, {11, 22}, desired, errors

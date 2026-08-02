@@ -618,7 +618,10 @@ discovery.relabel "docker_logs" {
 
   rule {
     action = "labeldrop"
-    regex  = "^(__meta_docker_container_id|__meta_docker_container_label_com_docker_compose_config_hash|__meta_docker_network_id|__meta_docker_port_.*)$"
+    // loki.source.docker requires __meta_docker_container_id to open and
+    // deduplicate readers. Double-underscore discovery labels are internal
+    // and do not become indexed Loki labels.
+    regex  = "^(__meta_docker_container_label_com_docker_compose_config_hash|__meta_docker_network_id|__meta_docker_port_.*)$"
   }
 }
 

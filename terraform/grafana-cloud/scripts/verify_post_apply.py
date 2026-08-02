@@ -2143,9 +2143,10 @@ def has_synthetic_header_assertion(
         if not isinstance(item, dict):
             continue
         regexp = str(item.get("regexp", "")).lower()
+        allow_missing = item.get("allowMissing")
         if (
             str(item.get("header", "")).lower() == header.lower()
-            and item.get("allowMissing") is False
+            and (allow_missing is None or allow_missing is False)
             and any(term in regexp for term in required_terms)
         ):
             return True
@@ -2273,15 +2274,22 @@ def canonical_synthetic_assertion_family(field: str, value: Any) -> tuple[Any, .
     else:
         normalized = []
         for item in value:
+            allow_missing = (
+                item.get("allowMissing")
+                if isinstance(item, dict)
+                else "invalid"
+            )
+            if allow_missing is None:
+                allow_missing = False
             if (
                 not isinstance(item, dict)
-                or not isinstance(item.get("allowMissing"), bool)
+                or not isinstance(allow_missing, bool)
                 or not isinstance(item.get("header"), str)
                 or not isinstance(item.get("regexp"), str)
             ):
                 return None
             normalized.append(
-                (item["allowMissing"], item["header"], item["regexp"])
+                (allow_missing, item["header"], item["regexp"])
             )
     if len(set(normalized)) != len(normalized):
         return None
