@@ -1,0 +1,123 @@
+{
+  "arguments": {},
+  "dataFlowEdgesTo": [],
+  "debugInfo": [
+    {
+      "name": "targets_info",
+      "type": "block",
+      "body": [
+        {
+          "name": "id",
+          "type": "attr",
+          "value": { "type": "string", "value": "fixture-caddy-reader" }
+        },
+        {
+          "name": "is_running",
+          "type": "attr",
+          "value": { "type": "bool", "value": true }
+        },
+        {
+          "name": "labels",
+          "type": "attr",
+          "value": {
+            "type": "string",
+            "value": "{deployment_environment=\"production\",service=\"caddy\"}"
+          }
+        },
+        {
+          "name": "last_error",
+          "type": "attr",
+          "value": { "type": "string", "value": "" }
+        },
+        {
+          "name": "read_offset",
+          "type": "attr",
+          "value": { "type": "string", "value": "fixture-offset-caddy" }
+        }
+      ]
+    },
+    {
+      "name": "targets_info",
+      "type": "block",
+      "body": [
+        {
+          "name": "id",
+          "type": "attr",
+          "value": { "type": "string", "value": "fixture-ops-auth-reader" }
+        },
+        {
+          "name": "is_running",
+          "type": "attr",
+          "value": { "type": "bool", "value": true }
+        },
+        {
+          "name": "labels",
+          "type": "attr",
+          "value": {
+            "type": "string",
+            "value": "{deployment_environment=\"production\",service=\"ops-auth\"}"
+          }
+        },
+        {
+          "name": "last_error",
+          "type": "attr",
+          "value": { "type": "string", "value": "" }
+        },
+        {
+          "name": "read_offset",
+          "type": "attr",
+          "value": { "type": "string", "value": "fixture-offset-ops-auth" }
+        }
+      ]
+    },
+    {
+      "name": "targets_info",
+      "type": "block",
+      "body": [
+        {
+          "name": "id",
+          "type": "attr",
+          "value": { "type": "string", "value": "fixture-web-reader" }
+        },
+        {
+          "name": "is_running",
+          "type": "attr",
+          "value": { "type": "bool", "value": true }
+        },
+        {
+          "name": "labels",
+          "type": "attr",
+          "value": {
+            "type": "string",
+            "value": "{deployment_environment=\"production\",service=\"web\"}"
+          }
+        },
+        {
+          "name": "last_error",
+          "type": "attr",
+          "value": { "type": "string", "value": "" }
+        },
+        {
+          "name": "read_offset",
+          "type": "attr",
+          "value": { "type": "string", "value": "fixture-offset-web" }
+        }
+      ]
+    }
+  ],
+  "exports": {},
+  "health": {
+    "message": "",
+    "state": "healthy",
+    "updatedTime": "2000-01-01T00:00:00Z"
+  },
+  "label": "containers",
+  "liveDebuggingEnabled": false,
+  "localID": "loki.source.docker.containers",
+  "moduleID": "",
+  "name": "loki.source.docker",
+  "original": null,
+  "referencedBy": [],
+  "referencesTo": [],
+  "type": "loki.source.docker"
+}
