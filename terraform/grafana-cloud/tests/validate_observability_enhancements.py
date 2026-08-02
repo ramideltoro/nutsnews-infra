@@ -202,6 +202,13 @@ for token in (
     "terraform_replacements_verified",
     "recording_rules_changed",
     "logs_changed",
+    "INTEGRATION_RULES_PATH",
+    "CONVERTED_RULES_NAMESPACE",
+    "Integration - Linux Node",
+    "X-Grafana-Alerting-Datasource-UID",
+    "grafanacloud-prom",
+    "rollback_full_namespace",
+    "automatic full-bundle rollback verified",
 ):
     require(token in LINUX_MIGRATOR, f"Linux integration migrator is incomplete: {token}")
 

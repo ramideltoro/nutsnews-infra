@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: Plan proves equivalence; apply disables the verified vendor alert bundle.
+        description: Plan proves equivalence; apply reconciles the converted namespace to recording rules only.
         required: true
         type: choice
         options:
@@ -34,7 +34,7 @@ jobs:
     uses: ./.github/workflows/production-vps-environment-policy-audit.yml
 
   migrate:
-    name: Verify replacements and disable vendor alerts
+    name: Verify and reconcile converted Linux rules
     if: ${{ github.repository == 'ramideltoro/nutsnews-infra' && github.ref == 'refs/heads/main' }}
     needs: audit-production-vps-policy
     runs-on: ubuntu-latest
@@ -76,7 +76,7 @@ jobs:
           python3 terraform/grafana-cloud/tests/test_migrate_linux_integration_alerts.py
           python3 terraform/grafana-cloud/tests/validate_observability_enhancements.py
 
-      - name: Prove equivalence and optionally disable vendor alerts
+      - name: Prove equivalence and optionally reconcile converted namespace
         env:
           GRAFANA_URL: ${{ secrets.NUTSNEWS_GRAFANA_CLOUD_URL }}
           GRAFANA_SERVICE_ACCOUNT_TOKEN: ${{ secrets.NUTSNEWS_GRAFANA_CLOUD_SERVICE_ACCOUNT_TOKEN }}

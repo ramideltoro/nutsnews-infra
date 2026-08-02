@@ -49,7 +49,7 @@
       "runbook_url": "https://github.com/ramideltoro/nutsnews-infra/blob/main/runbooks/GRAFANA_CLOUD_OBSERVABILITY.md"
     },
     "normalizationStatus": "approved",
-    "normalizationMechanism": "Terraform provisions exact source-reviewed normalized equivalents in the NutsNews folder. A protected exact-main workflow proves live equivalence, disables the integration alert bundle through Grafana configurable_alerts, preserves all integration recording rules, and verifies the replacement rules after the mutation."
+    "normalizationMechanism": "Terraform provisions exact source-reviewed normalized equivalents in the NutsNews folder. A protected exact-main workflow proves live and integration-bundle equivalence, sets Grafana configurable_alerts disabled, and atomically reconciles the converted Prometheus namespace to the two recording-rule groups. It restores and verifies the reviewed full 40-rule snapshot on any post-delete failure."
   },
   "definitionFingerprintPolicy": {
     "algorithm": "sha256",
@@ -59,7 +59,7 @@
     "bootstrap": "Run authenticated post-apply verification after the vendor alert bundle is disabled, review every long-term retained recording-rule definition and observed hash, then commit definitionFingerprintSha256 on all 11 retained entries and change baselineStatus to approved."
   },
   "duplicateReview": {
-    "retained": "The 11 node-exporter recording rules are not proven duplicates and remain integration-owned. The 24 alert rules have source-owned normalized equivalents and are disabled only through the supported integration configurable_alerts control after exact live equivalence verification.",
+    "retained": "The 11 node-exporter recording rules are not proven duplicates and remain integration-owned. The 24 alert rules have source-owned normalized equivalents and are removed only by the protected converted-Prometheus namespace reconciliation after exact live and rollback-snapshot equivalence verification.",
     "obsolete": "The five Asserts resource recording rules remain live because the stack authenticated integration API reports 1.6.2 installed, 1.6.2 available, and has_update=false. Keep them until Grafana offers the supported integration upgrade; never delete them by UID."
   },
   "legacyObservedRuleCount": 40,
