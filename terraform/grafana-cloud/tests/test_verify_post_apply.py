@@ -551,6 +551,11 @@ class VerifyPostApplyTests(unittest.TestCase):
             },
         )
         self.assertEqual(query_report["finite_sample_count"], 1)
+        self.assertEqual(query_report["zero_sample_count"], 0)
+        self.assertEqual(query_report["one_sample_count"], 1)
+        self.assertEqual(query_report["other_finite_sample_count"], 0)
+        self.assertEqual(query_report["distinct_probe_label_count"], 1)
+        self.assertEqual(query_report["distinct_config_version_count"], 0)
         self.assertEqual(
             safe_report["errors"],
             {
@@ -866,6 +871,12 @@ class VerifyPostApplyTests(unittest.TestCase):
         self.assertEqual(
             parsed["prometheus_queries"]["results"]["backend_api_up"][
                 "finite_sample_count"
+            ],
+            0,
+        )
+        self.assertEqual(
+            parsed["prometheus_queries"]["results"]["backend_api_up"][
+                "zero_sample_count"
             ],
             0,
         )
