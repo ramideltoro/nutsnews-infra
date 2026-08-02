@@ -55,8 +55,8 @@
     "algorithm": "sha256",
     "canonicalization": "sorted compact JSON over folder, group, title, kind, labels, annotations, query, for, no-data state, and error state",
     "requiredDisposition": "retain",
-    "baselineStatus": "pending_authenticated_rollout",
-    "bootstrap": "Run authenticated post-apply verification after the vendor alert bundle is disabled, review every long-term retained recording-rule definition and observed hash, then commit definitionFingerprintSha256 on all 11 retained entries and change baselineStatus to approved."
+    "baselineStatus": "approved",
+    "bootstrap": "The protected Grafana apply run 30744049717 authenticated the reconciled converted namespace, and operator review matched all 11 retained recording-rule identities, queries, and healthy definitions to these committed fingerprints. Future authenticated verification fails closed on any drift."
   },
   "duplicateReview": {
     "retained": "The 11 node-exporter recording rules are not proven duplicates and remain integration-owned. The 24 alert rules have source-owned normalized equivalents and are removed only by the protected converted-Prometheus namespace reconciliation after exact live and rollback-snapshot equivalence verification.",
@@ -368,6 +368,7 @@
       "title": "instance:node_cpu_utilisation:rate5m",
       "kind": "recording",
       "disposition": "retain",
+      "definitionFingerprintSha256": "9ccbfa13d04282f48bc2f11d202d35509782822b530bfa75ad409c1126d222db",
       "sourceDetail": "linux integration"
     },
     {
@@ -376,6 +377,7 @@
       "title": "instance:node_load1_per_cpu:ratio",
       "kind": "recording",
       "disposition": "retain",
+      "definitionFingerprintSha256": "7c90fb4eb72ca1d9c05a662c1e8396b0e3a8802592757b6a47670f3e2ba652a7",
       "sourceDetail": "linux integration"
     },
     {
@@ -384,6 +386,7 @@
       "title": "instance:node_memory_utilisation:ratio",
       "kind": "recording",
       "disposition": "retain",
+      "definitionFingerprintSha256": "b1fd3ac5bd77de3e704e4b3ebeca9f97ebbcb2a05bfc81c79778ddddb6bfe2db",
       "sourceDetail": "linux integration"
     },
     {
@@ -392,6 +395,7 @@
       "title": "instance:node_network_receive_bytes_excluding_lo:rate5m",
       "kind": "recording",
       "disposition": "retain",
+      "definitionFingerprintSha256": "689503591331b037c75d2c7ca050cd4dbaab4e7986c02d9717209dc205e79191",
       "sourceDetail": "linux integration"
     },
     {
@@ -400,6 +404,7 @@
       "title": "instance:node_network_receive_drop_excluding_lo:rate5m",
       "kind": "recording",
       "disposition": "retain",
+      "definitionFingerprintSha256": "5af2f16f351679ed0de5152465ffdfe95488eb733ad1f8c4772028fc03aabe21",
       "sourceDetail": "linux integration"
     },
     {
@@ -408,6 +413,7 @@
       "title": "instance:node_network_transmit_bytes_excluding_lo:rate5m",
       "kind": "recording",
       "disposition": "retain",
+      "definitionFingerprintSha256": "63e86760dd3921b819e0c013ce2c81bd8070bc120e42ed32d0fc652c3a7f7400",
       "sourceDetail": "linux integration"
     },
     {
@@ -416,6 +422,7 @@
       "title": "instance:node_network_transmit_drop_excluding_lo:rate5m",
       "kind": "recording",
       "disposition": "retain",
+      "definitionFingerprintSha256": "e30e32c1621049469084112506710a27d47a1c6289202f83ec505c0a6c2608a8",
       "sourceDetail": "linux integration"
     },
     {
@@ -424,6 +431,7 @@
       "title": "instance:node_num_cpu:sum",
       "kind": "recording",
       "disposition": "retain",
+      "definitionFingerprintSha256": "c995e5fed11ca27aae40135fa36375705ff5fd48c388cb6744760e8677cb783f",
       "sourceDetail": "linux integration"
     },
     {
@@ -432,6 +440,7 @@
       "title": "instance:node_vmstat_pgmajfault:rate5m",
       "kind": "recording",
       "disposition": "retain",
+      "definitionFingerprintSha256": "81db8cd33fb5fa52ebac910854eb95854cc9e7ddea3b91406e679cf5d9854541",
       "sourceDetail": "linux integration"
     },
     {
@@ -440,6 +449,7 @@
       "title": "instance_device:node_disk_io_time_seconds:rate5m",
       "kind": "recording",
       "disposition": "retain",
+      "definitionFingerprintSha256": "8941ab7f2051478dc7591bffb8e0a9ee8e65b70dfd44e7a93eb06fbbfac69ab1",
       "sourceDetail": "linux integration"
     },
     {
@@ -448,6 +458,7 @@
       "title": "instance_device:node_disk_io_time_weighted_seconds:rate5m",
       "kind": "recording",
       "disposition": "retain",
+      "definitionFingerprintSha256": "bed11cd4bb9c3d17fd75c9ce794f9f59c14a3eb9fd1cfe73ee2a5833cc47b103",
       "sourceDetail": "linux integration"
     }
   ],
