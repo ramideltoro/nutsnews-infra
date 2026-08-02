@@ -642,6 +642,7 @@ jobs:
           ssh-keygen -F 65.75.202.112 -f "$HOME/.ssh/known_hosts" > /dev/null
 
       - name: Fetch and diff reviewed Vercel Production variables
+        id: vercel_production
         if: inputs.sync_vercel_production == 'true'
         shell: bash
         env:
@@ -675,6 +676,20 @@ jobs:
             --selected "$selected_file" \
             --target "$target_file" \
             --report "$report_file"
+
+          python3 - "$selected_file" "$GITHUB_OUTPUT" <<'PY'
+          import json
+          import sys
+
+          selected_path, output_path = sys.argv[1:]
+          with open(selected_path, encoding="utf-8") as handle:
+              selected = json.load(handle)
+          provider_mode = selected.get("NUTSNEWS_DATABASE_PROVIDER_MODE")
+          if provider_mode not in {"supabase_primary", "backend_postgres_primary"}:
+              raise SystemExit("Reviewed Vercel Production database provider mode is missing or invalid.")
+          with open(output_path, "a", encoding="utf-8") as handle:
+              handle.write(f"database_provider_mode={provider_mode}\n")
+          PY
 
       - name: Build runtime extra vars
         shell: bash
@@ -1483,6 +1498,7 @@ jobs:
           RELEASE_IMAGE_DIGEST: ${{ inputs.release_image_digest }}
           RELEASE_MIGRATION_HEAD: ${{ inputs.release_migration_head }}
           PRODUCTION_WRITES_PAUSED: ${{ inputs.production_writes_paused }}
+          RELEASE_DATABASE_PROVIDER_MODE: ${{ steps.vercel_production.outputs.database_provider_mode }}
         run: |
           set -euo pipefail
           node scripts/dual_target_web_smoke.mjs \
@@ -1494,6 +1510,7 @@ jobs:
             --expected-runtime-env production \
             --expected-image-digest "$RELEASE_IMAGE_DIGEST" \
             --expected-config-generation "production-${RELEASE_BUILD_ID}-${RELEASE_MIGRATION_HEAD}" \
+            --expected-database-provider-mode "$RELEASE_DATABASE_PROVIDER_MODE" \
             --expected-production-writes-paused "$PRODUCTION_WRITES_PAUSED" \
             --production-safe-surfaces
 
