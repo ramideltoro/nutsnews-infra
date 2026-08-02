@@ -217,9 +217,9 @@ for required in (
     "STAGING_DEPLOYMENT_ID",
     "QUALIFICATION_RUN_ID",
     'release_kind: "release"',
-    "DATABASE_PROVIDER_MODE: supabase_primary",
+    "DATABASE_PROVIDER_MODE: backend_postgres_primary",
     "BACKEND_API_URL: https://backend.nutsnews.com/api/app/db",
-    "PROVIDER_SWITCH_CONFIRMATION: deploy-supabase-primary",
+    "PROVIDER_SWITCH_CONFIRMATION: enable-backend-postgres-primary",
     "expected_provider_confirmation=deploy-supabase-primary",
     "expected_provider_confirmation=enable-backend-postgres-primary",
     "Production database provider switch confirmation is invalid.",
@@ -265,6 +265,10 @@ for required in (
     "--supabase-project-ref",
 ):
     assert required in promotion_workflow, f"Promotion workflow is missing required guardrail: {required}"
+
+assert "DATABASE_PROVIDER_MODE: supabase_primary" not in promotion_workflow, (
+    "Automatic releases must preserve backend PostgreSQL production ownership; Supabase is standby-only."
+)
 
 for required in (
     "api/runtime-config",
