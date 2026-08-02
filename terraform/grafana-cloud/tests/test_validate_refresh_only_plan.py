@@ -41,6 +41,72 @@ class RefreshOnlyPlanTests(unittest.TestCase):
             [("grafana_dashboard.example", ("update",))],
         )
 
+    def test_empty_notification_timing_normalization_is_ignored(self) -> None:
+        before = {
+            "policy": [
+                {
+                    "contact_point": "NutsNews operations email",
+                    "policy": [{"matcher": ["severity", "=", "critical"]}],
+                }
+            ]
+        }
+        after = {
+            "policy": [
+                {
+                    "active_timings": [],
+                    "mute_timings": [],
+                    "contact_point": "NutsNews operations email",
+                    "policy": [
+                        {
+                            "active_timings": [],
+                            "mute_timings": [],
+                            "matcher": ["severity", "=", "critical"],
+                        }
+                    ],
+                }
+            ]
+        }
+        payload = {
+            "format_version": "1.2",
+            "errored": False,
+            "resource_drift": [
+                {
+                    "address": MODULE.NOTIFICATION_POLICY_ADDRESS,
+                    "change": {
+                        "actions": ["update"],
+                        "before": before,
+                        "after": after,
+                    },
+                }
+            ],
+        }
+        self.assertEqual(MODULE.resource_drift_findings(payload), [])
+
+    def test_notification_policy_real_changes_are_reported(self) -> None:
+        for after in (
+            {"contact_point": "changed", "active_timings": [], "mute_timings": []},
+            {"contact_point": "expected", "active_timings": ["business-hours"]},
+        ):
+            payload = {
+                "format_version": "1.2",
+                "errored": False,
+                "resource_drift": [
+                    {
+                        "address": MODULE.NOTIFICATION_POLICY_ADDRESS,
+                        "change": {
+                            "actions": ["update"],
+                            "before": {"contact_point": "expected"},
+                            "after": after,
+                        },
+                    }
+                ],
+            }
+            with self.subTest(after=after):
+                self.assertEqual(
+                    MODULE.resource_drift_findings(payload),
+                    [(MODULE.NOTIFICATION_POLICY_ADDRESS, ("update",))],
+                )
+
     def test_malformed_or_errored_plan_fails_closed(self) -> None:
         for payload in (
             [],
