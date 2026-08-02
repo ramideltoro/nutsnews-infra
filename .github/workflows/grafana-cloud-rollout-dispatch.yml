@@ -252,4 +252,4 @@ jobs:
           set -euo pipefail
           test -n "$TARGET_URL"
           echo "The protected run was dispatched by github-actions[bot]."
-          echo "A configured human production-vps reviewer must approve any protected job; this dispatcher has no Environment or production secrets."
+          echo "The exact-main production-vps policy releases secrets without a manual reviewer; this dispatcher has no Environment or production secrets."

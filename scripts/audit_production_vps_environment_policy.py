@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fail closed unless the production-vps GitHub Environment is protected.
+"""Fail closed unless production-vps allows automatic exact-main deployments.
 
 The audit is intentionally read-only and reports no reviewer identities.  It is
 designed to run before a job attaches the protected environment, so a missing
@@ -84,7 +84,7 @@ def validate_api_origin(api_url: str) -> str:
 def validate_policy(
     environment: dict[str, Any], branch_policy_response: dict[str, Any]
 ) -> None:
-    """Validate exact-main, reviewer, self-review, and admin-bypass protection."""
+    """Validate exact-main automation without a manual reviewer gate."""
 
     if environment.get("can_admins_bypass") is not False:
         raise PolicyAuditError(
@@ -112,20 +112,10 @@ def validate_policy(
         for rule in protection_rules
         if isinstance(rule, dict) and rule.get("type") == "required_reviewers"
     ]
-    if len(reviewer_rules) != 1:
+    if reviewer_rules:
         raise PolicyAuditError(
-            "production-vps must have exactly one required-reviewers rule"
-        )
-    reviewers = _require_list(
-        reviewer_rules[0].get("reviewers"), "required reviewer configuration"
-    )
-    if len(reviewers) < 1:
-        raise PolicyAuditError(
-            "production-vps must configure at least one required reviewer"
-        )
-    if reviewer_rules[0].get("prevent_self_review") is not True:
-        raise PolicyAuditError(
-            "production-vps must prevent deployment initiators from self-reviewing"
+            "production-vps must not require manual reviewers; "
+            "exact-main releases deploy automatically"
         )
 
     policies = _require_list(
@@ -215,7 +205,7 @@ def main() -> int:
         return 1
     print(
         "production-vps environment policy audit passed: "
-        "exact-main custom branch policy, required reviewer, self-review prevention, "
+        "exact-main custom branch policy, automatic deployment without reviewers, "
         "and disabled administrator bypass are present"
     )
     return 0

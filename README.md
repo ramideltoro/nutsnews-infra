@@ -76,9 +76,9 @@ The observability layer adds optional Grafana Alloy telemetry on the VPS and Ope
 - Portal Checks: skips cleanly for the scaffold, then runs install, lint, test, and build scripts when `portal/package.json` exists.
 - Nightly Audit: runs deeper workflow, dependency, and configuration scans on a schedule.
 
-## Protected Manual Applies
+## Protected Applies
 
-Configure and verify the exact-main branch policy and required reviewer gate in
+Configure and verify the exact-main automatic deployment policy in
 [runbooks/PRODUCTION_VPS_ENVIRONMENT_PROTECTION.md](runbooks/PRODUCTION_VPS_ENVIRONMENT_PROTECTION.md)
 before any workflow attaches the `production-vps` Environment.
 

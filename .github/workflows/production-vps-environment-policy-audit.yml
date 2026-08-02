@@ -15,7 +15,7 @@ concurrency:
 
 jobs:
   audit:
-    name: Verify production-vps branch, reviewer, and bypass protection
+    name: Verify production-vps exact-main automatic policy
     if: ${{ github.repository == 'ramideltoro/nutsnews-infra' && github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
