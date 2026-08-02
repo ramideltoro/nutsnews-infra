@@ -75,6 +75,10 @@ assert "NUTSNEWS_APP_IMAGE_TAG" not in protected_apply
 assert "target: /app/.next/cache/images" in app_compose
 assert "target: /tmp/nutsnews-cache" not in app_compose
 assert "nutsnews-image-cache-pruner:" in app_compose
+pruner = app_compose.split("  nutsnews-image-cache-pruner:", 1)[1].split("\nnetworks:", 1)[0]
+assert "healthcheck:" in pruner
+assert "disable: true" in pruner
+assert "--watch" in pruner
 assert "scripts/prune-next-image-cache.mjs" in app_compose
 assert "network_mode: none" in app_compose
 assert "read_only: true" in app_compose

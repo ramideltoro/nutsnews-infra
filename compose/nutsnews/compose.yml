@@ -63,6 +63,11 @@ services:
       - node
       - scripts/prune-next-image-cache.mjs
       - --watch
+    # The application image carries an HTTP health check for the web process.
+    # This sidecar is a non-HTTP watch loop, so process/container state is its
+    # truthful health signal and the inherited web probe must be disabled.
+    healthcheck:
+      disable: true
     volumes:
       - type: volume
         source: app-cache
