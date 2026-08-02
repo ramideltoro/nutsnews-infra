@@ -664,6 +664,14 @@ require(
     and "<= bool 900" not in feed_freshness_block,
     "feed freshness must be an alert-compatible event ratio of valid <=15m observations",
 )
+worker_terminal_block = SLOS.split("    worker_terminal_success = {", 1)[1].split(
+    "\n    }\n  }", 1
+)[0]
+require(
+    worker_terminal_block.count("$__rate_interval") == 2
+    and "[5m]" not in worker_terminal_block,
+    "worker terminal success must use Grafana's required dynamic rate interval",
+)
 for token in (
     'variable "worker_terminal_slo_alerting_enabled"',
     "default     = false",
