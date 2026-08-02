@@ -147,7 +147,7 @@ for token in ("grafana-cloud-post-apply-verification", "if-no-files-found: error
     )
 
 for token in (
-    'GRAFANA_UI_HOSTNAME = "nutsnews.grafana.net"',
+    'GRAFANA_UI_HOSTNAME = "kindcantaloupe2036.grafana.net"',
     "SYNTHETIC_MONITORING_HOSTNAME = re.compile(",
     'r"synthetic-monitoring-api(?:[.-]',
     "validate_grafana_ui_origin(",
