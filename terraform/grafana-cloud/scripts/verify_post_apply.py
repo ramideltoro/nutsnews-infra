@@ -580,7 +580,11 @@ PROMETHEUS_QUERIES = {
         1,
     ),
     "backend_sync_relay_available": (
-        'nutsnews_backend_sync_relay_available{job="nutsnews-backend-host",instance="backend.nutsnews.com"} == 1',
+        '(nutsnews_backend_sync_relay_available{job="nutsnews-backend-host",instance="backend.nutsnews.com"} == 1) and on() (nutsnews_backend_sync_relay_expected_active{job="nutsnews-backend-host",instance="backend.nutsnews.com"} == 1)',
+        1,
+    ),
+    "backend_sync_relay_expected_active": (
+        'nutsnews_backend_sync_relay_expected_active{job="nutsnews-backend-host",instance="backend.nutsnews.com"}',
         1,
     ),
     "backend_sync_relay_status": (
@@ -588,23 +592,23 @@ PROMETHEUS_QUERIES = {
         1,
     ),
     "backend_sync_relay_fresh": (
-        'nutsnews_backend_sync_relay_collector_fresh{job="nutsnews-backend-host",instance="backend.nutsnews.com"} == 1',
+        '(nutsnews_backend_sync_relay_collector_fresh{job="nutsnews-backend-host",instance="backend.nutsnews.com"} == 1) and on() (nutsnews_backend_sync_relay_expected_active{job="nutsnews-backend-host",instance="backend.nutsnews.com"} == 1)',
         1,
     ),
     "backend_sync_relay_healthy": (
-        'nutsnews_backend_sync_relay_healthy{job="nutsnews-backend-host",instance="backend.nutsnews.com"} == 1',
+        '(nutsnews_backend_sync_relay_healthy{job="nutsnews-backend-host",instance="backend.nutsnews.com"} == 1) and on() (nutsnews_backend_sync_relay_expected_active{job="nutsnews-backend-host",instance="backend.nutsnews.com"} == 1)',
         1,
     ),
     "backend_sync_relay_lag": (
-        'nutsnews_backend_sync_relay_lag_seconds{job="nutsnews-backend-host",instance="backend.nutsnews.com"} >= 0',
+        '(nutsnews_backend_sync_relay_lag_seconds{job="nutsnews-backend-host",instance="backend.nutsnews.com"} >= 0) and on() (nutsnews_backend_sync_relay_expected_active{job="nutsnews-backend-host",instance="backend.nutsnews.com"} == 1)',
         1,
     ),
     "backend_sync_relay_failed_tables": (
-        'nutsnews_backend_sync_relay_failed_table_count{job="nutsnews-backend-host",instance="backend.nutsnews.com"} == 0',
+        '(nutsnews_backend_sync_relay_failed_table_count{job="nutsnews-backend-host",instance="backend.nutsnews.com"} == 0) and on() (nutsnews_backend_sync_relay_expected_active{job="nutsnews-backend-host",instance="backend.nutsnews.com"} == 1)',
         1,
     ),
     "backend_sync_relay_last_success_age": (
-        'nutsnews_backend_sync_relay_last_success_age_seconds{job="nutsnews-backend-host",instance="backend.nutsnews.com"} >= 0',
+        '(nutsnews_backend_sync_relay_last_success_age_seconds{job="nutsnews-backend-host",instance="backend.nutsnews.com"} >= 0) and on() (nutsnews_backend_sync_relay_expected_active{job="nutsnews-backend-host",instance="backend.nutsnews.com"} == 1)',
         1,
     ),
     "backend_backup_verification_fresh": (
@@ -4037,7 +4041,27 @@ def main() -> int:
             relay_status = "unknown"
         else:
             relay_status = next(iter(relay_statuses))
+        relay_expected_active_values = prometheus[
+            "backend_sync_relay_expected_active"
+        ].get("sample_values", [])
+        if (
+            prometheus["backend_sync_relay_expected_active"].get("result_count") != 1
+            or len(relay_expected_active_values) != 1
+            or relay_expected_active_values[0] not in {0, 1}
+        ):
+            errors.append(
+                "sync relay must expose exactly one bounded expected-active signal: "
+                f"{relay_expected_active_values!r}"
+            )
+            relay_expected_active = None
+        else:
+            relay_expected_active = relay_expected_active_values[0]
         if relay_status == "not_configured":
+            if relay_expected_active != 0:
+                errors.append(
+                    "disabled sync relay must expose expected_active=0: "
+                    f"{relay_expected_active_values!r}"
+                )
             unexpected_relay_data = sorted(
                 name
                 for name in RELAY_CONDITIONAL_QUERIES
@@ -4049,6 +4073,11 @@ def main() -> int:
                     f"{unexpected_relay_data!r}"
                 )
         elif relay_status == "pass":
+            if relay_expected_active != 1:
+                errors.append(
+                    "configured sync relay must expose expected_active=1: "
+                    f"{relay_expected_active_values!r}"
+                )
             for name in sorted(RELAY_CONDITIONAL_QUERIES):
                 values = prometheus[name].get("sample_values", [])
                 if not values:

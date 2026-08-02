@@ -75,7 +75,7 @@ require(len(dashboards) <= guardrails["max_dashboards"], "dashboard count exceed
 require(max(len(item["panels"]) for item in dashboards) <= guardrails["max_panels_per_dashboard"], "panel count exceeds per-dashboard guardrail")
 require(len(all_panels) <= guardrails["max_total_panels"], "total panel count exceeds catalog guardrail")
 require(len(queries) <= guardrails["max_unique_queries"], "unique query count exceeds catalog guardrail")
-require(len(all_panels) == 125, "backend catalog must stay within the approved 125-panel total")
+require(len(all_panels) == 126, "backend catalog must stay within the approved 126-panel total")
 
 for uid in DASHBOARD_UIDS:
     item = dashboard(uid)
