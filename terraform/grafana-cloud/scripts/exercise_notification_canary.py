@@ -26,6 +26,9 @@ REQUIRED_LABELS = {
     "severity",
 }
 GRAFANA_UI_HOSTNAME = "kindcantaloupe2036.grafana.net"
+GRAFANA_CANARY_DASHBOARD_URL = (
+    f"https://{GRAFANA_UI_HOSTNAME}/d/nutsnews-vps-overview"
+)
 
 
 class NoRedirectHandler(urllib.request.HTTPRedirectHandler):
@@ -107,7 +110,7 @@ def build_alert(
         "labels": labels,
         "annotations": {
             "canary_id": canary_id,
-            "dashboard_url": "/d/nutsnews-vps-overview",
+            "dashboard_url": GRAFANA_CANARY_DASHBOARD_URL,
             "description": (
                 "Deliberate Grafana notification-path test. Confirm the firing and resolved "
                 "email pair is retained under this unique alert name."
@@ -120,7 +123,7 @@ def build_alert(
         },
         "startsAt": iso8601(starts_at),
         "endsAt": iso8601(ends_at),
-        "generatorURL": "/d/nutsnews-vps-overview",
+        "generatorURL": GRAFANA_CANARY_DASHBOARD_URL,
     }
 
 
