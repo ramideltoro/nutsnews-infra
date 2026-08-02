@@ -1670,6 +1670,26 @@ class VerifyPostApplyTests(unittest.TestCase):
         self.assertEqual(summary["error_count"], 1)
         self.assertEqual(summary["category_counts"], {"assertion_shape": 1})
 
+    def test_remote_synthetic_contract_normalizes_nullable_empty_assertion_families(self) -> None:
+        for job in sorted(MODULE.EXPECTED_SYNTHETIC_CHECKS):
+            with self.subTest(job=job):
+                check = remote_synthetic_check(job, 101)
+                desired = protected_desired_checks([check])[job]
+                http = check["settings"]["http"]
+                for field in (
+                    "failIfBodyMatchesRegexp",
+                    "failIfBodyNotMatchesRegexp",
+                    "failIfHeaderMatchesRegexp",
+                    "failIfHeaderNotMatchesRegexp",
+                ):
+                    if not http.get(field):
+                        http[field] = None
+                errors: list[str] = []
+                MODULE.validate_remote_synthetic_contract(
+                    check, {11, 22}, desired, errors
+                )
+                self.assertFalse(errors)
+
     def test_synthetic_inventory_artifact_retains_only_bounded_contract_failures(self) -> None:
         sentinel = "private-assertion-or-target-value"
         report = {

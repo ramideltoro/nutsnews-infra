@@ -2254,6 +2254,12 @@ def desired_header_assertions(value: Any) -> list[dict[str, Any]]:
 
 
 def canonical_synthetic_assertion_family(field: str, value: Any) -> tuple[Any, ...] | None:
+    # The Synthetic Monitoring API schema declares every assertion array
+    # nullable and serializes an unconfigured family as null. Terraform models
+    # the same state as an empty list, so normalize only that representation;
+    # individual null/invalid assertions continue to fail closed below.
+    if value is None:
+        value = []
     if not isinstance(value, list):
         return None
     if field == "validStatusCodes":
