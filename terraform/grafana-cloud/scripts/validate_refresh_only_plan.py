@@ -28,7 +28,7 @@ def _without_empty_timing_defaults(value: Any) -> Any:
         return {
             key: _without_empty_timing_defaults(item)
             for key, item in value.items()
-            if not (key in EMPTY_TIMING_KEYS and item == [])
+            if not (key in EMPTY_TIMING_KEYS and (item is None or item == []))
         }
     if isinstance(value, list):
         return [_without_empty_timing_defaults(item) for item in value]
@@ -59,7 +59,8 @@ def _is_notification_policy_empty_timing_normalization(
         and isinstance(after, dict)
         and before != after
         and _contains_empty_timing_default(after)
-        and _without_empty_timing_defaults(after) == before
+        and _without_empty_timing_defaults(after)
+        == _without_empty_timing_defaults(before)
     )
 
 
