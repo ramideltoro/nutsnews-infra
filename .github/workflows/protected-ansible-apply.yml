@@ -1285,6 +1285,27 @@ jobs:
               raise SystemExit("release_manifest_mode must be reviewed_manifest or premerge_candidate.")
 
           Path(".runtime-extra-vars.json").write_text(json.dumps(extra_vars) + "\n", encoding="utf-8")
+
+          if (
+              os.environ.get("RELEASE_SOURCE_COMMIT", "").strip()
+              and app_envs.get("NUTSNEWS_DATABASE_PROVIDER_MODE") == "backend_postgres_primary"
+          ):
+              backend_schema_preflight_keys = (
+                  "NUTSNEWS_DATABASE_PROVIDER_MODE",
+                  "NUTSNEWS_BACKEND_API_URL",
+                  "NUTSNEWS_BACKEND_API_TOKEN",
+              )
+              backend_schema_preflight_env = {
+                  key: app_envs.get(key, "") for key in backend_schema_preflight_keys
+              }
+              backend_schema_preflight_path = (
+                  Path(os.environ["RUNNER_TEMP"]) / "backend-schema-preflight-env.json"
+              )
+              backend_schema_preflight_path.write_text(
+                  json.dumps(backend_schema_preflight_env) + "\n",
+                  encoding="utf-8",
+              )
+              backend_schema_preflight_path.chmod(0o600)
           PY
 
           chmod 0600 .runtime-extra-vars.json
@@ -1293,12 +1314,14 @@ jobs:
         if: inputs.release_source_commit != '' && steps.vercel_production.outputs.database_provider_mode == 'backend_postgres_primary'
         shell: bash
         env:
-          NUTSNEWS_APP_ENVS_JSON: ${{ secrets.NUTSNEWS_APP_ENVS_JSON }}
+          BACKEND_SCHEMA_PREFLIGHT_ENVS_FILE: ${{ runner.temp }}/backend-schema-preflight-env.json
           RELEASE_MIGRATION_HEAD: ${{ inputs.release_migration_head }}
           RELEASE_SCHEMA_VERSION: ${{ inputs.release_schema_version }}
         run: |
           set -euo pipefail
-          node scripts/verify_backend_release_schema_contract.mjs
+          test -r "$BACKEND_SCHEMA_PREFLIGHT_ENVS_FILE"
+          NUTSNEWS_APP_ENVS_JSON="$(<"$BACKEND_SCHEMA_PREFLIGHT_ENVS_FILE")" \
+            node scripts/verify_backend_release_schema_contract.mjs
 
       - name: Inspect Cloudflare DDNS record
         if: inputs.enable_cloudflare_ddns == 'true'
@@ -1572,6 +1595,7 @@ jobs:
             "$RUNNER_TEMP/vercel-selected.json" \
             "$RUNNER_TEMP/vercel-classification.json" \
             "$RUNNER_TEMP/vps-env-fingerprints.json" \
+            "$RUNNER_TEMP/backend-schema-preflight-env.json" \
             "$GITHUB_WORKSPACE/ansible/.runtime-extra-vars.json"
           do
             if [[ -e "$path" ]]; then
