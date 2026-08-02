@@ -182,6 +182,19 @@ for scrape_name, expected_address in (
 for project in ("nutsnews-service-foundation", "nutsnews-app"):
     require(project in DEFAULTS, f"Alloy Docker log discovery defaults must include {project}.")
 require(
+    'filter {\n    name = "label"' not in ALLOY_CONFIG,
+    "Docker discovery must not combine mutually exclusive Compose project filters.",
+)
+require(
+    'discovery.relabel "docker_logs"' in ALLOY_CONFIG
+    and 'regex         = "^(nutsnews-service-foundation;(caddy|ops-auth)|nutsnews-app;nutsnews-app)$"' in ALLOY_CONFIG,
+    "Docker log tailing must retain the exact project/service relabel allowlist.",
+)
+require(
+    "loki_source_docker_target_entries_total" in TASKS,
+    "Protected apply must prove that Alloy exposes active Docker log targets.",
+)
+require(
     "status               = \"status\"" in ALLOY_CONFIG and "uri                  = \"request.uri\"" in ALLOY_CONFIG,
     "Docker/Caddy JSON parsing must extract status and URI as structured metadata.",
 )

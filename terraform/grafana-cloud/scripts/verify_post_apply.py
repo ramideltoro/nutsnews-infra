@@ -774,6 +774,33 @@ LOKI_INDEXED_LABELS = {
 }
 LOKI_PLATFORM_INDEXED_LABELS = {"service_name"}
 LOKI_ALLOWED_INDEXED_LABELS = LOKI_INDEXED_LABELS | LOKI_PLATFORM_INDEXED_LABELS
+SYNTHETIC_CONTRACT_ERROR_CATEGORIES: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("identity", ("approved checks", "bounded production identity labels")),
+    ("enabled", ("must be enabled",)),
+    ("schedule", ("five minutes", "frequency differs", "timeout differs")),
+    ("probes", ("probe ids", "public selection")),
+    ("metrics_mode", ("basic metrics",)),
+    ("target", ("approved read-only https route", "desired target")),
+    ("http_settings", ("http settings",)),
+    ("method_tls", ("tls-required read-only get",)),
+    ("redirects", ("reject redirects",)),
+    ("status_code", ("exactly http 200",)),
+    ("assertion_shape", ("assertion families differ",)),
+    ("desired_assertions", ("approved behavioral contract",)),
+    ("homepage_content", ("homepage content", "maintenance payloads")),
+    ("article_content", ("article response content",)),
+    ("cache_header", ("cache-control header",)),
+    ("readiness_content", ("ready=true and deployment identity",)),
+    ("unknown_identity", ("unknown deployment identity",)),
+    (
+        "deployment_identity",
+        (
+            "production-vps identity",
+            "vercel-production identity",
+            "two production deployment identities",
+        ),
+    ),
+)
 GRAFANA_UI_HOSTNAME = "kindcantaloupe2036.grafana.net"
 SYNTHETIC_MONITORING_HOSTNAME = re.compile(
     r"synthetic-monitoring-api(?:[.-][a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*\.grafana\.net",
@@ -1064,11 +1091,15 @@ def _query_result_summary(value: Any) -> dict[str, Any]:
     if not isinstance(value, dict):
         return {
             "status": "unknown",
+            "indexed_series_status": "unknown",
             "result_count": None,
             "finite_sample_count": 0,
             "non_finite_sample_count": None,
             "invalid_sample_count": None,
             "line_count": None,
+            "indexed_series_missing_normalized_label_count": 0,
+            "indexed_series_unexpected_label_count": 0,
+            "indexed_series_service_alias_mismatch_count": 0,
             "label_structure": _label_structure_summary(None),
         }
     samples = value.get("sample_values")
@@ -1097,8 +1128,17 @@ def _query_result_summary(value: Any) -> dict[str, Any]:
         labels = value.get("series_labels")
     if labels is None:
         labels = value.get("stream_labels")
+    indexed_labels = value.get("indexed_series_labels")
+    safe_indexed_labels = (
+        [item for item in indexed_labels if isinstance(item, dict)]
+        if isinstance(indexed_labels, list)
+        else []
+    )
     return {
         "status": _bounded_string(value.get("status"), REPORT_QUERY_STATUSES),
+        "indexed_series_status": _bounded_string(
+            value.get("indexed_series_status"), REPORT_QUERY_STATUSES
+        ),
         "result_count": _safe_nonnegative_integer(value.get("result_count")),
         "finite_sample_count": finite_sample_count,
         # Counts reveal whether an allowlisted query is healthy without persisting
@@ -1130,6 +1170,18 @@ def _query_result_summary(value: Any) -> dict[str, Any]:
             value.get("invalid_sample_count", 0)
         ),
         "line_count": _safe_nonnegative_integer(value.get("line_count")),
+        "indexed_series_missing_normalized_label_count": sum(
+            bool(LOKI_ALLOWED_INDEXED_LABELS - set(item))
+            for item in safe_indexed_labels
+        ),
+        "indexed_series_unexpected_label_count": sum(
+            bool(set(item) - LOKI_ALLOWED_INDEXED_LABELS)
+            for item in safe_indexed_labels
+        ),
+        "indexed_series_service_alias_mismatch_count": sum(
+            item.get("service_name") != item.get("service")
+            for item in safe_indexed_labels
+        ),
         "label_structure": _label_structure_summary(labels),
     }
 
@@ -1397,6 +1449,41 @@ def _synthetic_inventory_summary(value: Any) -> dict[str, Any]:
     inventory = value if isinstance(value, dict) else {}
     checks = inventory.get("checks") if isinstance(inventory.get("checks"), list) else []
     valid_checks = [check for check in checks if isinstance(check, dict)]
+    managed_contracts: dict[str, Any] = {}
+    allowed_contract_categories = {
+        name for name, _tokens in SYNTHETIC_CONTRACT_ERROR_CATEGORIES
+    }
+    for check in valid_checks:
+        job = check.get("job")
+        validation = check.get("contract_validation")
+        if (
+            job not in EXPECTED_SYNTHETIC_CHECKS
+            or check.get("terraform_managed") is not True
+            or not isinstance(validation, dict)
+        ):
+            continue
+        raw_counts = validation.get("category_counts")
+        safe_counts = (
+            {
+                name: _safe_nonnegative_integer(count)
+                for name, count in sorted(raw_counts.items())
+                if name in allowed_contract_categories
+            }
+            if isinstance(raw_counts, dict)
+            else {}
+        )
+        managed_contracts[str(job)] = {
+            "valid": _safe_boolean(validation.get("valid")),
+            "error_count": _safe_nonnegative_integer(
+                validation.get("error_count")
+            ),
+            "category_counts": safe_counts,
+            "unexpected_category_count": (
+                len(set(raw_counts) - allowed_contract_categories)
+                if isinstance(raw_counts, dict)
+                else 0
+            ),
+        }
     return {
         "enabled_api_check_count": _safe_nonnegative_integer(
             inventory.get("enabled_api_check_count")
@@ -1418,6 +1505,7 @@ def _synthetic_inventory_summary(value: Any) -> dict[str, Any]:
             check.get("terraform_managed") is True for check in valid_checks
         ),
         "enabled_check_count": sum(check.get("enabled") is True for check in valid_checks),
+        "managed_contracts": dict(sorted(managed_contracts.items())),
     }
 
 
@@ -1518,7 +1606,7 @@ def _sanitize_report_for_output(
         raise ValueError("Grafana Cloud verification evidence must be an object.")
 
     sanitized: dict[str, Any] = {
-        "schema_version": 3,
+        "schema_version": 4,
         "status": _bounded_string(value.get("status"), {"fail", "pass"}, "fail"),
     }
     count_fields = {
@@ -2342,6 +2430,27 @@ def validate_remote_synthetic_contract(
     return len(errors) == starting_error_count
 
 
+def synthetic_contract_error_summary(contract_errors: Any) -> dict[str, Any]:
+    """Classify verifier-owned contract failures without retaining API values."""
+    if not isinstance(contract_errors, list):
+        return {"valid": False, "error_count": 0, "category_counts": {}}
+    counts: dict[str, int] = {}
+    for error in contract_errors:
+        category = "other"
+        if isinstance(error, str):
+            lowered = error.lower()
+            for candidate, tokens in SYNTHETIC_CONTRACT_ERROR_CATEGORIES:
+                if any(token in lowered for token in tokens):
+                    category = candidate
+                    break
+        counts[category] = counts.get(category, 0) + 1
+    return {
+        "valid": not contract_errors,
+        "error_count": len(contract_errors),
+        "category_counts": dict(sorted(counts.items())),
+    }
+
+
 def remote_synthetic_inventory(
     client: SyntheticMonitoringClient,
     managed_ids: Any,
@@ -2480,9 +2589,20 @@ def remote_synthetic_inventory(
         if job in EXPECTED_SYNTHETIC_CHECKS:
             if normalized_managed_ids.get(job) != check_id:
                 errors.append(f"Remote Synthetic Monitoring ID does not match Terraform for {job}")
+            contract_errors: list[str] = []
             validate_remote_synthetic_contract(
-                detail, expected_probe_ids, desired_checks.get(job, {}), errors
+                detail,
+                expected_probe_ids,
+                desired_checks.get(job, {}),
+                contract_errors,
             )
+            errors.extend(contract_errors)
+            for item in safe_inventory:
+                if item.get("check_id") == check_id and item.get("job") == job:
+                    item["contract_validation"] = synthetic_contract_error_summary(
+                        contract_errors
+                    )
+                    break
 
     if not execution_estimate_complete:
         errors.append("Live Synthetic Monitoring API execution estimate is incomplete")

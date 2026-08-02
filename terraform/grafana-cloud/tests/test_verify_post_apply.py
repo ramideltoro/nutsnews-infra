@@ -1266,6 +1266,22 @@ class VerifyPostApplyTests(unittest.TestCase):
         self.assertTrue(any("missing normalized indexed labels" in error for error in errors))
         self.assertTrue(any("service_name alias" in error for error in errors))
 
+        summary = MODULE._query_result_summary(
+            {
+                "status": "success",
+                "indexed_series_status": "success",
+                "indexed_series_labels": [invalid],
+            }
+        )
+        self.assertEqual(summary["indexed_series_status"], "success")
+        self.assertEqual(
+            summary["indexed_series_missing_normalized_label_count"], 1
+        )
+        self.assertEqual(summary["indexed_series_unexpected_label_count"], 1)
+        self.assertEqual(
+            summary["indexed_series_service_alias_mismatch_count"], 1
+        )
+
     def test_generated_slo_burn_windows_match_canonical_families(self) -> None:
         critical = {
             "query": " + ".join(
@@ -1649,6 +1665,52 @@ class VerifyPostApplyTests(unittest.TestCase):
         errors: list[str] = []
         MODULE.validate_remote_synthetic_contract(check, {11, 22}, desired, errors)
         self.assertTrue(any("assertion families differ" in error for error in errors))
+        summary = MODULE.synthetic_contract_error_summary(errors)
+        self.assertFalse(summary["valid"])
+        self.assertEqual(summary["error_count"], 1)
+        self.assertEqual(summary["category_counts"], {"assertion_shape": 1})
+
+    def test_synthetic_inventory_artifact_retains_only_bounded_contract_failures(self) -> None:
+        sentinel = "private-assertion-or-target-value"
+        report = {
+            "synthetic_monitoring_inventory": {
+                "enabled_api_check_count": 1,
+                "enabled_browser_check_count": 0,
+                "monthly_api_execution_estimate": 17_280,
+                "monthly_api_execution_ceiling": 90_000,
+                "execution_estimate_complete": True,
+                "checks": [
+                    {
+                        "job": "canonical_readiness",
+                        "check_id": sentinel,
+                        "enabled": True,
+                        "terraform_managed": True,
+                        "target": sentinel,
+                        "contract_validation": {
+                            "valid": False,
+                            "error_count": 2,
+                            "category_counts": {
+                                "assertion_shape": 1,
+                                "redirects": 1,
+                                sentinel: 99,
+                            },
+                        },
+                    }
+                ],
+            }
+        }
+        serialized = MODULE.serialize_report_for_output(report)
+        summary = json.loads(serialized)["synthetic_monitoring_inventory"]
+        self.assertNotIn(sentinel, serialized)
+        self.assertEqual(
+            summary["managed_contracts"]["canonical_readiness"],
+            {
+                "valid": False,
+                "error_count": 2,
+                "category_counts": {"assertion_shape": 1, "redirects": 1},
+                "unexpected_category_count": 1,
+            },
+        )
 
     def test_remote_synthetic_contract_requires_redirect_rejection(self) -> None:
         check = remote_synthetic_check("canonical_readiness", 101)

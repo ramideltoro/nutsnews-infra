@@ -1018,6 +1018,7 @@
                 ) | join(',')
               }}
             append: false
+          notify: Restart alloy
 
         - name: Create Alloy textfile collector directory
           ansible.builtin.file:
@@ -1228,6 +1229,28 @@
       delay: 5
       until: vps_service_foundation_alloy_ready_check.status == 200
       when: vps_service_foundation_grafana_alloy_enabled | bool
+
+    - name: Validate Grafana Alloy Docker log targets are active
+      ansible.builtin.uri:
+        url: http://127.0.0.1:12345/metrics
+        method: GET
+        status_code: 200
+        return_content: true
+      register: vps_service_foundation_alloy_metrics
+      retries: 6
+      delay: 10
+      until: >-
+        vps_service_foundation_alloy_metrics.status == 200
+        and
+        (
+          vps_service_foundation_alloy_metrics.content
+          | regex_findall('(?m)^loki_source_docker_target_entries_total(?:\\{[^\\n]*\\})?\\s+[0-9.eE+-]+$')
+          | length
+        ) >= 2
+      when:
+        - vps_service_foundation_grafana_alloy_enabled | bool
+        - vps_service_foundation_grafana_alloy_collect_docker_logs | bool
+      no_log: true
 
     - name: Read recent Grafana Alloy journal for containerd socket permission errors
       ansible.builtin.command:
