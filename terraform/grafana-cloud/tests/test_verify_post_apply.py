@@ -44,8 +44,10 @@ class FakeClient:
     def __init__(self, response: Any = None, error: Exception | None = None) -> None:
         self.response = response
         self.error = error
+        self.requests: list[tuple[str, str]] = []
 
     def request(self, method: str, path: str) -> Any:
+        self.requests.append((method, path))
         if self.error:
             raise self.error
         return self.response
@@ -1213,18 +1215,49 @@ class VerifyPostApplyTests(unittest.TestCase):
         self.assertEqual(result["line_count"], 2)
         self.assertEqual(result["stream_labels"], [labels])
 
+    def test_loki_series_returns_authoritative_indexed_labels(self) -> None:
+        labels = {
+            label: f"value-{label}" for label in MODULE.LOKI_INDEXED_LABELS
+        }
+        labels["service_name"] = labels["service"]
+        client = FakeClient({"status": "success", "data": [labels]})
+        result = MODULE.loki_series(client, "loki", '{service="web"}', 1)
+        self.assertEqual(result["indexed_series_labels"], [labels])
+        self.assertIn("match%5B%5D", client.requests[0][1])
+
     def test_loki_label_contract_rejects_extra_and_missing_indexed_labels(self) -> None:
         exact = {label: f"value-{label}" for label in MODULE.LOKI_INDEXED_LABELS}
+        exact["service_name"] = exact["service"]
         errors: list[str] = []
-        MODULE.validate_loki_stream_labels("exact", [exact], errors)
+        MODULE.validate_loki_indexed_labels("exact", [exact], errors)
         self.assertFalse(errors)
 
         invalid = dict(exact)
         invalid.pop("severity")
+        invalid["service_name"] = "wrong-service"
         invalid["correlation_id"] = "must-be-structured-metadata"
-        MODULE.validate_loki_stream_labels("invalid", [invalid], errors)
+        MODULE.validate_loki_indexed_labels("invalid", [invalid], errors)
         self.assertTrue(any("unapproved indexed labels" in error for error in errors))
         self.assertTrue(any("missing normalized indexed labels" in error for error in errors))
+        self.assertTrue(any("service_name alias" in error for error in errors))
+
+    def test_generated_slo_burn_windows_match_canonical_families(self) -> None:
+        critical = {
+            "query": " + ".join(
+                f"grafana_slo_sli_{window}" for window in ("5m", "30m", "1h", "6h")
+            )
+        }
+        warning = {
+            "query": " + ".join(
+                f"grafana_slo_sli_{window}" for window in ("2h", "6h", "1d", "3d")
+            )
+        }
+        self.assertEqual(
+            MODULE.generated_slo_burn_windows(critical), {"5m", "30m", "1h", "6h"}
+        )
+        self.assertEqual(
+            MODULE.generated_slo_burn_windows(warning), {"2h", "6h", "1d", "3d"}
+        )
 
     def test_disabled_sync_relay_does_not_require_a_recent_log_line(self) -> None:
         self.assertFalse(

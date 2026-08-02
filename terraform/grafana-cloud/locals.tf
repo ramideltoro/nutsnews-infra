@@ -134,7 +134,7 @@ locals {
         { title = "Network receive", type = "timeseries", datasource = "prometheus", unit = "Bps", width = 12, height = 8, expr = "sum by (instance, device) (rate(node_network_receive_bytes_total{${local.node_exporter_metric_filter}}[5m]))" },
         { title = "Network transmit", type = "timeseries", datasource = "prometheus", unit = "Bps", width = 12, height = 8, expr = "sum by (instance, device) (rate(node_network_transmit_bytes_total{${local.node_exporter_metric_filter}}[5m]))" },
         { title = "Network errors", type = "timeseries", datasource = "prometheus", unit = "ops", width = 12, height = 8, expr = "sum by (instance, device) (rate(node_network_receive_errs_total{${local.node_exporter_metric_filter}}[5m]) + rate(node_network_transmit_errs_total{${local.node_exporter_metric_filter}}[5m]))" },
-        { title = "Caddy request rate", type = "timeseries", datasource = "prometheus", unit = "reqps", width = 12, height = 8, noValue = "Unavailable — terminal Caddy reverse-proxy metrics are missing", expr = "sum(rate(caddy_http_requests_total{deployment_environment=~\"$environment\",service=\"caddy\",handler=\"reverse_proxy\"}[$__rate_interval]))" },
+        { title = "Caddy request rate", type = "timeseries", datasource = "prometheus", unit = "reqps", width = 12, height = 8, noValue = "Unavailable — terminal Caddy subroute metrics are missing", expr = "sum(rate(caddy_http_requests_total{deployment_environment=~\"$environment\",service=\"caddy\",handler=\"subroute\"}[$__rate_interval]))" },
         {
           title      = "Caddy error and throttle ratios"
           type       = "timeseries"
@@ -144,9 +144,9 @@ locals {
           height     = 8
           noValue    = "No Caddy requests in selected time range — error ratios undefined"
           targets = [
-            { expr = "(sum(rate(caddy_http_request_duration_seconds_count{deployment_environment=~\"$environment\",service=\"caddy\",handler=\"reverse_proxy\",code=~\"4..\"}[$__rate_interval])) / sum(rate(caddy_http_request_duration_seconds_count{deployment_environment=~\"$environment\",service=\"caddy\",handler=\"reverse_proxy\"}[$__rate_interval]))) and on() (sum(rate(caddy_http_request_duration_seconds_count{deployment_environment=~\"$environment\",service=\"caddy\",handler=\"reverse_proxy\"}[$__rate_interval])) > 0)", legend = "4xx" },
-            { expr = "(sum(rate(caddy_http_request_duration_seconds_count{deployment_environment=~\"$environment\",service=\"caddy\",handler=\"reverse_proxy\",code=\"429\"}[$__rate_interval])) / sum(rate(caddy_http_request_duration_seconds_count{deployment_environment=~\"$environment\",service=\"caddy\",handler=\"reverse_proxy\"}[$__rate_interval]))) and on() (sum(rate(caddy_http_request_duration_seconds_count{deployment_environment=~\"$environment\",service=\"caddy\",handler=\"reverse_proxy\"}[$__rate_interval])) > 0)", legend = "429" },
-            { expr = "(sum(rate(caddy_http_request_duration_seconds_count{deployment_environment=~\"$environment\",service=\"caddy\",handler=\"reverse_proxy\",code=~\"5..\"}[$__rate_interval])) / sum(rate(caddy_http_request_duration_seconds_count{deployment_environment=~\"$environment\",service=\"caddy\",handler=\"reverse_proxy\"}[$__rate_interval]))) and on() (sum(rate(caddy_http_request_duration_seconds_count{deployment_environment=~\"$environment\",service=\"caddy\",handler=\"reverse_proxy\"}[$__rate_interval])) > 0)", legend = "5xx" },
+            { expr = "(sum(rate(caddy_http_request_duration_seconds_count{deployment_environment=~\"$environment\",service=\"caddy\",handler=\"subroute\",code=~\"4..\"}[$__rate_interval])) / sum(rate(caddy_http_request_duration_seconds_count{deployment_environment=~\"$environment\",service=\"caddy\",handler=\"subroute\"}[$__rate_interval]))) and on() (sum(rate(caddy_http_request_duration_seconds_count{deployment_environment=~\"$environment\",service=\"caddy\",handler=\"subroute\"}[$__rate_interval])) > 0)", legend = "4xx" },
+            { expr = "(sum(rate(caddy_http_request_duration_seconds_count{deployment_environment=~\"$environment\",service=\"caddy\",handler=\"subroute\",code=\"429\"}[$__rate_interval])) / sum(rate(caddy_http_request_duration_seconds_count{deployment_environment=~\"$environment\",service=\"caddy\",handler=\"subroute\"}[$__rate_interval]))) and on() (sum(rate(caddy_http_request_duration_seconds_count{deployment_environment=~\"$environment\",service=\"caddy\",handler=\"subroute\"}[$__rate_interval])) > 0)", legend = "429" },
+            { expr = "(sum(rate(caddy_http_request_duration_seconds_count{deployment_environment=~\"$environment\",service=\"caddy\",handler=\"subroute\",code=~\"5..\"}[$__rate_interval])) / sum(rate(caddy_http_request_duration_seconds_count{deployment_environment=~\"$environment\",service=\"caddy\",handler=\"subroute\"}[$__rate_interval]))) and on() (sum(rate(caddy_http_request_duration_seconds_count{deployment_environment=~\"$environment\",service=\"caddy\",handler=\"subroute\"}[$__rate_interval])) > 0)", legend = "5xx" },
           ]
         },
         {
@@ -158,8 +158,8 @@ locals {
           height     = 8
           noValue    = "Unavailable — Caddy duration histogram is missing"
           targets = [
-            { expr = "histogram_quantile(0.95, sum by (le) (rate(caddy_http_request_duration_seconds_bucket{deployment_environment=~\"$environment\",service=\"caddy\",handler=\"reverse_proxy\"}[$__rate_interval])))", legend = "p95" },
-            { expr = "histogram_quantile(0.99, sum by (le) (rate(caddy_http_request_duration_seconds_bucket{deployment_environment=~\"$environment\",service=\"caddy\",handler=\"reverse_proxy\"}[$__rate_interval])))", legend = "p99" },
+            { expr = "histogram_quantile(0.95, sum by (le) (rate(caddy_http_request_duration_seconds_bucket{deployment_environment=~\"$environment\",service=\"caddy\",handler=\"subroute\"}[$__rate_interval])))", legend = "p95" },
+            { expr = "histogram_quantile(0.99, sum by (le) (rate(caddy_http_request_duration_seconds_bucket{deployment_environment=~\"$environment\",service=\"caddy\",handler=\"subroute\"}[$__rate_interval])))", legend = "p99" },
           ]
         },
         { title = "Caddy upstream health", type = "timeseries", datasource = "prometheus", unit = "short", width = 12, height = 8, noValue = "Unavailable — Caddy upstream health telemetry is missing", expr = "min by (upstream) (caddy_reverse_proxy_upstreams_healthy{deployment_environment=~\"$environment\",service=\"caddy\"})" },

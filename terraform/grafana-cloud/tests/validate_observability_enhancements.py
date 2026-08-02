@@ -1726,8 +1726,9 @@ require(
     "high error log volume alert must use normalized severity labels",
 )
 
-# Loki's exact six-label index and Grafana-generated SLO rules/samples are
-# enforced post-apply; request/correlation/article identifiers stay metadata.
+# Loki's normalized six-label index, Grafana's service-name alias, and
+# generated SLO rules/samples are enforced post-apply; high-cardinality
+# request/correlation/article identifiers stay structured metadata.
 for label in (
     "deployment_environment",
     "service",
@@ -1738,9 +1739,13 @@ for label in (
 ):
     require(f'    "{label}",' in VERIFY, f"post-apply Loki indexed-label contract missing {label}")
 for token in (
-    "def validate_loki_stream_labels(",
-    "set(labels) - LOKI_INDEXED_LABELS",
-    "LOKI_INDEXED_LABELS - set(labels)",
+    "def loki_series(",
+    "/loki/api/v1/series?",
+    "def validate_loki_indexed_labels(",
+    "set(labels) - LOKI_ALLOWED_INDEXED_LABELS",
+    "LOKI_ALLOWED_INDEXED_LABELS - set(labels)",
+    'LOKI_PLATFORM_INDEXED_LABELS = {"service_name"}',
+    'labels.get("service_name") != labels.get("service")',
     '"backend_sync_relay_logs"',
     'f"worker_{service}_logs"',
 ):

@@ -146,13 +146,13 @@ EXPECTED_SLO_SPECS = {
             'instance="backend.nutsnews.com",service_namespace="nutsnews",'
             'host="backend.nutsnews.com",environment="production",'
             'deployment_environment="production",service=~"fetcher|canonicalizer|enrichment|'
-            'approval|translation|persistence|publication",outcome=~"success|duplicate"}[5m])) '
+            'approval|translation|persistence|publication",outcome=~"success|duplicate"}[$__rate_interval])) '
             '/ sum(rate(nutsnews_worker_uplift_stage_events_total{job="nutsnews-worker-uplift",'
             'instance="backend.nutsnews.com",service_namespace="nutsnews",'
             'host="backend.nutsnews.com",environment="production",'
             'deployment_environment="production",service=~"fetcher|canonicalizer|enrichment|'
             'approval|translation|persistence|publication",'
-            'outcome=~"success|duplicate|invalid|failure|dlq"}[5m]))'
+            'outcome=~"success|duplicate|invalid|failure|dlq"}[$__rate_interval]))'
         ),
     },
 }
@@ -287,7 +287,7 @@ PROMETHEUS_QUERIES = {
         1,
     ),
     "vps_backup_verification_fresh": (
-        'nutsnews_backup_last_verify_finished_age_seconds{deployment_environment="production",instance="vps.nutsnews.com"} >= 0 and nutsnews_backup_last_verify_finished_age_seconds{deployment_environment="production",instance="vps.nutsnews.com"} < 108000 and on() (nutsnews_backup_last_verify_success{deployment_environment="production",instance="vps.nutsnews.com"} == 1)',
+        '(nutsnews_backup_last_verify_finished_age_seconds{deployment_environment="production",instance="vps.nutsnews.com"} >= bool 0) * (nutsnews_backup_last_verify_finished_age_seconds{deployment_environment="production",instance="vps.nutsnews.com"} < bool 108000) * on() (nutsnews_backup_last_verify_success{deployment_environment="production",instance="vps.nutsnews.com"} == bool 1)',
         1,
     ),
     "vps_email_reporting_status_available": (
@@ -608,7 +608,7 @@ PROMETHEUS_QUERIES = {
         1,
     ),
     "backend_backup_verification_fresh": (
-        'nutsnews_backend_backup_last_success_age_seconds{job="nutsnews-backend-host",instance="backend.nutsnews.com"} >= 0 and nutsnews_backend_backup_last_success_age_seconds{job="nutsnews-backend-host",instance="backend.nutsnews.com"} < 108000 and on() (nutsnews_backend_backup_status_available{job="nutsnews-backend-host",instance="backend.nutsnews.com"} == 1)',
+        '(nutsnews_backend_backup_last_success_age_seconds{job="nutsnews-backend-host",instance="backend.nutsnews.com"} >= bool 0) * (nutsnews_backend_backup_last_success_age_seconds{job="nutsnews-backend-host",instance="backend.nutsnews.com"} < bool 108000) * on() (nutsnews_backend_backup_status_available{job="nutsnews-backend-host",instance="backend.nutsnews.com"} == bool 1)',
         1,
     ),
     "backend_caddy_up": (
@@ -616,11 +616,11 @@ PROMETHEUS_QUERIES = {
         1,
     ),
     "backend_caddy_terminal_requests": (
-        'count(caddy_http_requests_total{job="nutsnews-backend-caddy",instance="backend.nutsnews.com",handler="reverse_proxy"}) > 0',
+        'count(caddy_http_requests_total{job="nutsnews-backend-caddy",instance="backend.nutsnews.com",handler="subroute"}) > 0',
         1,
     ),
     "backend_caddy_upstream_errors": (
-        '((sum(rate(caddy_http_request_errors_total{job="nutsnews-backend-caddy",instance="backend.nutsnews.com",handler="reverse_proxy"}[15m])) or on() (0 * sum(rate(caddy_http_request_duration_seconds_count{job="nutsnews-backend-caddy",instance="backend.nutsnews.com",handler="reverse_proxy"}[15m])))) and on() (max(up{job="nutsnews-backend-caddy",instance="backend.nutsnews.com"}) == 1)) >= 0',
+        '((sum(rate(caddy_http_request_errors_total{job="nutsnews-backend-caddy",instance="backend.nutsnews.com",handler="subroute"}[15m])) or on() (0 * sum(rate(caddy_http_request_duration_seconds_count{job="nutsnews-backend-caddy",instance="backend.nutsnews.com",handler="subroute"}[15m])))) and on() (max(up{job="nutsnews-backend-caddy",instance="backend.nutsnews.com"}) == 1)) >= 0',
         1,
     ),
     "backend_caddy_upstream_health_state": (
@@ -759,6 +759,8 @@ LOKI_INDEXED_LABELS = {
     "source",
     "severity",
 }
+LOKI_PLATFORM_INDEXED_LABELS = {"service_name"}
+LOKI_ALLOWED_INDEXED_LABELS = LOKI_INDEXED_LABELS | LOKI_PLATFORM_INDEXED_LABELS
 GRAFANA_UI_HOSTNAME = "kindcantaloupe2036.grafana.net"
 SYNTHETIC_MONITORING_HOSTNAME = re.compile(
     r"synthetic-monitoring-api(?:[.-][a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*\.grafana\.net",
@@ -1067,7 +1069,9 @@ def _query_result_summary(value: Any) -> dict[str, Any]:
         if isinstance(samples, list)
         else 0
     )
-    labels = value.get("series_labels")
+    labels = value.get("indexed_series_labels")
+    if labels is None:
+        labels = value.get("series_labels")
     if labels is None:
         labels = value.get("stream_labels")
     return {
@@ -1477,6 +1481,7 @@ def _sanitize_report_for_output(
         "managed_alert_count",
         "backend_alert_count",
         "worker_uplift_alert_count",
+        "linux_integration_alert_replacement_count",
     }
     for field in sorted(count_fields):
         if field in value:
@@ -1803,30 +1808,71 @@ def loki_query_range(
     }
 
 
-def validate_loki_stream_labels(
+def loki_series(
+    client: GrafanaClient,
+    datasource_uid: str,
+    query: str,
+    hours: int,
+) -> dict[str, Any]:
+    """Return Loki's actual indexed series labels for the bounded query window."""
+    end = int(time.time() * 1_000_000_000)
+    start = end - (hours * 60 * 60 * 1_000_000_000)
+    encoded = urllib.parse.urlencode(
+        [("match[]", query), ("start", str(start)), ("end", str(end))]
+    )
+    response = client.request(
+        "GET",
+        f"/api/datasources/proxy/uid/{urllib.parse.quote(datasource_uid, safe='')}/loki/api/v1/series?{encoded}",
+    )
+    data = response.get("data", [])
+    labels = [item for item in data if isinstance(item, dict)] if isinstance(data, list) else []
+    return {
+        "status": response.get("status", "unknown"),
+        "result_count": len(labels),
+        "indexed_series_labels": labels,
+    }
+
+
+def loki_query_evidence(
+    client: GrafanaClient,
+    datasource_uid: str,
+    query: str,
+    hours: int,
+) -> dict[str, Any]:
+    """Combine recent line evidence with the authoritative Loki series index."""
+    result = loki_query_range(client, datasource_uid, query, hours)
+    series = loki_series(client, datasource_uid, query, hours)
+    result["indexed_series_labels"] = series["indexed_series_labels"]
+    result["indexed_series_status"] = series["status"]
+    return result
+
+
+def validate_loki_indexed_labels(
     name: str,
-    stream_labels: Any,
+    indexed_series_labels: Any,
     errors: list[str],
 ) -> None:
-    """Require the exact normalized six-label Loki index for every stream."""
-    if not isinstance(stream_labels, list):
-        errors.append(f"Loki stream label response is invalid for {name}")
+    """Require normalized boundary labels plus Grafana's service-name alias."""
+    if not isinstance(indexed_series_labels, list):
+        errors.append(f"Loki indexed series response is invalid for {name}")
         return
-    for labels in stream_labels:
+    for labels in indexed_series_labels:
         if not isinstance(labels, dict):
-            errors.append(f"Loki stream labels are invalid for {name}")
+            errors.append(f"Loki indexed series labels are invalid for {name}")
             continue
-        unexpected = sorted(set(labels) - LOKI_INDEXED_LABELS)
-        missing_labels = sorted(LOKI_INDEXED_LABELS - set(labels))
+        unexpected = sorted(set(labels) - LOKI_ALLOWED_INDEXED_LABELS)
+        missing_labels = sorted(LOKI_ALLOWED_INDEXED_LABELS - set(labels))
         if unexpected:
             errors.append(
-                f"Loki stream has unapproved indexed labels for {name}: {unexpected!r}"
+                f"Loki series has unapproved indexed labels for {name}: {unexpected!r}"
             )
         if missing_labels:
             errors.append(
-                f"Loki stream is missing normalized indexed labels for {name}: "
+                f"Loki series is missing normalized indexed labels for {name}: "
                 f"{missing_labels!r}"
             )
+        if labels.get("service_name") != labels.get("service"):
+            errors.append(f"Loki service_name alias does not match service for {name}")
 
 
 def loki_log_is_required(name: str, relay_status: str) -> bool:
@@ -2879,6 +2925,16 @@ def generated_rule_slo_uuid(rule: dict[str, Any]) -> str:
     return str(labels.get("grafana_slo_uuid", "")) if isinstance(labels, dict) else ""
 
 
+def generated_slo_burn_windows(rule: dict[str, Any]) -> set[str]:
+    """Extract the canonical Grafana SLO burn windows from a generated query."""
+    query = rule.get("query")
+    if not isinstance(query, str):
+        return set()
+    return set(
+        re.findall(r"grafana_slo_sli_(5m|30m|1h|2h|6h|1d|3d)\b", query)
+    )
+
+
 def verify_recorded_slo_samples(
     client: GrafanaClient,
     prometheus_uid: str,
@@ -3783,8 +3839,17 @@ def main() -> int:
             builtin_severity = str(labels.get("grafana_slo_severity", ""))
             if builtin_severity:
                 generated_severities.add(builtin_severity)
-            if not labels.get("grafana_slo_window"):
-                errors.append(f"Grafana SLO alert window label is missing for {key}")
+            expected_windows = {
+                "critical": {"5m", "30m", "1h", "6h"},
+                "warning": {"2h", "6h", "1d", "3d"},
+            }.get(builtin_severity)
+            if expected_windows is not None:
+                observed_windows = generated_slo_burn_windows(rule)
+                if observed_windows != expected_windows:
+                    errors.append(
+                        f"Grafana SLO {builtin_severity} burn-window query mismatch for "
+                        f"{key}: observed {sorted(observed_windows)!r}"
+                    )
         if alerting_enabled and not {"critical", "warning"}.issubset(
             generated_severities
         ):
@@ -4362,7 +4427,9 @@ def main() -> int:
     for name, query in LOKI_QUERIES.items():
         loki[name] = safe_check(
             f"Loki query {name}",
-            lambda query=query: loki_query_range(client, loki_uid, query, args.loki_hours),
+            lambda query=query: loki_query_evidence(
+                client, loki_uid, query, args.loki_hours
+            ),
             errors,
             {
                 "query": query,
@@ -4370,6 +4437,7 @@ def main() -> int:
                 "result_count": 0,
                 "line_count": 0,
                 "stream_labels": [],
+                "indexed_series_labels": [],
             },
         )
         if (
@@ -4378,9 +4446,17 @@ def main() -> int:
             and loki[name]["line_count"] < 1
         ):
             errors.append(f"Loki query returned no log lines: {name}")
-        validate_loki_stream_labels(
+        if loki[name].get("status") != "success":
+            errors.append(f"Loki query-range status is not success: {name}")
+        if loki[name].get("indexed_series_status") != "success":
+            errors.append(f"Loki indexed-series status is not success: {name}")
+        if loki[name]["line_count"] > 0 and not loki[name].get(
+            "indexed_series_labels"
+        ):
+            errors.append(f"Loki returned lines without indexed-series evidence: {name}")
+        validate_loki_indexed_labels(
             name,
-            loki[name].get("stream_labels", []),
+            loki[name].get("indexed_series_labels", []),
             errors,
         )
 
