@@ -156,10 +156,16 @@ def label_value(value: Any) -> str:
 
 
 def sample(name: str, value: float, labels: dict[str, str] | None = None) -> str:
+    # Python's default ``g`` precision is six significant digits. That rounds
+    # epoch timestamps by tens of minutes and makes a freshly generated
+    # textfile appear stale in Prometheus. Seventeen significant digits retain
+    # round-trip precision for binary64 values while remaining valid in the
+    # Prometheus text exposition format.
+    rendered_value = format(value, ".17g")
     if not labels:
-        return f"{name} {value:g}"
+        return f"{name} {rendered_value}"
     rendered = ",".join(f'{key}="{label_value(item)}"' for key, item in sorted(labels.items()))
-    return f"{name}{{{rendered}}} {value:g}"
+    return f"{name}{{{rendered}}} {rendered_value}"
 
 
 def timestamp_samples(prefix: str, value: Any) -> list[str]:
