@@ -141,6 +141,17 @@ for key, value in write_vars_module.STAGING_ADMIN_TEST_AUTH_ENVS.items():
 
 check_success = gateway_result_module.evaluate_gateway_result({"ok": True, "operation": "check"}, 0, "check")
 assert check_success.ok
+verify_success = gateway_result_module.evaluate_gateway_result(
+    {
+        "ok": True,
+        "operation": "verify",
+        "actual_digest": "sha256:" + "a" * 64,
+        "boundary": {"immutable_digest": True},
+    },
+    0,
+    "verify",
+)
+assert verify_success.ok
 propagation_failure = gateway_result_module.evaluate_gateway_result(
     {
         "code": "unreviewed_infra_commit",
@@ -243,6 +254,35 @@ with tempfile.TemporaryDirectory() as tempdir:
     )
     assert fail_fast_command.returncode not in {0, gateway_result_module.RETRY_EXIT_CODE}
     assert "Staging gateway failed with staging_check_failed" in fail_fast_command.stderr
+
+    result_path.write_text(json.dumps({"code": "staging_readiness_failed"}), encoding="utf-8")
+    verify_retry_command = subprocess.run(
+        [
+            sys.executable,
+            str(GATEWAY_RESULT),
+            "--operation",
+            "verify",
+            "--result",
+            str(result_path),
+            "--status",
+            "1",
+            "--retry-code",
+            "staging_runtime_mismatch",
+            "--retry-code",
+            "staging_readiness_failed",
+            "--attempt",
+            "1",
+            "--max-attempts",
+            "2",
+            "--retry-delay-seconds",
+            "15",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert verify_retry_command.returncode == gateway_result_module.RETRY_EXIT_CODE
+    assert "staging_readiness_failed" in verify_retry_command.stdout
 for invalid_response in (
     {},
     {"code": "unreviewed-infra-commit"},
@@ -930,6 +970,22 @@ for required in (
     assert required in apply_step, f"Staging apply step must report sanitized gateway failures: {required}"
 assert "--retry-code" not in apply_step
 assert "python3 -c 'import json,sys; assert json.load" not in apply_step
+
+verify_step = workflow.split("- name: Wait for staging readiness and verify Docker digest", 1)[1].split(
+    "- name: Finalize staging Deployment status",
+    1,
+)[0]
+for required in (
+    "retry_delays=(15 30 45 60 60)",
+    "--operation verify",
+    "--retry-code staging_runtime_mismatch",
+    "--retry-code staging_readiness_failed",
+    'decision_status="$?"',
+    '[[ "$decision_status" -eq 75 ]]',
+    'sleep "$retry_delay"',
+):
+    assert required in verify_step, f"Staging verify step is missing bounded readiness retry: {required}"
+assert "--retry-code staging_boundary_failed" not in verify_step
 
 assert "environment: staging-vps" not in workflow.split("jobs:", 1)[1].split("deploy:", 1)[0]
 assert "production-vps" not in workflow

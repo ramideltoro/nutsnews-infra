@@ -56,7 +56,13 @@ def failure_message(code: str, task: str = "", diagnostic: str = "", controller:
 
 
 def evaluate_gateway_result(result: object, status: int, operation: str) -> GatewayOutcome:
-    if status == 0 and result == {"ok": True, "operation": operation}:
+    if (
+        status == 0
+        and isinstance(result, dict)
+        and result.get("ok") is True
+        and result.get("operation") == operation
+        and (operation == "verify" or result == {"ok": True, "operation": operation})
+    ):
         return GatewayOutcome(ok=True, operation=operation)
     code, task, diagnostic, controller = validate_failure_response(result)
     return GatewayOutcome(
@@ -83,10 +89,10 @@ def append_summary(summary_file: Path | None, line: str) -> None:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--operation", choices=("check", "apply"), required=True)
+    parser.add_argument("--operation", choices=("check", "apply", "verify"), required=True)
     parser.add_argument("--result", type=Path, required=True)
     parser.add_argument("--status", type=int, required=True)
-    parser.add_argument("--retry-code", default="")
+    parser.add_argument("--retry-code", action="append", default=[])
     parser.add_argument("--attempt", type=int, default=1)
     parser.add_argument("--max-attempts", type=int, default=1)
     parser.add_argument("--retry-delay-seconds", type=int, default=0)
@@ -110,7 +116,7 @@ def main() -> None:
             )
         return
 
-    retryable = bool(arguments.retry_code) and outcome.code == arguments.retry_code
+    retryable = outcome.code in set(arguments.retry_code)
     if retryable and arguments.attempt < arguments.max_attempts:
         append_summary(
             arguments.summary_file,
