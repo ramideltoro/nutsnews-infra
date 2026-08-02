@@ -566,6 +566,7 @@ allowed_production_env_workflows = {
     "grafana-cloud-apply.yml",
     "grafana-deployment-annotation.yml",
     "grafana-failure-drill.yml",
+    "grafana-linux-integration-alert-normalization.yml",
     "grafana-notification-canary.yml",
     "grafana-synthetic-recovery-watchdog.yml",
     "grafana-cloud-plan.yml",
