@@ -28,11 +28,6 @@ VALIDATOR_SPEC.loader.exec_module(VALIDATOR)
 VALID_ENVIRONMENT = {
     "can_admins_bypass": False,
     "protection_rules": [
-        {
-            "type": "required_reviewers",
-            "prevent_self_review": True,
-            "reviewers": [{"type": "User", "reviewer": {}}],
-        },
         {"type": "branch_policy"},
     ],
     "deployment_branch_policy": {
@@ -47,7 +42,7 @@ VALID_BRANCH_POLICIES = {
 
 
 class PolicyAuditTests(unittest.TestCase):
-    def test_valid_exact_main_policy_reviewer_self_review_and_admin_bypass_pass(self) -> None:
+    def test_valid_exact_main_automatic_policy_and_admin_bypass_pass(self) -> None:
         MODULE.validate_policy(VALID_ENVIRONMENT, VALID_BRANCH_POLICIES)
 
     def test_enabled_missing_or_malformed_admin_bypass_fails_closed(self) -> None:
@@ -63,25 +58,19 @@ class PolicyAuditTests(unittest.TestCase):
                 ):
                     MODULE.validate_policy(environment, VALID_BRANCH_POLICIES)
 
-    def test_disabled_or_missing_self_review_prevention_fails_closed(self) -> None:
-        for prevent_self_review in (False, None, "true"):
-            with self.subTest(prevent_self_review=prevent_self_review):
-                environment = copy.deepcopy(VALID_ENVIRONMENT)
-                if prevent_self_review is None:
-                    environment["protection_rules"][0].pop("prevent_self_review")
-                else:
-                    environment["protection_rules"][0]["prevent_self_review"] = (
-                        prevent_self_review
-                    )
-                with self.assertRaisesRegex(
-                    MODULE.PolicyAuditError, "prevent.*self-reviewing"
-                ):
-                    MODULE.validate_policy(environment, VALID_BRANCH_POLICIES)
-
-    def test_missing_reviewer_fails_without_identity_output(self) -> None:
+    def test_required_reviewer_fails_automatic_deployment_contract(self) -> None:
         environment = copy.deepcopy(VALID_ENVIRONMENT)
-        environment["protection_rules"][0]["reviewers"] = []
-        with self.assertRaisesRegex(MODULE.PolicyAuditError, "at least one"):
+        environment["protection_rules"].insert(
+            0,
+            {
+                "type": "required_reviewers",
+                "prevent_self_review": True,
+                "reviewers": [{"type": "User", "reviewer": {}}],
+            },
+        )
+        with self.assertRaisesRegex(
+            MODULE.PolicyAuditError, "must not require manual reviewers"
+        ):
             MODULE.validate_policy(environment, VALID_BRANCH_POLICIES)
 
     def test_protected_branches_mode_fails(self) -> None:

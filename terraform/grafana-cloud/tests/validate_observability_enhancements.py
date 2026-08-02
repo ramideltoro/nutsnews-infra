@@ -144,7 +144,7 @@ for token in (
     "execute-grafana-failure-drill:$target:$DRILL",
     "GH_TOKEN: ${{ github.token }}",
     '.actor.login == "github-actions[bot]"',
-    "A configured human production-vps reviewer must approve any protected job",
+    "The exact-main production-vps policy releases secrets without a manual reviewer",
 ):
     require(token in ROLLOUT_DISPATCH_WORKFLOW, f"Observability rollout dispatcher is incomplete: {token}")
 for forbidden in (
@@ -568,7 +568,7 @@ for token in (
     "Deployment branches and tags",
     "Selected branches and tags",
     "exact `main` branch",
-    "Required reviewers",
+    "Leave **Required reviewers** empty",
     "exact `refs/heads/main` ref at job level",
 ):
     require(token in RUNBOOK, f"production Grafana Environment protection documentation missing: {token}")
