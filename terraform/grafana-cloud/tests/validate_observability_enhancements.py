@@ -35,6 +35,14 @@ CANARY = (ROOT / "scripts/exercise_notification_canary.py").read_text(encoding="
 CANARY_ATTESTATION = (ROOT / "scripts/attest_notification_canary.py").read_text(encoding="utf-8")
 ANNOTATION = (ROOT / "scripts/publish_deployment_annotation.py").read_text(encoding="utf-8")
 EXTERNAL = json.loads((ROOT / "catalog/non-terraform-alert-rules.json").read_text(encoding="utf-8"))
+LINUX_REPLACEMENTS = json.loads(
+    (ROOT / "catalog/linux-integration-alert-replacements.json").read_text(
+        encoding="utf-8"
+    )
+)
+LINUX_REPLACEMENT_TF = (ROOT / "linux_integration_alerts.tf").read_text(
+    encoding="utf-8"
+)
 BACKEND_CATALOG = json.loads((ROOT / "catalog/backend-observability.json").read_text(encoding="utf-8"))
 # Health-audit coverage is validated against this source catalog below.
 WORKER_CATALOG = json.loads((ROOT / "catalog/worker-uplift-rabbitmq-alerts.json").read_text(encoding="utf-8"))
@@ -43,11 +51,11 @@ PROMOTION_WORKFLOW = (REPO / ".github/workflows/nutsnews-release-promotion.yml")
 ROLLBACK_WORKFLOW = (REPO / ".github/workflows/protected-nutsnews-rollback.yml").read_text(encoding="utf-8")
 PROVIDER_WORKFLOW = (REPO / ".github/workflows/protected-vercel-provider-switch.yml").read_text(encoding="utf-8")
 FAILURE_WORKFLOW = (REPO / ".github/workflows/grafana-failure-drill.yml").read_text(encoding="utf-8")
-LINUX_NORMALIZATION_WORKFLOW = (
-    REPO / ".github/workflows/grafana-linux-integration-alert-normalization.yml"
+LINUX_MIGRATION_WORKFLOW = (
+    REPO / ".github/workflows/grafana-linux-integration-alert-migration.yml"
 ).read_text(encoding="utf-8")
-LINUX_NORMALIZER = (
-    ROOT / "scripts/normalize_linux_integration_alerts.py"
+LINUX_MIGRATOR = (
+    ROOT / "scripts/migrate_linux_integration_alerts.py"
 ).read_text(encoding="utf-8")
 FAILURE_CONTRACT = json.loads((REPO / "config/grafana-failure-drills.json").read_text(encoding="utf-8"))
 FAILURE_RUNNER = (REPO / "scripts/grafana_failure_drill.py").read_text(encoding="utf-8")
@@ -118,7 +126,7 @@ for workflow, name in (
     (ANNOTATION_WORKFLOW, "deployment annotation"),
     (CANARY_WORKFLOW, "notification canary"),
     (FAILURE_WORKFLOW, "failure drill"),
-    (LINUX_NORMALIZATION_WORKFLOW, "Linux integration alert normalization"),
+    (LINUX_MIGRATION_WORKFLOW, "Linux integration alert migration"),
 ):
     require(
         "queue: max" in workflow and "cancel-in-progress: false" in workflow,
@@ -140,18 +148,18 @@ for token in (
     "protected-ansible-apply.yml",
     "grafana-notification-canary.yml",
     "grafana-failure-drill.yml",
-    "grafana-linux-integration-alert-normalization.yml",
+    "grafana-linux-integration-alert-migration.yml",
     "grafana-plan",
     "grafana-apply",
     "vps-check",
     "vps-apply",
     "notification-canary-fire-resolve",
-    "linux-integration-alert-normalize",
+    "linux-integration-alert-migrate",
     "failure-drill-dry-run",
     "failure-drill-execute",
     "config/grafana-failure-drills.json",
     "execute-grafana-failure-drill:$target:$DRILL",
-    "linux-integration-alerts",
+    "linux-integration-alert-migration",
     "GH_TOKEN: ${{ github.token }}",
     '.actor.login == "github-actions[bot]"',
     "The exact-main production-vps policy releases secrets without a manual reviewer",
@@ -173,26 +181,29 @@ for token in (
     "environment: production-vps",
     "github.ref == 'refs/heads/main'",
     "group: grafana-cloud-apply",
-    "linux-integration-alerts",
-    "normalize_linux_integration_alerts.py",
+    "linux-integration-alert-migration",
+    "migrate_linux_integration_alerts.py",
     "NUTSNEWS_GRAFANA_CLOUD_SERVICE_ACCOUNT_TOKEN",
     "retention-days: 90",
 ):
     require(
-        token in LINUX_NORMALIZATION_WORKFLOW,
-        f"Linux integration normalization workflow is incomplete: {token}",
+        token in LINUX_MIGRATION_WORKFLOW,
+        f"Linux integration migration workflow is incomplete: {token}",
     )
 for token in (
-    "X-Disable-Provenance",
     "converted_prometheus",
+    "configurable_alerts",
+    "alerts_disabled",
     "integrationVersionObserved",
     "integrationVersionAvailable",
     "integrationUpgradeStatus",
     "not_available_from_live_api",
-    "expected_alert_count",
+    "source_alerts_equivalence_verified",
+    "terraform_replacements_verified",
     "recording_rules_changed",
+    "logs_changed",
 ):
-    require(token in LINUX_NORMALIZER, f"Linux integration normalizer is incomplete: {token}")
+    require(token in LINUX_MIGRATOR, f"Linux integration migrator is incomplete: {token}")
 
 for token in (
     r'(?i)^https://kindcantaloupe2036\\.grafana\\.net(:443)?/?\\z',
@@ -1095,7 +1106,9 @@ require(
         "route",
         "service",
         "deployment_environment",
-        "__converted_prometheus_rule__",
+        "service_namespace",
+        "managed_by",
+        "source_integration",
     },
     "vendor alerts must not be exempted from the universal label contract",
 )
@@ -1111,7 +1124,9 @@ require(
         "route": "operations-email",
         "service": "vps-host",
         "deployment_environment": "production",
-        "__converted_prometheus_rule__": "true",
+        "service_namespace": "nutsnews",
+        "managed_by": "nutsnews-infra",
+        "source_integration": "linux-node",
     }
     and external_context["requiredAlertAnnotationValues"]
     == {
@@ -1127,9 +1142,9 @@ require(
 )
 require(
     external_context["normalizationStatus"] == "approved"
-    and "Protected exact-main workflow"
+    and "Terraform provisions exact source-reviewed normalized equivalents"
     in external_context["normalizationMechanism"],
-    "vendor normalization must use the approved protected in-place workflow",
+    "vendor normalization must use reviewed Terraform replacements and the protected migration",
 )
 require(
     EXTERNAL["integrationVersionObserved"] == "1.6.2"
@@ -1143,10 +1158,69 @@ obsolete_external = [
     for rule in EXTERNAL["rules"]
     if rule["disposition"] == "remove_via_integration_upgrade"
 ]
+replaced_external = [
+    rule
+    for rule in EXTERNAL["rules"]
+    if rule["disposition"] == "replaced_by_terraform_normalized_equivalent"
+]
 require(
     len(retained_external) == EXTERNAL["expectedRetainedRuleCount"] == EXTERNAL["expectedPostUpgradeRuleCount"],
     "external retained inventory must match the safe post-upgrade count",
 )
+require(
+    len(retained_external) == 11
+    and all(rule["kind"] == "recording" for rule in retained_external),
+    "only the 11 long-term integration recording rules may remain retained",
+)
+require(
+    len(replaced_external) == 24
+    and all(rule["kind"] == "alert" for rule in replaced_external),
+    "all 24 vendor alerts must map to source-owned normalized replacements",
+)
+replacement_by_source = {
+    rule["sourceUid"]: rule for rule in LINUX_REPLACEMENTS["rules"]
+}
+require(
+    LINUX_REPLACEMENTS["schemaVersion"] == 1
+    and LINUX_REPLACEMENTS["sourceFolderUid"] == EXTERNAL["folderUid"]
+    and LINUX_REPLACEMENTS["destinationFolderUid"] == "nutsnews-observability"
+    and LINUX_REPLACEMENTS["groupName"]
+    == "NutsNews Linux integration alert replacements"
+    and len(replacement_by_source) == 24,
+    "Linux integration replacement catalog identity or count drifted",
+)
+require(
+    all(
+        rule.get("replacementUid")
+        == replacement_by_source.get(rule["uid"], {}).get("replacementUid")
+        for rule in replaced_external
+    ),
+    "vendor alert replacement UID mapping drifted",
+)
+require(
+    all(
+        replacement["normalizedSeverity"]
+        == external_context["severityNormalization"][replacement["sourceSeverity"]]
+        and replacement["condition"] == "threshold"
+        and replacement["queryFrom"] == 660
+        and replacement["queryTo"] == 60
+        and bool(replacement["expr"])
+        and bool(replacement["summary"])
+        and bool(replacement["description"])
+        for replacement in LINUX_REPLACEMENTS["rules"]
+    ),
+    "Linux integration replacement definitions or severity mapping drifted",
+)
+for token in (
+    'resource "grafana_rule_group" "linux_integration_alert_replacements"',
+    "prevent_destroy = true",
+    "linux-integration-alert-replacements.json",
+    "rule.value.replacementUid",
+    "rule.value.normalizedSeverity",
+    "source_integration     = \"linux-node\"",
+    "linux_integration_alert_replacement_uids",
+):
+    require(token in LINUX_REPLACEMENT_TF, f"Linux replacement Terraform is incomplete: {token}")
 require(
     len(EXTERNAL["rules"]) == EXTERNAL["legacyObservedRuleCount"],
     "legacy observed inventory metadata drifted",
@@ -1193,7 +1267,7 @@ else:
             re.fullmatch(r"[0-9a-f]{64}", rule.get("definitionFingerprintSha256", ""))
             for rule in retained_external
         ),
-        "approved external definition baselines must cover all 35 retained rules",
+        "approved external definition baselines must cover all 11 retained rules",
     )
 for token in (
     "def validate_external_rule_inventory(",
@@ -1202,7 +1276,7 @@ for token in (
     "definition_drift_validation",
     "pending_authenticated_rollout",
     "matched-approved-baseline",
-    "supported Grafana Linux integration upgrade",
+    "protected Terraform-equivalence migration",
     "requiredAlertLabels",
     "requiredAlertAnnotations",
     "requiredAlertLabelValues",
@@ -1212,6 +1286,9 @@ for token in (
     "explicit rollout blocker",
     "remove_via_integration_upgrade",
     "expectedPostUpgradeRuleCount",
+    "expectedAlertsDisabledRuleCount",
+    "replaced_by_terraform_normalized_equivalent",
+    "LINUX_ALERT_REPLACEMENT_UIDS",
     "all_ruler_rules_by_uid",
 ):
     require(token in VERIFY, f"external live rule verification missing {token}")
@@ -1231,6 +1308,10 @@ for token in (
 
 for workflow, name in ((PLAN_WORKFLOW, "plan"), (APPLY_WORKFLOW, "apply")):
     require("validate_observability_enhancements.py" in workflow, f"Grafana {name} workflow must run enhancement validation")
+    require(
+        "test_migrate_linux_integration_alerts.py" in workflow,
+        f"Grafana {name} workflow must test the Linux integration migration contract",
+    )
     require("NUTSNEWS_EMAIL_TO" in workflow, f"Grafana {name} workflow must reuse the protected report recipient")
     require(
         'check.get("valid_status_codes", [200]) != [200]' in SYNTHETIC_INPUT_VALIDATOR,

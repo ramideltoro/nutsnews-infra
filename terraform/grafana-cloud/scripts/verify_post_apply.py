@@ -23,6 +23,9 @@ ROOT = Path(__file__).resolve().parents[1]
 BACKEND_CATALOG = ROOT / "catalog" / "backend-observability.json"
 WORKER_UPLIFT_CATALOG = ROOT / "catalog" / "worker-uplift-rabbitmq-alerts.json"
 EXTERNAL_RULE_CATALOG = ROOT / "catalog" / "non-terraform-alert-rules.json"
+LINUX_ALERT_REPLACEMENT_CATALOG = (
+    ROOT / "catalog" / "linux-integration-alert-replacements.json"
+)
 
 CONTACT_POINT_NAME = "NutsNews operations email"
 REQUIRED_ALERT_LABELS = {
@@ -209,6 +212,17 @@ VPS_DASHBOARD_UIDS = {
 VPS_ALERT_RULE_GROUPS = {
     ("nutsnews-observability", "NutsNews Grafana Cloud quota guardrails"),
     ("nutsnews-observability", "NutsNews log pipeline health"),
+    (
+        "nutsnews-observability",
+        "NutsNews Linux integration alert replacements",
+    ),
+}
+
+LINUX_ALERT_REPLACEMENTS = json.loads(
+    LINUX_ALERT_REPLACEMENT_CATALOG.read_text(encoding="utf-8")
+)["rules"]
+LINUX_ALERT_REPLACEMENT_UIDS = {
+    str(item["replacementUid"]) for item in LINUX_ALERT_REPLACEMENTS
 }
 
 VPS_ALERT_UIDS = {
@@ -236,6 +250,7 @@ VPS_ALERT_UIDS = {
     "nn-sm-probe-series-contract",
     "nn-sm-inventory-audit-failed",
     "nn-sm-inventory-audit-overdue",
+    *LINUX_ALERT_REPLACEMENT_UIDS,
 }
 
 PROMETHEUS_QUERIES = {
@@ -3025,6 +3040,12 @@ def validate_external_rule_inventory(
         for uid, item in expected_rules.items()
         if item.get("disposition") == "remove_via_integration_upgrade"
     }
+    replaced = {
+        uid: item
+        for uid, item in expected_rules.items()
+        if item.get("disposition")
+        == "replaced_by_terraform_normalized_equivalent"
+    }
     upgrade_status = str(catalog.get("integrationUpgradeStatus", ""))
     if upgrade_status not in {
         "not_available_from_live_api",
@@ -3048,6 +3069,7 @@ def validate_external_rule_inventory(
         live = provisioned_rules.get(uid)
         ruler = ruler_rules_by_uid.get(uid, {})
         is_obsolete = uid in obsolete
+        is_replaced = uid in replaced
         if not live:
             if is_obsolete:
                 inventory.append(
@@ -3063,7 +3085,43 @@ def validate_external_rule_inventory(
                     }
                 )
                 continue
+            if is_replaced:
+                inventory.append(
+                    {
+                        "uid": uid,
+                        "title": expected.get("title", ""),
+                        "group": expected.get("group", ""),
+                        "kind": expected.get("kind", ""),
+                        "owner": catalog.get("owner", ""),
+                        "source": catalog.get("source", ""),
+                        "disposition": expected.get("disposition", ""),
+                        "replacement_uid": expected.get("replacementUid", ""),
+                        "state": "disabled-after-reviewed-terraform-replacement",
+                    }
+                )
+                continue
             errors.append(f"missing retained integration-owned rule UID: {uid}")
+            continue
+
+        if is_replaced:
+            errors.append(
+                f"replaced integration alert {uid} is still active; verify the exact "
+                "Terraform-owned equivalent, then disable the vendor alert bundle "
+                "through the protected integration configuration workflow"
+            )
+            inventory.append(
+                {
+                    "uid": uid,
+                    "title": expected.get("title", ""),
+                    "group": expected.get("group", ""),
+                    "kind": expected.get("kind", ""),
+                    "owner": catalog.get("owner", ""),
+                    "source": catalog.get("source", ""),
+                    "disposition": expected.get("disposition", ""),
+                    "replacement_uid": expected.get("replacementUid", ""),
+                    "state": "duplicate-vendor-alert-still-active",
+                }
+            )
             continue
 
         labels: dict[str, Any] = {}
@@ -3229,22 +3287,29 @@ def validate_external_rule_inventory(
         )
     observed_folder_count = len(folder_rules)
     legacy_count = catalog.get("legacyObservedRuleCount")
+    alerts_disabled_count = catalog.get("expectedAlertsDisabledRuleCount")
     post_upgrade_count = catalog.get("expectedPostUpgradeRuleCount")
     if observed_folder_count == legacy_count and legacy_count != post_upgrade_count:
+        errors.append(
+            "integration folder still contains the vendor alert bundle; complete the "
+            "protected Terraform-equivalence migration and configurable-alert disable"
+        )
+    elif observed_folder_count == alerts_disabled_count:
         if upgrade_status != "not_available_from_live_api":
             errors.append(
-                "integration folder still contains the reviewed legacy rule set after "
-                "the catalog says the supported Grafana Linux integration upgrade is available"
+                "integration folder retains obsolete recording rules after the catalog "
+                "says the supported Linux integration upgrade completed"
             )
     elif observed_folder_count != post_upgrade_count:
         errors.append(
-            "integration folder is in neither the reviewed legacy shape nor the required "
-            f"supported post-upgrade state: {observed_folder_count} not in "
-            f"{sorted({legacy_count, post_upgrade_count})!r}"
+            "integration folder is not in the reviewed initial, alerts-disabled, or "
+            f"supported post-upgrade shape: {observed_folder_count} not in "
+            f"{sorted({legacy_count, alerts_disabled_count, post_upgrade_count})!r}"
         )
     retained_kind_counts = {
         kind: sum(item.get("kind") == kind for item in retained_observed)
         for kind in ("alert", "recording")
+        if any(item.get("kind") == kind for item in retained_observed)
     }
     if retained_kind_counts != catalog.get("expectedPostUpgradeKindCounts"):
         errors.append(
@@ -3428,6 +3493,9 @@ def main() -> int:
     synthetic_major_acknowledgment_state = terraform_output_value(
         terraform_outputs, "synthetic_major_forecast_acknowledged"
     )
+    linux_replacement_state = terraform_output_value(
+        terraform_outputs, "linux_integration_alert_replacement_uids"
+    )
     client = GrafanaClient(url, token)
     synthetic_monitoring_client = SyntheticMonitoringClient(
         synthetic_monitoring_origin, synthetic_monitoring_token
@@ -3496,6 +3564,59 @@ def main() -> int:
                 errors.append(
                     f"VPS alert {uid} has unexpected folder/group ownership: {ownership!r}"
                 )
+
+    for expected in LINUX_ALERT_REPLACEMENTS:
+        uid = str(expected["replacementUid"])
+        rule = provisioned_rules.get(uid)
+        if not rule:
+            continue
+        labels = rule.get("labels", {}) if isinstance(rule.get("labels"), dict) else {}
+        annotations = (
+            rule.get("annotations", {})
+            if isinstance(rule.get("annotations"), dict)
+            else {}
+        )
+        query_data = rule.get("data", []) if isinstance(rule.get("data"), list) else []
+        query_model = (
+            query_data[0].get("model", {})
+            if query_data and isinstance(query_data[0], dict)
+            else {}
+        )
+        expected_context = {
+            "service_namespace": "nutsnews",
+            "deployment_environment": "production",
+            "managed_by": "nutsnews-infra",
+            "owner": "nutsnews-observability",
+            "route": "operations-email",
+            "service": "vps-host",
+            "severity": expected["normalizedSeverity"],
+            "source_integration": "linux-node",
+        }
+        expected_annotations = {
+            "summary": expected["summary"],
+            "description": expected["description"],
+            "dashboard_url": "/d/nutsnews-vps-overview",
+            "runbook_url": GRAFANA_OBSERVABILITY_RUNBOOK_URL,
+        }
+        if any(labels.get(key) != value for key, value in expected_context.items()):
+            errors.append(f"Linux integration replacement {uid} context drifted")
+        if any(
+            annotations.get(key) != value
+            for key, value in expected_annotations.items()
+        ):
+            errors.append(f"Linux integration replacement {uid} annotations drifted")
+        if (
+            rule.get("title") != expected["title"]
+            or rule.get("condition") != expected["condition"]
+            or rule.get("for") != expected["for"]
+            or rule.get("noDataState") != expected["noDataState"]
+            or rule.get("execErrState") != expected["execErrState"]
+            or query_model.get("expr") != expected["expr"]
+        ):
+            errors.append(
+                f"Linux integration replacement {uid} definition drifted from "
+                "the reviewed vendor equivalent"
+            )
 
     ruler_response = safe_check(
         "alert rule health",
@@ -4320,6 +4441,15 @@ def main() -> int:
             errors.append("Terraform state is missing the protected worker SLO alerting switch")
         if contact_state != CONTACT_POINT_NAME:
             errors.append("Terraform state contact point name does not match the managed operations contact")
+        expected_linux_replacement_state = {
+            str(item["sourceUid"]): str(item["replacementUid"])
+            for item in LINUX_ALERT_REPLACEMENTS
+        }
+        if linux_replacement_state != expected_linux_replacement_state:
+            errors.append(
+                "Terraform state does not contain exactly the 24 reviewed Linux "
+                "integration alert replacements"
+            )
 
     report = {
         "status": "pass" if not errors else "fail",
@@ -4328,6 +4458,9 @@ def main() -> int:
         "managed_alert_count": len(managed_alerts),
         "backend_alert_count": sum(uid in managed_alerts for uid in backend_alert_uids),
         "worker_uplift_alert_count": sum(uid in managed_alerts for uid in worker_alert_uids),
+        "linux_integration_alert_replacement_count": sum(
+            uid in managed_alerts for uid in LINUX_ALERT_REPLACEMENT_UIDS
+        ),
         "alert_rule_health": health,
         "datasource_generated_alerts": datasource_alerts,
         "contact_points": contact_points,
@@ -4336,6 +4469,9 @@ def main() -> int:
         "worker_rollout": worker_rollout,
         "external_rule_inventory": {
             "expected_retained_count": external_catalog["expectedRetainedRuleCount"],
+            "expected_alerts_disabled_count": external_catalog[
+                "expectedAlertsDisabledRuleCount"
+            ],
             "expected_post_upgrade_count": external_catalog["expectedPostUpgradeRuleCount"],
             "definition_fingerprint_baseline_status": external_catalog[
                 "definitionFingerprintPolicy"
@@ -4356,7 +4492,11 @@ def main() -> int:
                 )
             ),
             "observed_live_count": sum(
-                item.get("state") != "removed-by-supported-integration-upgrade"
+                item.get("state")
+                not in {
+                    "removed-by-supported-integration-upgrade",
+                    "disabled-after-reviewed-terraform-replacement",
+                }
                 for item in external_inventory
             ),
             "rules": external_inventory,
