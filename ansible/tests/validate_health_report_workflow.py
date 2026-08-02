@@ -38,6 +38,15 @@ require("sudo -n /bin/bash" not in TEXT, "Workflow must not start a remote shell
 require("systemctl start ${REPORT_SERVICE}" in TEXT, "Workflow must trigger the existing systemd report unit.")
 require("ExecMainStatus" in TEXT, "Workflow must surface the report service's process result.")
 require(
+    'Path("/opt/nutsnews/portal-assets/data/status.json")' in TEXT,
+    "Workflow must read only the fixed sanitized portal status file for diagnostics.",
+)
+require('items[:50]' in TEXT and '[:512]' in TEXT, "Health-alert diagnostics must stay bounded.")
+require(
+    '"active_alert_count": len(items)' in TEXT,
+    "Workflow must surface the active sanitized health-alert count.",
+)
+require(
     "ExecMainStatus=2 means the report/status evidence was written" in TEXT,
     "Workflow must explain the fail-on-critical service result.",
 )

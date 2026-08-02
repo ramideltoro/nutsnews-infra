@@ -111,6 +111,37 @@ jobs:
           reporting_status="$?"
           set -e
 
+          echo
+          echo "Active sanitized health alerts"
+          set +e
+          # status.json is the already-sanitized Ops Portal payload. Keep this
+          # diagnostic bounded so a critical workflow failure is actionable.
+          ssh "${ssh_args[@]}" "$target" "/usr/bin/python3 -s" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+
+          path = Path("/opt/nutsnews/portal-assets/data/status.json")
+          if not path.is_file():
+              raise SystemExit("portal status file is missing")
+          payload = json.loads(path.read_text(encoding="utf-8"))
+          items = payload.get("alerts", {}).get("items", [])
+          if not isinstance(items, list):
+              raise SystemExit("portal alert inventory is invalid")
+          bounded = []
+          for item in items[:50]:
+              if not isinstance(item, dict):
+                  continue
+              level = str(item.get("level", "unknown"))[:16]
+              identity = str(item.get("id", "unknown"))[:128]
+              message = " ".join(str(item.get("message", "")).split())[:512]
+              bounded.append({"id": identity, "level": level, "message": message})
+          print(json.dumps({"active_alert_count": len(items), "alerts": bounded}, indent=2, sort_keys=True))
+          sys.exit(0)
+          PY
+          alerts_status="$?"
+          set -e
+
           if [[ "$trigger_status" -ne 0 ]]; then
             echo "Health report service returned a nonzero result. Exit code: $trigger_status" >&2
             echo "ExecMainStatus=2 means the report/status evidence was written and a critical health check was found." >&2
@@ -125,6 +156,11 @@ jobs:
           if [[ "$reporting_status" -ne 0 ]]; then
             echo "Health report did not reach a configured sent state. Check the reporting snapshot above." >&2
             exit "$reporting_status"
+          fi
+
+          if [[ "$alerts_status" -ne 0 ]]; then
+            echo "Could not read the bounded sanitized health-alert inventory." >&2
+            exit "$alerts_status"
           fi
 
           echo
