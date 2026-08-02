@@ -48,6 +48,7 @@ vps_service_foundation_grafana_alloy_config_file: /etc/alloy/config.alloy
 vps_service_foundation_grafana_alloy_systemd_dropin_dir: /etc/systemd/system/alloy.service.d
 vps_service_foundation_grafana_alloy_systemd_dropin_file: "{{ vps_service_foundation_grafana_alloy_systemd_dropin_dir }}/10-nutsnews-env.conf"
 vps_service_foundation_grafana_alloy_log_level: info
+vps_service_foundation_grafana_alloy_docker_component_url: http://127.0.0.1:12345/api/v0/web/components/loki.source.docker.containers
 vps_service_foundation_grafana_alloy_environment: production
 vps_service_foundation_grafana_alloy_hostname: "{{ vps_baseline_hostname | default('vps.nutsnews.com') }}"
 vps_service_foundation_grafana_alloy_service_version: >-
