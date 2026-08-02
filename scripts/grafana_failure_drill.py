@@ -23,7 +23,7 @@ SAFE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:/@+-]{0,159}$")
 UTC_TIMESTAMP = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
 PHASES = ("precheck", "injection", "observation", "recovery", "postcheck")
 PHASE_STATUSES = {"pass", "fail", "planned", "not-run"}
-GRAFANA_UI_ORIGIN = "https://nutsnews.grafana.net"
+GRAFANA_UI_ORIGIN = "https://kindcantaloupe2036.grafana.net"
 GRAFANA_UI_ORIGIN_SPELLINGS = frozenset(
     {
         GRAFANA_UI_ORIGIN,

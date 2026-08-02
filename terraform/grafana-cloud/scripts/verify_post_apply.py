@@ -744,7 +744,7 @@ LOKI_INDEXED_LABELS = {
     "source",
     "severity",
 }
-GRAFANA_UI_HOSTNAME = "nutsnews.grafana.net"
+GRAFANA_UI_HOSTNAME = "kindcantaloupe2036.grafana.net"
 SYNTHETIC_MONITORING_HOSTNAME = re.compile(
     r"synthetic-monitoring-api(?:[.-][a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*\.grafana\.net",
     re.ASCII,
@@ -1664,7 +1664,7 @@ def validate_grafana_cloud_url(value: str, name: str) -> str:
         value,
         name,
         hostname_is_allowed=lambda hostname: hostname == GRAFANA_UI_HOSTNAME,
-        role="nutsnews.grafana.net Grafana UI API",
+        role="kindcantaloupe2036.grafana.net Grafana UI API",
     )
 
 

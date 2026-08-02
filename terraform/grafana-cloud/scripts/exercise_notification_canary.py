@@ -25,7 +25,7 @@ REQUIRED_LABELS = {
     "service",
     "severity",
 }
-GRAFANA_UI_HOSTNAME = "nutsnews.grafana.net"
+GRAFANA_UI_HOSTNAME = "kindcantaloupe2036.grafana.net"
 
 
 class NoRedirectHandler(urllib.request.HTTPRedirectHandler):

@@ -8,7 +8,7 @@ variable "grafana_url" {
       "(?i)^https://nutsnews\\.grafana\\.net(:443)?/?\\z",
       var.grafana_url,
     ))
-    error_message = "grafana_url must be the exact query-free https://nutsnews.grafana.net origin using implicit or explicit port 443."
+    error_message = "grafana_url must be the exact query-free https://kindcantaloupe2036.grafana.net origin using implicit or explicit port 443."
   }
 }
 

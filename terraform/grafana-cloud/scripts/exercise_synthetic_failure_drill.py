@@ -33,7 +33,7 @@ JOB = "canonical_readiness"
 DRILL = "synthetic-mismatch"
 ALERT_UID = "nn-sm-probe-failure"
 VARIANTS = ("status", "body", "header")
-GRAFANA_UI_HOSTNAME = "nutsnews.grafana.net"
+GRAFANA_UI_HOSTNAME = "kindcantaloupe2036.grafana.net"
 SYNTHETIC_MONITORING_HOSTNAME = re.compile(
     r"synthetic-monitoring-api(?:[.-][a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*\.grafana\.net",
     re.ASCII,
