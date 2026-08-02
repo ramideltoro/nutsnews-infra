@@ -5,7 +5,7 @@ variable "grafana_url" {
 
   validation {
     condition = can(regex(
-      "(?i)^https://nutsnews\\.grafana\\.net(:443)?/?\\z",
+      "(?i)^https://kindcantaloupe2036\\.grafana\\.net(:443)?/?\\z",
       var.grafana_url,
     ))
     error_message = "grafana_url must be the exact query-free https://kindcantaloupe2036.grafana.net origin using implicit or explicit port 443."
@@ -205,7 +205,7 @@ variable "synthetic_http_checks" {
   validation {
     condition = alltrue([
       for check in values(var.synthetic_http_checks) :
-      check.enabled && check.valid_status_codes == [200]
+      check.enabled && length(check.valid_status_codes) == 1 && check.valid_status_codes[0] == 200
     ])
     error_message = "Every approved Synthetic Monitoring check must be enabled and require HTTP 200 so controlled status mismatches fail."
   }
