@@ -150,6 +150,7 @@ jobs:
           python3 ansible/tests/validate_no_app_secrets.py
           python3 ansible/tests/validate_app_deployment.py
           python3 ansible/tests/validate_release_promotion.py
+          node --test tests/production_schema_contract_retry.test.mjs
           python3 ansible/tests/validate_staging_deployment.py
           python3 ansible/tests/validate_staging_access_boundary.py
           python3 ansible/tests/validate_staging_qualification.py

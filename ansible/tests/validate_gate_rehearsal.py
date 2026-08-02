@@ -12,6 +12,7 @@ WORKFLOWS = ROOT / ".github/workflows"
 PROTECTED_APPLY = (WORKFLOWS / "protected-ansible-apply.yml").read_text(encoding="utf-8")
 ROLLBACK = (WORKFLOWS / "protected-nutsnews-rollback.yml").read_text(encoding="utf-8")
 PROMOTION = (WORKFLOWS / "nutsnews-release-promotion.yml").read_text(encoding="utf-8")
+SCHEMA_CONTRACT_SCRIPT = (ROOT / "scripts/verify_production_schema_contract.mjs").read_text(encoding="utf-8")
 STAGING_DEPLOY = (WORKFLOWS / "nutsnews-staging-deploy.yml").read_text(encoding="utf-8")
 QUALIFIER = (WORKFLOWS / "nutsnews-staging-qualification.yml").read_text(encoding="utf-8")
 PREMERGE_PRODUCTION = (WORKFLOWS / "nutsnews-premerge-production-vps-deploy.yml").read_text(
@@ -122,8 +123,6 @@ for required in (
     "qualification_run_id:",
     "promote-qualified-staging-release",
     "Verify production Supabase schema contract",
-    "api/runtime-config",
-    "production-supabase-migration.yml",
     "Verify staging qualification attestation is current",
     "verify_production_eligibility.py verify",
     "Request and wait for Vercel production deploy",
@@ -134,6 +133,8 @@ for required in (
     'release_kind: "release"',
 ):
     require(required in PROMOTION, f"Promotion workflow missing staging-qualified production gate: {required}.")
+for required in ("api/runtime-config", "production-supabase-migration.yml"):
+    require(required in SCHEMA_CONTRACT_SCRIPT, f"Production schema verifier missing required gate: {required}.")
 require("repository_dispatch:" not in PROMOTION, "Promotion workflow must not accept direct production repository dispatch.")
 require("nutsnews-production-release" not in PROMOTION, "Promotion workflow must not accept the old direct production event.")
 require("environment: production-vps" not in PROMOTION, "Old promotion workflow must not attach production-vps.")
