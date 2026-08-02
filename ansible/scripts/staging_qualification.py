@@ -147,7 +147,7 @@ def resolve_staging_run_id(event_path: Path, event_name: str, manual_run_id: str
     raise QualificationError("Qualification accepts only workflow_run or controlled workflow_dispatch events.")
 
 
-def load_latest_success_status(
+def load_latest_status(
     deployment_id: int,
     fetch_json: Callable[[str], Any],
 ) -> dict[str, Any]:
@@ -157,8 +157,8 @@ def load_latest_success_status(
     if not isinstance(statuses, list) or not statuses:
         raise QualificationError("GitHub deployment has no statuses.")
     latest = statuses[0]
-    if not isinstance(latest, dict) or latest.get("state") != "success":
-        raise QualificationError("Latest GitHub deployment status is not success.")
+    if not isinstance(latest, dict):
+        raise QualificationError("Latest GitHub deployment status is invalid.")
     return latest
 
 
@@ -224,7 +224,7 @@ def fetch_deployment_evidence(
     deployments = fetch_json(f"https://api.github.com/repos/{INFRA_REPOSITORY}/deployments?{query}")
     if not isinstance(deployments, list):
         raise QualificationError("GitHub deployments response was not a list.")
-    matches: list[tuple[dict[str, Any], dict[str, Any]]] = []
+    successful_matches: list[tuple[int, DeploymentEvidence]] = []
     for deployment in deployments:
         if not isinstance(deployment, dict) or not isinstance(deployment.get("payload"), dict):
             continue
@@ -233,11 +233,38 @@ def fetch_deployment_evidence(
             continue
         if staging_deployment_id and payload.get("deployment_id") != staging_deployment_id:
             continue
-        status = load_latest_success_status(int(deployment["id"]), fetch_json)
-        matches.append((deployment, status))
-    if len(matches) != 1:
+        deployment_id = int(deployment["id"])
+        status = load_latest_status(deployment_id, fetch_json)
+        if status.get("state") != "success":
+            continue
+        successful_matches.append((deployment_id, deployment_from_payload(deployment, status)))
+    if not successful_matches:
         raise QualificationError(f"Expected exactly one successful staging deployment for run {staging_run_id}.")
-    return deployment_from_payload(matches[0][0], matches[0][1])
+
+    immutable_fields = (
+        "schema_version",
+        "migration_head",
+        "supabase_project_ref",
+        "source_repository",
+        "source_commit",
+        "image_repository",
+        "image_digest",
+        "build_id",
+        "source_workflow_run_id",
+        "infra_commit",
+        "config_generation",
+        "staging_deployment_id",
+        "target_hostname",
+        "staging_deploy_workflow_run_id",
+    )
+    identities = {
+        tuple(getattr(evidence, field) for field in immutable_fields)
+        for _, evidence in successful_matches
+    }
+    if len(identities) != 1:
+        raise QualificationError("Successful staging deployment retries disagree on immutable candidate identity.")
+
+    return max(successful_matches, key=lambda match: match[0])[1]
 
 
 def write_github_output(path: Path | None, values: dict[str, str]) -> None:
