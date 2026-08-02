@@ -64,6 +64,7 @@ permissions:
 
 concurrency:
   group: protected-observability-rollout-dispatch
+  queue: max
   cancel-in-progress: false
 
 jobs:
