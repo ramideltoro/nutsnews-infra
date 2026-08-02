@@ -199,17 +199,24 @@ require(
     "The Docker reader identity requirement must remain documented beside label cleanup.",
 )
 require(
-    "loki_source_docker_target_entries_total" in TASKS,
-    "Protected apply must prove that Alloy exposes active Docker log targets.",
+    "api/v0/web/components/loki.source.docker.containers" in DEFAULTS,
+    "Protected apply must inspect the bounded Alloy Docker source component.",
 )
 require(
-    r"regex_findall('(?m)^loki_source_docker_target_entries_total(?:\{[^\n]*\})?\s+[0-9.eE+-]+$')"
-    in TASKS,
-    "Alloy Docker target proof must use YAML-single-quoted regex escapes exactly once.",
+    "vps_service_foundation_alloy_docker_component.json.debugInfo.targets_info" in TASKS,
+    "Docker log verification must use Alloy's reader-level debug information.",
 )
 require(
-    r"loki_source_docker_target_entries_total(?:\\{" not in TASKS,
-    "Alloy Docker target proof must not search for literal regex escape text.",
+    "selectattr('is_running', 'equalto', true)" in TASKS,
+    "Docker log verification must require running readers.",
+)
+require(
+    "'service=\"caddy\"' in" in TASKS and "'service=\"web\"' in" in TASKS,
+    "Docker log verification must prove the exact public proxy and web readers.",
+)
+require(
+    "loki_source_docker_target_entries_total" not in TASKS,
+    "A component-level entry counter must not be treated as a per-reader target count.",
 )
 require(
     "status               = \"status\"" in ALLOY_CONFIG and "uri                  = \"request.uri\"" in ALLOY_CONFIG,
