@@ -465,6 +465,20 @@ class VerifyPostApplyTests(unittest.TestCase):
         self.assertEqual(result["non_finite_sample_count"], 0)
         self.assertEqual(result["invalid_sample_count"], 0)
 
+    def test_quiet_log_sources_use_bounded_one_day_evidence(self) -> None:
+        self.assertEqual(
+            MODULE.LOKI_QUERY_HOURS_OVERRIDES,
+            {
+                "backend_postgresql_logs": 24,
+                "vps_caddy_logs": 24,
+                "vps_web_logs": 24,
+            },
+        )
+        self.assertIn(
+            'source=~"journal|postgresql"',
+            MODULE.LOKI_QUERIES["backend_postgresql_logs"],
+        )
+
     def test_whole_report_removes_target_and_credential_sentinels(self) -> None:
         sentinel = "https://protected-synthetic-target.invalid/readyz"
         untrusted_url = f"{sentinel}?key=secret"
@@ -551,6 +565,11 @@ class VerifyPostApplyTests(unittest.TestCase):
             },
         )
         self.assertEqual(query_report["finite_sample_count"], 1)
+        self.assertEqual(query_report["zero_sample_count"], 0)
+        self.assertEqual(query_report["one_sample_count"], 1)
+        self.assertEqual(query_report["other_finite_sample_count"], 0)
+        self.assertEqual(query_report["distinct_probe_label_count"], 1)
+        self.assertEqual(query_report["distinct_config_version_count"], 0)
         self.assertEqual(
             safe_report["errors"],
             {
@@ -866,6 +885,12 @@ class VerifyPostApplyTests(unittest.TestCase):
         self.assertEqual(
             parsed["prometheus_queries"]["results"]["backend_api_up"][
                 "finite_sample_count"
+            ],
+            0,
+        )
+        self.assertEqual(
+            parsed["prometheus_queries"]["results"]["backend_api_up"][
+                "zero_sample_count"
             ],
             0,
         )

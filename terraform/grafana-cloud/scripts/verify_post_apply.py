@@ -741,7 +741,7 @@ LOKI_QUERIES = {
     "backend_api_logs": '{deployment_environment="production",host="backend.nutsnews.com",source="journal",service="backend-api"}',
     "backend_caddy_logs": '{deployment_environment="production",host="backend.nutsnews.com",service="caddy"}',
     "backend_alloy_logs": '{deployment_environment="production",host="backend.nutsnews.com",source="journal",service="alloy"}',
-    "backend_postgresql_logs": '{deployment_environment="production",host="backend.nutsnews.com",source="journal",service="postgresql"}',
+    "backend_postgresql_logs": '{deployment_environment="production",host="backend.nutsnews.com",source=~"journal|postgresql",service="postgresql"}',
     "backend_sync_relay_logs": '{deployment_environment="production",host="backend.nutsnews.com",source="journal",service="sync-relay"}',
     "vps_caddy_logs": '{deployment_environment="production",host="vps.nutsnews.com",service="caddy"}',
     "vps_web_logs": '{deployment_environment="production",host="vps.nutsnews.com",service="web"}',
@@ -753,6 +753,15 @@ LOKI_QUERIES = {
         )
         for service in sorted(WORKER_SERVICES)
     },
+}
+
+# Access and application services normally emit within the six-hour default.
+# Quiet database and process-log sources may only emit at checkpoint/startup, so
+# retain a bounded one-day proof window rather than creating synthetic log noise.
+LOKI_QUERY_HOURS_OVERRIDES = {
+    "backend_postgresql_logs": 24,
+    "vps_caddy_logs": 24,
+    "vps_web_logs": 24,
 }
 
 LOKI_INDEXED_LABELS = {
@@ -1063,15 +1072,25 @@ def _query_result_summary(value: Any) -> dict[str, Any]:
             "label_structure": _label_structure_summary(None),
         }
     samples = value.get("sample_values")
-    finite_sample_count = (
-        sum(
-            isinstance(sample, (int, float))
+    finite_samples = (
+        [
+            sample
+            for sample in samples
+            if isinstance(sample, (int, float))
             and not isinstance(sample, bool)
             and (not isinstance(sample, float) or math.isfinite(sample))
-            for sample in samples
-        )
+        ]
         if isinstance(samples, list)
-        else 0
+        else []
+    )
+    finite_sample_count = (
+        len(finite_samples)
+    )
+    series_labels = value.get("series_labels")
+    safe_series_labels = (
+        [labels for labels in series_labels if isinstance(labels, dict)]
+        if isinstance(series_labels, list)
+        else []
     )
     labels = value.get("indexed_series_labels")
     if labels is None:
@@ -1082,6 +1101,28 @@ def _query_result_summary(value: Any) -> dict[str, Any]:
         "status": _bounded_string(value.get("status"), REPORT_QUERY_STATUSES),
         "result_count": _safe_nonnegative_integer(value.get("result_count")),
         "finite_sample_count": finite_sample_count,
+        # Counts reveal whether an allowlisted query is healthy without persisting
+        # metric values, probe names, config revisions, targets, or credentials.
+        "zero_sample_count": sum(sample == 0 for sample in finite_samples),
+        "one_sample_count": sum(sample == 1 for sample in finite_samples),
+        "other_finite_sample_count": sum(
+            sample not in {0, 1} for sample in finite_samples
+        ),
+        "distinct_probe_label_count": len(
+            {
+                str(labels["probe"])
+                for labels in safe_series_labels
+                if isinstance(labels.get("probe"), str) and labels["probe"]
+            }
+        ),
+        "distinct_config_version_count": len(
+            {
+                str(labels["config_version"])
+                for labels in safe_series_labels
+                if isinstance(labels.get("config_version"), str)
+                and labels["config_version"]
+            }
+        ),
         "non_finite_sample_count": _safe_nonnegative_integer(
             value.get("non_finite_sample_count", 0)
         ),
@@ -4456,8 +4497,11 @@ def main() -> int:
     for name, query in LOKI_QUERIES.items():
         loki[name] = safe_check(
             f"Loki query {name}",
-            lambda query=query: loki_query_evidence(
-                client, loki_uid, query, args.loki_hours
+            lambda query=query, name=name: loki_query_evidence(
+                client,
+                loki_uid,
+                query,
+                LOKI_QUERY_HOURS_OVERRIDES.get(name, args.loki_hours),
             ),
             errors,
             {
