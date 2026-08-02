@@ -175,7 +175,7 @@ The backend import blocks are declared in `imports.tf`:
 - `grafana_dashboard.backend_observability[each.key]` imports each existing dashboard by UID from `catalog/backend-observability.json`; catalog entries with `importExisting = false` are created from source instead of imported.
 - `grafana_rule_group.backend_guardrails` imports `nutsnews-backend-ops:NutsNews Backend Guardrails`.
 
-Run the protected `Grafana Cloud Plan` workflow first. It performs a normal plan and a refresh-only drift check against remote state. If drift is reported, reconcile it before applying.
+Run the protected `Grafana Cloud Plan` workflow first. It performs a normal plan and inspects the refresh-only plan's machine-readable `resource_drift`. Root output-only state changes are ignored; if remote resource drift is reported, reconcile it before applying.
 
 After merge, run `Grafana Cloud Apply` from `main`. The workflow applies the remote-state-backed plan and then runs `scripts/verify_post_apply.py --require-query-data`. The required data checks include backend host metrics, RabbitMQ aggregate/detailed metrics, backend host logs, backend journal logs, and worker-uplift RabbitMQ container logs. Treat a failed verification as a blocked handoff: keep the legacy backend resources intact, fix the missing import/query/alert condition, and rerun plan/apply.
 
