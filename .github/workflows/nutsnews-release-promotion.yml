@@ -476,6 +476,7 @@ jobs:
           deadline=$((SECONDS + 3600))
           checks_file="$RUNNER_TEMP/promotion-checks.json"
           checks_error_file="$RUNNER_TEMP/promotion-checks.stderr"
+          merge_error_file="$RUNNER_TEMP/promotion-merge.stderr"
 
           while true; do
             set +e
@@ -497,7 +498,69 @@ jobs:
 
             case "$check_state" in
               passed)
-                break
+                pr_state="$(gh pr view "$PR_URL" --json mergeStateStatus,headRefOid,number,state)"
+                state="$(jq -er '.state' <<<"$pr_state")"
+                if [[ "$state" == "MERGED" ]]; then
+                  break
+                fi
+                if [[ "$state" != "OPEN" ]]; then
+                  echo "Release promotion PR is no longer open." >&2
+                  exit 1
+                fi
+
+                merge_state="$(jq -er '.mergeStateStatus' <<<"$pr_state")"
+                pr_head_sha="$(jq -er '.headRefOid' <<<"$pr_state")"
+                pr_number="$(jq -er '.number' <<<"$pr_state")"
+                if [[ "$merge_state" == "BEHIND" ]]; then
+                  if (( SECONDS >= deadline )); then
+                    echo "Release promotion PR remained behind main until the timeout." >&2
+                    exit 1
+                  fi
+                  echo "Release promotion PR is behind main; updating it and rerunning checks."
+                  gh api \
+                    --method PUT \
+                    "repos/${GITHUB_REPOSITORY}/pulls/${pr_number}/update-branch" \
+                    -f expected_head_sha="$pr_head_sha" \
+                    > /dev/null
+                  sleep 10
+                  continue
+                fi
+                if [[ "$merge_state" == "DIRTY" ]]; then
+                  echo "Release promotion PR conflicts with main." >&2
+                  exit 1
+                fi
+                if [[ "$merge_state" == "BLOCKED" || "$merge_state" == "UNKNOWN" ]]; then
+                  if (( SECONDS >= deadline )); then
+                    echo "Release promotion PR did not become mergeable before the timeout." >&2
+                    exit 1
+                  fi
+                  echo "Release promotion PR merge state is still settling; retrying."
+                  sleep 10
+                  continue
+                fi
+
+                set +e
+                gh pr merge "$PR_URL" --merge --delete-branch 2> "$merge_error_file"
+                merge_exit=$?
+                set -e
+                if [[ "$merge_exit" -eq 0 ]]; then
+                  break
+                fi
+
+                refreshed_merge_state="$(
+                  gh pr view "$PR_URL" --json mergeStateStatus --jq '.mergeStateStatus'
+                )"
+                if [[ "$refreshed_merge_state" == "BEHIND" ]]; then
+                  if (( SECONDS >= deadline )); then
+                    echo "Release promotion PR fell behind main until the timeout." >&2
+                    exit 1
+                  fi
+                  echo "Main advanced during the release merge; retrying from the new base."
+                  sleep 2
+                  continue
+                fi
+                cat "$merge_error_file" >&2
+                exit "$merge_exit"
                 ;;
               failed)
                 echo "A VPS release promotion check failed or was cancelled." >&2
@@ -527,7 +590,6 @@ jobs:
             esac
           done
 
-          gh pr merge "$PR_URL" --merge --delete-branch
           echo "duration_seconds=$(($(date -u +%s) - phase_started_at))" >> "$GITHUB_OUTPUT"
 
       - name: Verify merged manifest matches the release request
