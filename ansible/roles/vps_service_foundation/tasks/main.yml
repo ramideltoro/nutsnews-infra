@@ -1230,43 +1230,135 @@
       until: vps_service_foundation_alloy_ready_check.status == 200
       when: vps_service_foundation_grafana_alloy_enabled | bool
 
-    - name: Validate Grafana Alloy Docker log readers are active
-      ansible.builtin.uri:
-        url: "{{ vps_service_foundation_grafana_alloy_docker_component_url }}"
-        method: GET
-        status_code: 200
-        return_content: true
-      register: vps_service_foundation_alloy_docker_component
-      retries: 6
-      delay: 10
-      until: >-
-          vps_service_foundation_alloy_docker_component.status == 200
-          and
-          (
-            vps_service_foundation_alloy_docker_component.json.debugInfo.targets_info
-            | selectattr('is_running', 'equalto', true)
-            | length
-          ) >= 2
-          and
-          'service="caddy"' in
-          (
-            vps_service_foundation_alloy_docker_component.json.debugInfo.targets_info
-            | selectattr('is_running', 'equalto', true)
-            | map(attribute='labels')
-            | join('\n')
-          )
-          and
-          'service="web"' in
-          (
-            vps_service_foundation_alloy_docker_component.json.debugInfo.targets_info
-            | selectattr('is_running', 'equalto', true)
-            | map(attribute='labels')
-            | join('\n')
-          )
+    - name: Observe bounded Grafana Alloy Docker log readers
+      block:
+        - name: Wait for bounded Grafana Alloy Docker log readers
+          ansible.builtin.uri:
+            url: "{{ vps_service_foundation_grafana_alloy_docker_component_url }}"
+            method: GET
+            status_code: 200
+            return_content: true
+          register: vps_service_foundation_alloy_docker_component
+          retries: 6
+          delay: 10
+          until: >-
+              vps_service_foundation_alloy_docker_component.status == 200
+              and
+              (
+                vps_service_foundation_alloy_docker_component
+                .get('json', {})
+                .get('debugInfo', {})
+                .get('targets_info', [])
+                | selectattr('is_running', 'equalto', true)
+                | length
+              ) >= 2
+              and
+              'service="caddy"' in
+              (
+                vps_service_foundation_alloy_docker_component
+                .get('json', {})
+                .get('debugInfo', {})
+                .get('targets_info', [])
+                | selectattr('is_running', 'equalto', true)
+                | map(attribute='labels')
+                | join('\n')
+              )
+              and
+              'service="web"' in
+              (
+                vps_service_foundation_alloy_docker_component
+                .get('json', {})
+                .get('debugInfo', {})
+                .get('targets_info', [])
+                | selectattr('is_running', 'equalto', true)
+                | map(attribute='labels')
+                | join('\n')
+              )
+          no_log: true
+      rescue:
+        - name: Continue to value-free Grafana Alloy Docker reader assertion
+          ansible.builtin.debug:
+            msg: >-
+              The private reader-state query did not satisfy its bounded contract;
+              the following assertion reports only counts and booleans.
       when:
         - vps_service_foundation_grafana_alloy_enabled | bool
         - vps_service_foundation_grafana_alloy_collect_docker_logs | bool
-      no_log: true
+
+    - name: Build value-free Grafana Alloy Docker reader diagnostic
+      ansible.builtin.set_fact:
+        vps_service_foundation_alloy_docker_reader_diagnostic:
+          response_status: "{{ vps_service_foundation_alloy_docker_component.status | default(0) | int }}"
+          component_health: >-
+            {{
+              vps_service_foundation_alloy_docker_component
+              .get('json', {})
+              .get('health', {})
+              .get('state', 'unavailable')
+            }}
+          targets_total: >-
+            {{
+              vps_service_foundation_alloy_docker_component
+              .get('json', {})
+              .get('debugInfo', {})
+              .get('targets_info', [])
+              | length
+            }}
+          running_total: >-
+            {{
+              vps_service_foundation_alloy_docker_component
+              .get('json', {})
+              .get('debugInfo', {})
+              .get('targets_info', [])
+              | selectattr('is_running', 'equalto', true)
+              | length
+            }}
+          caddy_running: >-
+            {{
+              'service="caddy"' in
+              (
+                vps_service_foundation_alloy_docker_component
+                .get('json', {})
+                .get('debugInfo', {})
+                .get('targets_info', [])
+                | selectattr('is_running', 'equalto', true)
+                | map(attribute='labels')
+                | join('\n')
+              )
+            }}
+          web_running: >-
+            {{
+              'service="web"' in
+              (
+                vps_service_foundation_alloy_docker_component
+                .get('json', {})
+                .get('debugInfo', {})
+                .get('targets_info', [])
+                | selectattr('is_running', 'equalto', true)
+                | map(attribute='labels')
+                | join('\n')
+              )
+            }}
+      when:
+        - vps_service_foundation_grafana_alloy_enabled | bool
+        - vps_service_foundation_grafana_alloy_collect_docker_logs | bool
+
+    - name: Assert bounded Grafana Alloy Docker readers are running
+      ansible.builtin.assert:
+        that:
+          - vps_service_foundation_alloy_docker_reader_diagnostic.response_status | int == 200
+          - vps_service_foundation_alloy_docker_reader_diagnostic.component_health == 'healthy'
+          - vps_service_foundation_alloy_docker_reader_diagnostic.running_total | int >= 2
+          - vps_service_foundation_alloy_docker_reader_diagnostic.caddy_running | bool
+          - vps_service_foundation_alloy_docker_reader_diagnostic.web_running | bool
+        fail_msg: >-
+          Alloy Docker reader proof failed with value-free diagnostic
+          {{ vps_service_foundation_alloy_docker_reader_diagnostic | to_json }}.
+        success_msg: >-
+          Alloy Docker reader proof passed for the bounded Caddy and web targets.
+      when:
+        - vps_service_foundation_grafana_alloy_enabled | bool
+        - vps_service_foundation_grafana_alloy_collect_docker_logs | bool
 
     - name: Read recent Grafana Alloy journal for containerd socket permission errors
       ansible.builtin.command:
