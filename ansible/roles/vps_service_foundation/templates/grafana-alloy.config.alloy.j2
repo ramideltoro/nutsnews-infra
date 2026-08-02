@@ -75,6 +75,14 @@ prometheus.scrape "host" {
 prometheus.relabel "host_identity" {
   forward_to = [prometheus.relabel.cost_controls.receiver]
 
+  // The embedded unix exporter supplies its own integrations/unix target job,
+  // which takes precedence over prometheus.scrape.job_name. Pin the published
+  // host/textfile identity used by dashboards, alerts, and post-apply checks.
+  rule {
+    target_label = "job"
+    replacement  = "integrations/node_exporter"
+  }
+
   rule {
     source_labels = ["service"]
     regex         = "^$"

@@ -145,6 +145,14 @@ require(
     '    replacement   = "host-exporter"' in ALLOY_CONFIG,
     "Host scrape identity must preserve service labels emitted by textfile collectors.",
 )
+host_identity = ALLOY_CONFIG.split('prometheus.relabel "host_identity"', 1)[1].split(
+    "{% if vps_service_foundation_grafana_alloy_collect_docker | bool %}", 1
+)[0]
+require(
+    'target_label = "job"' in host_identity
+    and 'replacement  = "integrations/node_exporter"' in host_identity,
+    "Host and textfile metrics must publish the dashboard-backed node_exporter job identity.",
+)
 for token in (
     "prometheus_remote_storage_",
     "samples_(pending|failed_total|retries_total|retried_total|total)",
