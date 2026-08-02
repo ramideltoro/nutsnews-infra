@@ -433,6 +433,11 @@ for required in (
     "api-contracts/admin-backend-operations.json",
     "https://backend.nutsnews.com/api/app/db",
     "PRODUCTION_WRITES_PAUSED: ${{ inputs.production_writes_paused }}",
+    "id: vercel_production",
+    'selected.get("NUTSNEWS_DATABASE_PROVIDER_MODE")',
+    'database_provider_mode={provider_mode}',
+    "RELEASE_DATABASE_PROVIDER_MODE: ${{ steps.vercel_production.outputs.database_provider_mode }}",
+    "--expected-database-provider-mode",
     "--expected-production-writes-paused",
     "--production-safe-surfaces",
 ):
