@@ -16,6 +16,7 @@ CHECK_CLASSIFIER_PATH = ROOT / "scripts/classify_promotion_checks.py"
 PROMOTION_WORKFLOW = REPO / ".github/workflows/nutsnews-release-promotion.yml"
 PROTECTED_WORKFLOW = REPO / ".github/workflows/protected-ansible-apply.yml"
 PAUSE_CONFIG = REPO / ".github/release-promotion-pause.yml"
+SCHEMA_CONTRACT_SCRIPT = REPO / "scripts/verify_production_schema_contract.mjs"
 
 
 spec = importlib.util.spec_from_file_location("promote_nutsnews_release", SCRIPT_PATH)
@@ -149,6 +150,7 @@ with tempfile.TemporaryDirectory() as temporary_directory:
 
 promotion_workflow = PROMOTION_WORKFLOW.read_text(encoding="utf-8")
 protected_workflow = PROTECTED_WORKFLOW.read_text(encoding="utf-8")
+schema_contract_script = SCHEMA_CONTRACT_SCRIPT.read_text(encoding="utf-8")
 
 for required in (
     "workflow_run:",
@@ -167,10 +169,7 @@ for required in (
     "getMigrationContract",
     "readApplicationMigrationContract",
     "Verify production Supabase schema contract",
-    "api/runtime-config",
-    "Production runtime config",
-    "nutsnews_migration_schema_contract",
-    "production-supabase-migration.yml",
+    "scripts/verify_production_schema_contract.mjs",
     "Verify staging qualification attestation is current",
     "gh attestation verify",
     "verify_production_eligibility.py verify",
@@ -258,6 +257,23 @@ for required in (
     "--supabase-project-ref",
 ):
     assert required in promotion_workflow, f"Promotion workflow is missing required guardrail: {required}"
+
+for required in (
+    "api/runtime-config",
+    "Production runtime config",
+    "nutsnews_migration_schema_contract",
+    "production-supabase-migration.yml",
+    "DEFAULT_MAX_ATTEMPTS = 4",
+    "DEFAULT_REQUEST_TIMEOUT_MS = 30_000",
+    "AbortSignal.timeout(requestTimeoutMs)",
+    "isRetryableStatus",
+    "status >= 500",
+    "remained unavailable after",
+    "Retry this promotion when the upstream service recovers",
+):
+    assert required in schema_contract_script, (
+        f"Production schema verifier is missing required retry guardrail: {required}"
+    )
 
 assert "await verifyHealth(deploymentUrl)" not in promotion_workflow, (
     "Promotion must not probe the protected Vercel deployment URL for health; use the public production alias."

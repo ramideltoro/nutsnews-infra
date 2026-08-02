@@ -16,6 +16,7 @@ REPO = ROOT.parent
 SCRIPT = ROOT / "scripts/verify_production_eligibility.py"
 PROTECTED_WORKFLOW = REPO / ".github/workflows/protected-ansible-apply.yml"
 PROMOTION_WORKFLOW = REPO / ".github/workflows/nutsnews-release-promotion.yml"
+SCHEMA_CONTRACT_SCRIPT = REPO / "scripts/verify_production_schema_contract.mjs"
 PREMERGE_PRODUCTION_WORKFLOW = REPO / ".github/workflows/nutsnews-premerge-production-vps-deploy.yml"
 PRODUCTION_ANSIBLE_REQUIREMENTS = REPO / ".github/requirements/production-ansible.txt"
 ANSIBLE_REQUIREMENTS = REPO / "ansible/requirements.yml"
@@ -272,6 +273,7 @@ with tempfile.TemporaryDirectory() as temporary:
 
 protected_workflow = PROTECTED_WORKFLOW.read_text(encoding="utf-8")
 promotion_workflow = PROMOTION_WORKFLOW.read_text(encoding="utf-8")
+schema_contract_script = SCHEMA_CONTRACT_SCRIPT.read_text(encoding="utf-8")
 premerge_production_workflow = PREMERGE_PRODUCTION_WORKFLOW.read_text(encoding="utf-8")
 production_ansible_requirements = PRODUCTION_ANSIBLE_REQUIREMENTS.read_text(encoding="utf-8")
 ansible_requirements = ANSIBLE_REQUIREMENTS.read_text(encoding="utf-8")
@@ -379,7 +381,6 @@ for required in (
     "gh attestation verify",
     "verify_production_eligibility.py verify",
     "Verify production Supabase schema contract",
-    "production-supabase-migration.yml",
     "NUTSNEWS_INFRA_RELEASE_TOKEN",
     "Request and wait for Vercel production deploy",
     "nutsnews-vercel-production-release",
@@ -389,6 +390,10 @@ for required in (
     "NUTSNEWS_APP_RELEASE_TOKEN",
 ):
     assert required in promotion_workflow, f"Promotion workflow missing staging-first guardrail: {required}"
+
+assert "production-supabase-migration.yml" in schema_contract_script, (
+    "Production schema verifier must retain the reviewed migration recovery workflow."
+)
 
 assert "repository_dispatch:" not in promotion_workflow
 assert "nutsnews-production-release" not in promotion_workflow
