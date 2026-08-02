@@ -925,7 +925,10 @@ relay_dashboard = next(
     if dashboard["uid"] == "nutsnews-backend-postgres-failover"
 )
 for panel in relay_dashboard["panels"]:
-    if not panel["title"].startswith("Sync Relay") or panel["title"] == "Sync Relay Configuration State":
+    if not panel["title"].startswith("Sync Relay") or panel["title"] in {
+        "Sync Relay Configuration State",
+        "Sync Relay Expected Active",
+    }:
         continue
     mappings = panel.get("mappings") or []
     require("-1 * max" in panel["expr"], f"relay panel must totalize not-configured state: {panel['title']}")
@@ -1599,6 +1602,13 @@ require(
 )
 
 relay_contract_alert = backend_alerts["nn-backend-sync-relay-contract"]
+require(
+    "nutsnews_backend_sync_relay_expected_active" in json.dumps(BACKEND_CATALOG)
+    and '"backend_sync_relay_expected_active"' in VERIFY
+    and "disabled sync relay must expose expected_active=0" in VERIFY
+    and "configured sync relay must expose expected_active=1" in VERIFY,
+    "sync-relay deployment-mode telemetry must gate disabled and configured verification",
+)
 for token in (
     "nutsnews_backend_sync_relay_status",
     "nutsnews_backend_sync_relay_(available|collector_fresh|healthy|lag_seconds|failed_table_count|last_success_age_seconds)",
@@ -1782,7 +1792,7 @@ for token in (
     require(token in VERIFY, f"exact notification-policy verification missing {token}")
 
 require(len(BACKEND_CATALOG["alerts"]) == 20, "backend alert catalog count drifted")
-require(len([panel for dashboard in BACKEND_CATALOG["dashboards"] for panel in dashboard["panels"]]) == 125, "backend panel catalog count drifted")
+require(len([panel for dashboard in BACKEND_CATALOG["dashboards"] for panel in dashboard["panels"]]) == 126, "backend panel catalog count drifted")
 backend_catalog_text = json.dumps(BACKEND_CATALOG, ensure_ascii=False)
 for token in (
     "pg_stat_bgwriter_checkpoints_timed_total",

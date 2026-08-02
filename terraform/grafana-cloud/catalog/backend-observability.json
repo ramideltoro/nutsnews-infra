@@ -5,8 +5,8 @@
   },
   "guardrails": {
     "max_dashboards": 15,
-    "max_panels_per_dashboard": 13,
-    "max_total_panels": 125,
+    "max_panels_per_dashboard": 14,
+    "max_total_panels": 126,
     "max_unique_queries": 130,
     "max_alert_rules": 19
   },
@@ -99,6 +99,7 @@
         {"title": "Replication Lag Configured", "unit": "short", "expr": "nutsnews_backend_postgres_replication_lag_configured{job=\"nutsnews-backend-host\"}"},
         {"title": "Sync Relay Available", "type": "stat", "unit": "short", "mappings": [{"type": "value", "options": {"-1": {"text": "Disabled by configuration"}, "0": {"text": "Unavailable"}, "1": {"text": "Available"}}}], "expr": "(nutsnews_backend_sync_relay_available{job=\"nutsnews-backend-host\"} and on() max(nutsnews_backend_sync_relay_status{job=\"nutsnews-backend-host\",status!=\"not_configured\"})) or (-1 * max(nutsnews_backend_sync_relay_status{job=\"nutsnews-backend-host\",status=\"not_configured\"}))"},
         {"title": "Sync Relay Configuration State", "type": "stat", "unit": "short", "description": "Explicit one-hot pass, fail, not_configured, or unknown state; not_configured is a deliberate disabled state rather than No data.", "expr": "nutsnews_backend_sync_relay_status{job=\"nutsnews-backend-host\"}"},
+        {"title": "Sync Relay Expected Active", "type": "stat", "unit": "short", "description": "Protected deployment-mode signal. Zero means the unsafe snapshot relay is deliberately suspended; one means all relay health, lag, and table checks are required.", "mappings": [{"type": "value", "options": {"0": {"text": "Disabled by configuration"}, "1": {"text": "Required"}}}], "expr": "nutsnews_backend_sync_relay_expected_active{job=\"nutsnews-backend-host\"}"},
         {"title": "Sync Relay Collector Fresh", "type": "stat", "unit": "short", "mappings": [{"type": "value", "options": {"-1": {"text": "Disabled by configuration"}, "0": {"text": "Stale"}, "1": {"text": "Fresh"}}}], "expr": "(nutsnews_backend_sync_relay_collector_fresh{job=\"nutsnews-backend-host\"} and on() max(nutsnews_backend_sync_relay_status{job=\"nutsnews-backend-host\",status!=\"not_configured\"})) or (-1 * max(nutsnews_backend_sync_relay_status{job=\"nutsnews-backend-host\",status=\"not_configured\"}))"},
         {"title": "Sync Relay Healthy", "type": "stat", "unit": "short", "mappings": [{"type": "value", "options": {"-1": {"text": "Disabled by configuration"}, "0": {"text": "Unhealthy"}, "1": {"text": "Healthy"}}}], "expr": "(nutsnews_backend_sync_relay_healthy{job=\"nutsnews-backend-host\"} and on() max(nutsnews_backend_sync_relay_status{job=\"nutsnews-backend-host\",status!=\"not_configured\"})) or (-1 * max(nutsnews_backend_sync_relay_status{job=\"nutsnews-backend-host\",status=\"not_configured\"}))"},
         {"title": "Sync Relay Real Lag", "unit": "s", "mappings": [{"type": "value", "options": {"-1": {"text": "Disabled by configuration"}}}], "expr": "(nutsnews_backend_sync_relay_lag_seconds{job=\"nutsnews-backend-host\"} and on() (nutsnews_backend_sync_relay_lag_seconds{job=\"nutsnews-backend-host\"} >= 0) and on() max(nutsnews_backend_sync_relay_status{job=\"nutsnews-backend-host\",status!=\"not_configured\"})) or (-1 * max(nutsnews_backend_sync_relay_status{job=\"nutsnews-backend-host\",status=\"not_configured\"}))"},
