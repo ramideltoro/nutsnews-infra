@@ -11,6 +11,9 @@ ROOT = Path(__file__).parents[2]
 WORKFLOW = (ROOT / ".github/workflows/protected-ansible-apply.yml").read_text(encoding="utf-8")
 SCRIPT_PATH = ROOT / "scripts/vercel_vps_env_sync.py"
 MAPPING_PATH = ROOT / "config/vercel-vps-env-sync.json"
+ROLE_DEFAULTS = (
+    ROOT / "ansible/roles/vps_service_foundation/defaults/main.yml"
+).read_text(encoding="utf-8")
 
 
 def require(condition: bool, message: str) -> None:
@@ -62,6 +65,14 @@ require(
 require(
     "--expected-production-writes-paused" in WORKFLOW,
     "The VPS smoke must assert the expected production write pause state.",
+)
+require(
+    f"--expected-ga-id {sync.PRODUCTION_GA_ID}" in WORKFLOW,
+    "The VPS smoke must assert the exact production Google Analytics ID.",
+)
+require(
+    f"  NUTSNEWS_PUBLIC_GA_ID: {sync.PRODUCTION_GA_ID}" in ROLE_DEFAULTS,
+    "The Ansible production contract must match the canonical Google Analytics ID.",
 )
 require(
     '"vps_service_foundation_nutsnews_deployment_environments": (' in WORKFLOW
@@ -238,6 +249,7 @@ valid_runtime_values = {
     "NUTSNEWS_FAILOVER_CLOUDFLARE_DASHBOARD_URL": "https://dash.cloudflare.com/example/nutsnews.com/dns/records",
     "HOME_SERVER_STATS_URL": "https://ai.nutsnews.com/stats",
     "HOME_SERVER_STATS_API_KEY": "home-server-stats-key-fixture",
+    "NUTSNEWS_PUBLIC_GA_ID": sync.PRODUCTION_GA_ID,
     "NUTSNEWS_DATABASE_PROVIDER_MODE": "backend_postgres_primary",
     "NUTSNEWS_BACKEND_API_URL": "https://backend.nutsnews.com/api/app/db",
     "NUTSNEWS_BACKEND_API_TOKEN": "backend-token-fixture",
@@ -258,6 +270,7 @@ for invalid_values in (
     {**valid_runtime_values, "HOME_SERVER_STATS_URL": "https://ai.nutsnews.com/api/stats"},
     {**valid_runtime_values, "HOME_SERVER_STATS_URL": "https://ai.nutsnews.com/health"},
     {**valid_runtime_values, "HOME_SERVER_STATS_API_KEY": "short"},
+    {**valid_runtime_values, "NUTSNEWS_PUBLIC_GA_ID": "G-DIFFERENT1"},
     {key: value for key, value in valid_runtime_values.items() if key != "NUTSNEWS_BACKEND_API_URL"},
     {key: value for key, value in valid_runtime_values.items() if key != "NUTSNEWS_BACKEND_API_TOKEN"},
     {key: value for key, value in valid_runtime_values.items() if key != "NUTSNEWS_BACKEND_POSTGRES_PRIMARY_CONFIRMATION"},
@@ -265,6 +278,7 @@ for invalid_values in (
     {key: value for key, value in valid_runtime_values.items() if key != "NUTSNEWS_FAILOVER_STATUS_HMAC_SECRET"},
     {key: value for key, value in valid_runtime_values.items() if key != "HOME_SERVER_STATS_URL"},
     {key: value for key, value in valid_runtime_values.items() if key != "HOME_SERVER_STATS_API_KEY"},
+    {key: value for key, value in valid_runtime_values.items() if key != "NUTSNEWS_PUBLIC_GA_ID"},
 ):
     try:
         sync.validate_selected_values(invalid_values)

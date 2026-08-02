@@ -9,8 +9,9 @@
         )
         | length == 0
     fail_msg: >-
-      The enabled NutsNews production runtime is missing required runtime or
-      Supabase configuration. Use the reviewed Vercel-to-VPS sync before apply.
+      The enabled NutsNews production runtime is missing required runtime,
+      Supabase, or analytics configuration. Use the reviewed Vercel-to-VPS
+      sync before apply.
   when:
     - vps_service_foundation_nutsnews_environment_runtime.name == 'production'
     - vps_service_foundation_nutsnews_environment_runtime.enabled | bool

@@ -93,6 +93,7 @@ valid_production_runtime = {
     "NUTSNEWS_PRODUCTION_SUPABASE_PROJECT_REF": "fixtureproductionref",
     "NUTSNEWS_PUBLIC_SUPABASE_URL": "https://fixtureproductionref.supabase.co",
     "NUTSNEWS_PUBLIC_SUPABASE_ANON_KEY": "fixture-anon-key",
+    "NUTSNEWS_PUBLIC_GA_ID": "G-8VXSG5NWM4",
 }
 run(
     [
@@ -125,6 +126,8 @@ invalid_production_runtimes = [
     {key: value for key, value in valid_production_runtime.items() if key != "NUTSNEWS_RUNTIME_ENV"},
     {**valid_production_runtime, "NUTSNEWS_RUNTIME_ENV": "staging"},
     {**valid_production_runtime, "NUTSNEWS_PRODUCTION_SUPABASE_PROJECT_REF": "different-production"},
+    {key: value for key, value in valid_production_runtime.items() if key != "NUTSNEWS_PUBLIC_GA_ID"},
+    {**valid_production_runtime, "NUTSNEWS_PUBLIC_GA_ID": "G-DIFFERENT1"},
 ]
 for invalid_runtime in invalid_production_runtimes:
     run(

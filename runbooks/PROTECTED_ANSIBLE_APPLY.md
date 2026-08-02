@@ -150,9 +150,10 @@ After an app release apply, the workflow verifies Docker is running the exact
 reviewed image, checks the public `/healthz` identity, checks out the exact app
 source/test revision, and runs the safe production smoke surfaces against
 `https://vps.nutsnews.com/`. The smoke covers health, readiness, runtime public
-config, homepage, public API shape, a static asset, cache/security headers,
-contact validation failure, and auth session reachability without printing
-secrets or submitting a real contact message.
+config including the exact `G-8VXSG5NWM4` Google Analytics ID, homepage, public
+API shape, a static asset, cache/security headers, contact validation failure,
+and auth session reachability without printing secrets or submitting a real
+contact message.
 
 Automated production release, pre-merge production, and fixed rollback dispatches
 also set `enable_staging_access=true`. That keeps the root-owned staging deploy

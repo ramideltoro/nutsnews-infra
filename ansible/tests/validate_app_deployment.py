@@ -137,6 +137,8 @@ assert "item.stat.isdir | default(false)" in tasks
 assert "vps_service_foundation_nutsnews_production_required_runtime_env_keys" in production_runtime_contract_tasks
 assert "NUTSNEWS_PUBLIC_SUPABASE_URL" in production_runtime_contract_tasks
 assert "NUTSNEWS_PUBLIC_SUPABASE_ANON_KEY" in production_runtime_contract_tasks
+assert "NUTSNEWS_PUBLIC_GA_ID: G-8VXSG5NWM4" in defaults
+assert "--expected-ga-id G-8VXSG5NWM4" in protected_apply
 assert "nutsnews_environment.health_path == '/readyz'" in environment_validation_tasks
 
 assert caddy_compose.count("networks:\n      - edge") == 2
