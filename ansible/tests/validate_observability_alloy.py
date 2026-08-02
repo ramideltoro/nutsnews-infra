@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import re
+import runpy
 from pathlib import Path
 
 
@@ -36,6 +37,10 @@ AUTOMATED_ALLOY_DISPATCHERS = (
     Path(".github/workflows/nutsnews-release-promotion.yml"),
     Path(".github/workflows/protected-nutsnews-rollback.yml"),
 )
+ALLOY_READER_FILTER = Path(
+    "ansible/roles/vps_service_foundation/filter_plugins/alloy_reader_diagnostic.py"
+)
+ALLOY_READER_FIXTURE = Path("ansible/tests/fixtures/alloy/docker-reader-debug-info.json")
 
 
 def require(condition: bool, message: str) -> None:
@@ -203,23 +208,20 @@ require(
     "Protected apply must inspect the bounded Alloy Docker source component.",
 )
 require(
-    "vps_service_foundation_alloy_docker_component.content" in TASKS
-    and "| from_json" in TASKS
-    and ".get('debugInfo', {})" in TASKS
-    and ".get('targets_info', [])" in TASKS,
-    "Docker log verification must use Alloy's reader-level debug information.",
+    TASKS.count("| alloy_docker_reader_diagnostic") == 2,
+    "Docker log verification and its bounded diagnostic must use the Alloy reader normalizer.",
 )
 require(
-    ".get('json', {})" not in TASKS,
-    "Alloy's JSON response must be decoded explicitly because its UI handler omits a JSON content type.",
+    ".get('debugInfo', {})" not in TASKS and ".get('targets_info', [])" not in TASKS,
+    "Docker log verification must not assume Alloy debugInfo is an object.",
 )
 require(
-    "selectattr('is_running', 'equalto', true)" in TASKS,
-    "Docker log verification must require running readers.",
+    TASKS.count("reader_contract_satisfied | bool") == 2,
+    "Docker log verification retries and final assertion must require the same normalized contract.",
 )
 require(
-    "'service=\"caddy\"' in" in TASKS and "'service=\"web\"' in" in TASKS,
-    "Docker log verification must prove the exact public proxy and web readers.",
+    "targets_total | int >= 3" in TASKS and "running_total | int >= 3" in TASKS,
+    "Docker log verification must require all three expected readers.",
 )
 require(
     "loki_source_docker_target_entries_total" not in TASKS,
@@ -227,15 +229,221 @@ require(
 )
 require(
     "Build value-free Grafana Alloy Docker reader diagnostic" in TASKS
-    and "targets_total:" in TASKS
-    and "running_total:" in TASKS
-    and "caddy_running:" in TASKS
-    and "web_running:" in TASKS,
+    and "vps_service_foundation_alloy_docker_reader_diagnostic:" in TASKS
+    and "caddy_running | bool" in TASKS
+    and "web_running | bool" in TASKS,
     "Failed protected proof must expose only bounded reader counts and booleans.",
 )
 require(
     "vps_service_foundation_alloy_docker_reader_diagnostic | to_json" in TASKS,
     "Reader proof failures must report the value-free diagnostic.",
+)
+
+alloy_reader_filter_module = runpy.run_path(str(ALLOY_READER_FILTER))
+alloy_docker_reader_diagnostic = alloy_reader_filter_module["alloy_docker_reader_diagnostic"]
+alloy_reader_diagnostic_keys = alloy_reader_filter_module["DIAGNOSTIC_KEYS"]
+alloy_reader_filter_registration = alloy_reader_filter_module["FilterModule"]().filters()
+require(
+    tuple(alloy_reader_filter_registration) == ("alloy_docker_reader_diagnostic",)
+    and alloy_reader_filter_registration["alloy_docker_reader_diagnostic"]
+    is alloy_docker_reader_diagnostic,
+    "The role filter plugin must register the tested Alloy reader normalizer.",
+)
+alloy_reader_fixture = json.loads(ALLOY_READER_FIXTURE.read_text(encoding="utf-8"))
+alloy_reader_fixture_result = alloy_docker_reader_diagnostic(
+    {"status": 200, "content": json.dumps(alloy_reader_fixture)}
+)
+require(
+    tuple(alloy_reader_fixture_result) == alloy_reader_diagnostic_keys,
+    "Alloy reader diagnostics must expose only the fixed value-free key set.",
+)
+require(
+    alloy_reader_fixture_result
+    == {
+        "response_status": 200,
+        "component_health": "healthy",
+        "targets_total": 3,
+        "running_total": 3,
+        "caddy_running": True,
+        "web_running": True,
+        "reader_contract_satisfied": True,
+    },
+    "The realistic Alloy reader fixture must prove three running readers plus Caddy and web.",
+)
+alloy_reader_fixture_diagnostic_json = json.dumps(alloy_reader_fixture_result)
+for private_fixture_value in (
+    "fixture-caddy-reader",
+    "fixture-ops-auth-reader",
+    "fixture-web-reader",
+    "fixture-offset-caddy",
+    "deployment_environment",
+):
+    require(
+        private_fixture_value not in alloy_reader_fixture_diagnostic_json,
+        "Alloy reader diagnostics must not expose reader identifiers or labels.",
+    )
+
+alloy_reader_unavailable_diagnostic = {
+    "response_status": 0,
+    "component_health": "unavailable",
+    "targets_total": 0,
+    "running_total": 0,
+    "caddy_running": False,
+    "web_running": False,
+    "reader_contract_satisfied": False,
+}
+for malformed_response in (
+    None,
+    {},
+    {"status": 200},
+    {"status": 200, "failed": True, "msg": "fixture-private-error"},
+    {"status": 200, "content": "fixture-private-invalid-json"},
+    {"status": 200, "content": "[]"},
+    {"status": 200, "content": '{"debugInfo": {}}'},
+):
+    malformed_diagnostic = alloy_docker_reader_diagnostic(malformed_response)
+    expected_unavailable_diagnostic = dict(alloy_reader_unavailable_diagnostic)
+    if isinstance(malformed_response, dict) and malformed_response.get("status") == 200:
+        expected_unavailable_diagnostic["response_status"] = 200
+    require(
+        malformed_diagnostic == expected_unavailable_diagnostic,
+        "Missing or malformed Alloy content must yield only the bounded unavailable diagnostic.",
+    )
+    require(
+        "fixture-private" not in json.dumps(malformed_diagnostic),
+        "Malformed Alloy responses must not leak raw content or error messages.",
+    )
+
+for transport_failure_flag in ("failed", "unreachable"):
+    transport_failure_diagnostic = alloy_docker_reader_diagnostic(
+        {
+            "status": 200,
+            "content": json.dumps(alloy_reader_fixture),
+            transport_failure_flag: True,
+            "msg": "fixture-private-transport-error",
+        }
+    )
+    expected_transport_failure_diagnostic = dict(alloy_reader_unavailable_diagnostic)
+    expected_transport_failure_diagnostic["response_status"] = 200
+    require(
+        transport_failure_diagnostic == expected_transport_failure_diagnostic,
+        "Explicit Alloy URI transport failures must reject otherwise valid component content.",
+    )
+    require(
+        "fixture-private" not in json.dumps(transport_failure_diagnostic),
+        "Alloy URI transport failures must not leak content or error messages.",
+    )
+
+alloy_reader_missing_block_type_fixture = json.loads(json.dumps(alloy_reader_fixture))
+alloy_reader_missing_block_type_fixture["debugInfo"][0].pop("type")
+alloy_reader_missing_block_type_result = alloy_docker_reader_diagnostic(
+    {"status": 200, "content": json.dumps(alloy_reader_missing_block_type_fixture)}
+)
+require(
+    alloy_reader_missing_block_type_result["targets_total"] == 2
+    and alloy_reader_missing_block_type_result["running_total"] == 2
+    and not alloy_reader_missing_block_type_result["caddy_running"]
+    and not alloy_reader_missing_block_type_result["reader_contract_satisfied"],
+    "Alloy target entries without the declared block type must fail closed.",
+)
+
+alloy_reader_missing_attr_type_fixture = json.loads(json.dumps(alloy_reader_fixture))
+alloy_reader_missing_attr_type = next(
+    attribute
+    for attribute in alloy_reader_missing_attr_type_fixture["debugInfo"][0]["body"]
+    if attribute.get("name") == "is_running"
+)
+alloy_reader_missing_attr_type.pop("type")
+alloy_reader_missing_attr_type_result = alloy_docker_reader_diagnostic(
+    {"status": 200, "content": json.dumps(alloy_reader_missing_attr_type_fixture)}
+)
+require(
+    alloy_reader_missing_attr_type_result["targets_total"] == 3
+    and alloy_reader_missing_attr_type_result["running_total"] == 2
+    and not alloy_reader_missing_attr_type_result["caddy_running"]
+    and not alloy_reader_missing_attr_type_result["reader_contract_satisfied"],
+    "Alloy reader attributes without the declared attr type must fail closed.",
+)
+
+alloy_reader_missing_wrapper_type_fixture = json.loads(json.dumps(alloy_reader_fixture))
+alloy_reader_missing_wrapper_type = next(
+    attribute
+    for attribute in alloy_reader_missing_wrapper_type_fixture["debugInfo"][0]["body"]
+    if attribute.get("name") == "labels"
+)
+alloy_reader_missing_wrapper_type["value"].pop("type")
+alloy_reader_missing_wrapper_type_result = alloy_docker_reader_diagnostic(
+    {"status": 200, "content": json.dumps(alloy_reader_missing_wrapper_type_fixture)}
+)
+require(
+    alloy_reader_missing_wrapper_type_result["running_total"] == 3
+    and not alloy_reader_missing_wrapper_type_result["caddy_running"]
+    and not alloy_reader_missing_wrapper_type_result["reader_contract_satisfied"],
+    "Alloy reader attributes without the declared wrapper type must fail closed.",
+)
+
+alloy_reader_wrong_value_shape_fixture = json.loads(json.dumps(alloy_reader_fixture))
+alloy_reader_wrong_value_shape = next(
+    attribute
+    for attribute in alloy_reader_wrong_value_shape_fixture["debugInfo"][0]["body"]
+    if attribute.get("name") == "is_running"
+)
+alloy_reader_wrong_value_shape["value"]["value"] = "true"
+alloy_reader_wrong_value_shape_result = alloy_docker_reader_diagnostic(
+    {"status": 200, "content": json.dumps(alloy_reader_wrong_value_shape_fixture)}
+)
+require(
+    alloy_reader_wrong_value_shape_result["running_total"] == 2
+    and not alloy_reader_wrong_value_shape_result["caddy_running"]
+    and not alloy_reader_wrong_value_shape_result["reader_contract_satisfied"],
+    "Alloy reader attributes with the wrong scalar shape must fail closed.",
+)
+
+alloy_reader_misleading_labels_fixture = json.loads(json.dumps(alloy_reader_fixture))
+for target_index, misleading_service in ((0, "caddy"), (2, "web")):
+    misleading_labels = next(
+        attribute
+        for attribute in alloy_reader_misleading_labels_fixture["debugInfo"][target_index]["body"]
+        if attribute.get("name") == "labels"
+    )
+    misleading_labels["value"]["value"] = f'{{notservice="{misleading_service}"}}'
+alloy_reader_misleading_labels_result = alloy_docker_reader_diagnostic(
+    {"status": 200, "content": json.dumps(alloy_reader_misleading_labels_fixture)}
+)
+require(
+    alloy_reader_misleading_labels_result["running_total"] == 3
+    and not alloy_reader_misleading_labels_result["caddy_running"]
+    and not alloy_reader_misleading_labels_result["web_running"]
+    and not alloy_reader_misleading_labels_result["reader_contract_satisfied"],
+    "Only exact Prometheus service label boundaries may satisfy the reader contract.",
+)
+
+alloy_reader_stopped_fixture = json.loads(json.dumps(alloy_reader_fixture))
+for attribute in alloy_reader_stopped_fixture["debugInfo"][0]["body"]:
+    if attribute.get("name") == "is_running":
+        attribute["value"]["value"] = False
+alloy_reader_stopped_result = alloy_docker_reader_diagnostic(
+    {"status": 200, "content": json.dumps(alloy_reader_stopped_fixture)}
+)
+require(
+    alloy_reader_stopped_result["targets_total"] == 3
+    and alloy_reader_stopped_result["running_total"] == 2
+    and not alloy_reader_stopped_result["caddy_running"]
+    and alloy_reader_stopped_result["web_running"]
+    and not alloy_reader_stopped_result["reader_contract_satisfied"],
+    "A stopped expected reader must fail the bounded Alloy reader contract.",
+)
+
+alloy_reader_unhealthy_fixture = json.loads(json.dumps(alloy_reader_fixture))
+alloy_reader_unhealthy_fixture["health"]["state"] = "fixture-private-health-state"
+alloy_reader_unhealthy_result = alloy_docker_reader_diagnostic(
+    {"status": 200, "content": json.dumps(alloy_reader_unhealthy_fixture)}
+)
+require(
+    alloy_reader_unhealthy_result["component_health"] == "unhealthy"
+    and not alloy_reader_unhealthy_result["reader_contract_satisfied"]
+    and "fixture-private-health-state" not in json.dumps(alloy_reader_unhealthy_result),
+    "Unexpected Alloy health values must be clamped to a bounded diagnostic state.",
 )
 require(
     "status               = \"status\"" in ALLOY_CONFIG and "uri                  = \"request.uri\"" in ALLOY_CONFIG,

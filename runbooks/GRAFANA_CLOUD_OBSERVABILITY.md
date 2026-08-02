@@ -716,6 +716,12 @@ rollback requires an explicit reviewed code change that removes that protection.
 
 The existing protected apply workflow still connects as `nutsnews_ops`, never root SSH, and applies only the declared Ansible baseline.
 
+The protected proof normalizes Alloy's reader-level `debugInfo` list without
+printing reader identifiers or labels. It retries until at least three readers
+are running and the Caddy and web readers are present. Missing or malformed
+component content produces only a bounded status, health category, counts, and
+booleans in the failed assertion.
+
 ## Disable Alloy On The VPS
 
 Set `enable_grafana_alloy=false` only when Alloy must be deliberately disabled,
