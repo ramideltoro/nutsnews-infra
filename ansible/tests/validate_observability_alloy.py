@@ -203,7 +203,7 @@ require(
     "Protected apply must inspect the bounded Alloy Docker source component.",
 )
 require(
-    "vps_service_foundation_alloy_docker_component.json.debugInfo.targets_info" in TASKS,
+    ".get('debugInfo', {})" in TASKS and ".get('targets_info', [])" in TASKS,
     "Docker log verification must use Alloy's reader-level debug information.",
 )
 require(
@@ -217,6 +217,18 @@ require(
 require(
     "loki_source_docker_target_entries_total" not in TASKS,
     "A component-level entry counter must not be treated as a per-reader target count.",
+)
+require(
+    "Build value-free Grafana Alloy Docker reader diagnostic" in TASKS
+    and "targets_total:" in TASKS
+    and "running_total:" in TASKS
+    and "caddy_running:" in TASKS
+    and "web_running:" in TASKS,
+    "Failed protected proof must expose only bounded reader counts and booleans.",
+)
+require(
+    "vps_service_foundation_alloy_docker_reader_diagnostic | to_json" in TASKS,
+    "Reader proof failures must report the value-free diagnostic.",
 )
 require(
     "status               = \"status\"" in ALLOY_CONFIG and "uri                  = \"request.uri\"" in ALLOY_CONFIG,
