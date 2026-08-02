@@ -463,6 +463,11 @@ assert 'response.headers.get("x-nutsnews-deployment-target") === payloadDeployme
 assert "--expected-deployment-target production-vps" in protected_workflow
 assert "--expected-health-deployment-target vps,production-vps" in protected_workflow
 assert (
+    "if: inputs.release_source_commit != '' && "
+    "steps.vercel_production.outputs.database_provider_mode == 'backend_postgres_primary'"
+    in protected_workflow
+), "Backend PostgreSQL schema preflight must run only when the reviewed production provider selects it."
+assert (
     protected_workflow.index("Verify active backend PostgreSQL schema contract")
     < protected_workflow.index("Run Ansible baseline")
 ), "Protected app release must verify the active backend schema before Ansible can mutate production."
