@@ -45,8 +45,16 @@ class RefreshOnlyPlanTests(unittest.TestCase):
         before = {
             "policy": [
                 {
+                    "active_timings": None,
+                    "mute_timings": None,
                     "contact_point": "NutsNews operations email",
-                    "policy": [{"matcher": ["severity", "=", "critical"]}],
+                    "policy": [
+                        {
+                            "active_timings": None,
+                            "mute_timings": None,
+                            "matcher": ["severity", "=", "critical"],
+                        }
+                    ],
                 }
             ]
         }
