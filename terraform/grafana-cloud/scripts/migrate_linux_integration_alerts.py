@@ -12,6 +12,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from collections import Counter
 from pathlib import Path
 from typing import Any
 
@@ -26,7 +27,15 @@ INTEGRATION_PATH = (
     "integrations-api-admin/integrations/linux-node"
 )
 INTEGRATION_INSTALL_PATH = f"{INTEGRATION_PATH}/install"
+INTEGRATION_RULES_PATH = f"{INTEGRATION_PATH}/rules"
 PROVISIONING_PATH = "/api/v1/provisioning/alert-rules"
+CONVERTED_RULES_PATH = "/api/convert/prometheus/config/v1/rules"
+CONVERTED_RULES_NAMESPACE = "Integration - Linux Node"
+CONVERTED_RULES_NAMESPACE_PATH = (
+    f"{CONVERTED_RULES_PATH}/"
+    f"{urllib.parse.quote(CONVERTED_RULES_NAMESPACE, safe='')}"
+)
+PROMETHEUS_DATASOURCE_UID = "grafanacloud-prom"
 RUNBOOK_URL = (
     "https://github.com/ramideltoro/nutsnews-infra/blob/main/"
     "runbooks/GRAFANA_CLOUD_OBSERVABILITY.md"
@@ -53,6 +62,7 @@ class GrafanaClient:
         payload: dict[str, Any] | None = None,
         *,
         allow_not_found: bool = False,
+        extra_headers: dict[str, str] | None = None,
     ) -> Any:
         body = None
         headers = {
@@ -62,6 +72,8 @@ class GrafanaClient:
         if payload is not None:
             body = json.dumps(payload, separators=(",", ":")).encode("utf-8")
             headers["Content-Type"] = "application/json"
+        if extra_headers:
+            headers.update(extra_headers)
         request = urllib.request.Request(
             f"{self.base_url}{path}", data=body, headers=headers, method=method
         )
@@ -70,7 +82,12 @@ class GrafanaClient:
                 request, timeout=30, context=self.ssl_context
             ) as response:
                 raw = response.read()
-                return json.loads(raw) if raw else None
+                if not raw:
+                    return None
+                try:
+                    return json.loads(raw)
+                except json.JSONDecodeError:
+                    return raw.decode("utf-8", errors="replace")
         except urllib.error.HTTPError as exc:
             if allow_not_found and exc.code == 404:
                 return None
@@ -303,6 +320,225 @@ def verify_recordings(
     return verified
 
 
+def integration_rule_bundle(
+    client: GrafanaClient,
+    source_alerts: list[dict[str, Any]],
+    recordings: list[dict[str, Any]],
+    replacements: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Return a reviewed full snapshot and recording-only desired bundle."""
+    response = client.request("GET", INTEGRATION_RULES_PATH)
+    data = response.get("data", {}) if isinstance(response, dict) else {}
+    recording_groups = data.get("recording_rules")
+    alert_groups = data.get("alerting_rules")
+    if not isinstance(recording_groups, list) or not isinstance(alert_groups, list):
+        raise ContractError("Linux integration rule bundle is missing")
+    if len(recording_groups) != 2 or len(alert_groups) != 2:
+        raise ContractError("Linux integration rule-group inventory drifted")
+
+    def validate_groups(groups: list[dict[str, Any]], key: str) -> Counter[tuple[str, str]]:
+        identities: Counter[tuple[str, str]] = Counter()
+        for group in groups:
+            if not isinstance(group, dict) or set(group) != {"name", "rules"}:
+                raise ContractError("Linux integration rule-group shape drifted")
+            group_name = group.get("name")
+            rules = group.get("rules")
+            if not isinstance(group_name, str) or not isinstance(rules, list):
+                raise ContractError("Linux integration rule-group content drifted")
+            for rule in rules:
+                if not isinstance(rule, dict) or not isinstance(rule.get(key), str):
+                    raise ContractError("Linux integration rule definition shape drifted")
+                identities[(group_name, str(rule[key]))] += 1
+        return identities
+
+    observed_recordings = validate_groups(recording_groups, "record")
+    expected_recordings = Counter(
+        (str(item["group"]), str(item["title"])) for item in recordings
+    )
+    if observed_recordings != expected_recordings or sum(observed_recordings.values()) != 16:
+        raise ContractError("Linux integration recording-rule bundle drifted")
+
+    observed_alerts = validate_groups(alert_groups, "alert")
+    expected_alerts = Counter(
+        (str(item["group"]), str(item["title"])) for item in source_alerts
+    )
+    if observed_alerts != expected_alerts or sum(observed_alerts.values()) != 24:
+        raise ContractError("Linux integration alert-rule bundle drifted")
+
+    source_by_uid = {str(item["uid"]): item for item in source_alerts}
+    expected_definitions: Counter[str] = Counter()
+    for replacement in replacements:
+        source = source_by_uid[str(replacement["sourceUid"])]
+        expected_definitions[
+            json.dumps(
+                {
+                    "group": source["group"],
+                    "alert": replacement["title"],
+                    "expr": replacement["expr"],
+                    "for": replacement["for"],
+                    "severity": source["severity"],
+                    "summary": replacement["summary"],
+                    "description": replacement["description"],
+                },
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+        ] += 1
+    observed_definitions: Counter[str] = Counter()
+    for group in alert_groups:
+        for rule in group["rules"]:
+            labels = rule.get("labels", {})
+            annotations = rule.get("annotations", {})
+            if not isinstance(labels, dict) or not isinstance(annotations, dict):
+                raise ContractError("Linux integration alert context drifted")
+            observed_definitions[
+                json.dumps(
+                    {
+                        "group": group["name"],
+                        "alert": rule["alert"],
+                        "expr": rule.get("expr"),
+                        # Prometheus omits a zero pending period; Grafana's
+                        # converted provisioning model canonicalizes it to 0s.
+                        "for": rule.get("for") or "0s",
+                        "severity": labels.get("severity"),
+                        "summary": annotations.get("summary"),
+                        "description": annotations.get("description"),
+                    },
+                    sort_keys=True,
+                    separators=(",", ":"),
+                )
+            ] += 1
+    if observed_definitions != expected_definitions:
+        raise ContractError("Linux integration alert rollback snapshot drifted")
+
+    # The integration endpoint returns fresh objects, but copying through JSON makes
+    # the mutation/rollback payloads independent and guarantees JSON-safe content.
+    recordings_only = json.loads(json.dumps(recording_groups))
+    full_snapshot = json.loads(json.dumps(recording_groups + alert_groups))
+    return full_snapshot, recordings_only
+
+
+def set_integration_alerts_disabled(client: GrafanaClient, disabled: bool) -> None:
+    client.request(
+        "POST",
+        INTEGRATION_INSTALL_PATH,
+        {
+            "configuration": {
+                "configurable_logs": {"logs_disabled": False},
+                "configurable_alerts": {"alerts_disabled": disabled},
+            }
+        },
+    )
+
+
+def replace_converted_namespace(
+    client: GrafanaClient,
+    groups: list[dict[str, Any]],
+    *,
+    allow_missing_delete: bool,
+) -> None:
+    headers = {"X-Grafana-Alerting-Datasource-UID": PROMETHEUS_DATASOURCE_UID}
+    client.request(
+        "DELETE",
+        CONVERTED_RULES_NAMESPACE_PATH,
+        allow_not_found=allow_missing_delete,
+        extra_headers=headers,
+    )
+    client.request(
+        "POST",
+        CONVERTED_RULES_PATH,
+        {CONVERTED_RULES_NAMESPACE: groups},
+        extra_headers=headers,
+    )
+
+
+def source_presence(
+    client: GrafanaClient, source_alerts: list[dict[str, Any]]
+) -> tuple[int, dict[str, dict[str, Any]]]:
+    live_by_uid: dict[str, dict[str, Any]] = {}
+    for source in source_alerts:
+        uid = str(source["uid"])
+        live = get_rule(client, uid)
+        if live is not None:
+            live_by_uid[uid] = live
+    return len(live_by_uid), live_by_uid
+
+
+def verify_all_replacements(
+    client: GrafanaClient, replacements: list[dict[str, Any]]
+) -> int:
+    verified = 0
+    for replacement in replacements:
+        live = get_rule(client, str(replacement["replacementUid"]))
+        if live is None:
+            raise ContractError("Terraform Linux replacement is missing")
+        verify_replacement_rule(live, replacement)
+        verified += 1
+    return verified
+
+
+def wait_for_rule_count(
+    client: GrafanaClient,
+    source_alerts: list[dict[str, Any]],
+    recordings: list[dict[str, Any]],
+    *,
+    wanted_sources: int,
+    settle_seconds: int,
+) -> None:
+    deadline = time.monotonic() + settle_seconds
+    while True:
+        sources, _ = source_presence(client, source_alerts)
+        present_recordings = sum(
+            get_rule(client, str(recording["uid"])) is not None
+            for recording in recordings
+        )
+        if sources == wanted_sources and present_recordings == 16:
+            return
+        if time.monotonic() >= deadline:
+            raise ContractError(
+                "converted Linux rule namespace did not settle to the reviewed shape"
+            )
+        time.sleep(5)
+
+
+def rollback_full_namespace(
+    client: GrafanaClient,
+    full_snapshot: list[dict[str, Any]],
+    source_alerts: list[dict[str, Any]],
+    recordings: list[dict[str, Any]],
+    replacements: list[dict[str, Any]],
+    external: dict[str, Any],
+    state_before: dict[str, Any],
+    settle_seconds: int,
+) -> None:
+    replace_converted_namespace(client, full_snapshot, allow_missing_delete=True)
+    if state_before["alerts_disabled"] is not True:
+        set_integration_alerts_disabled(client, False)
+    wait_for_rule_count(
+        client,
+        source_alerts,
+        recordings,
+        wanted_sources=24,
+        settle_seconds=settle_seconds,
+    )
+    _, live_sources = source_presence(client, source_alerts)
+    replacement_by_source = {
+        str(item["sourceUid"]): item for item in replacements
+    }
+    for source in source_alerts:
+        verify_source_rule(
+            live_sources[str(source["uid"])],
+            source,
+            replacement_by_source[str(source["uid"])],
+            str(external["folderUid"]),
+        )
+    verify_recordings(client, recordings, str(external["folderUid"]))
+    verify_all_replacements(client, replacements)
+    rolled_back_state = integration_state(client, external)
+    if rolled_back_state["alerts_disabled"] != state_before["alerts_disabled"]:
+        raise ContractError("Linux integration configuration rollback did not settle")
+
+
 def run(
     client: GrafanaClient,
     external: dict[str, Any],
@@ -318,80 +554,83 @@ def run(
         str(item["sourceUid"]): item for item in replacement_rules
     }
     state_before = integration_state(client, external)
-
-    replacement_verified = 0
-    for replacement in replacement_rules:
-        live = get_rule(client, str(replacement["replacementUid"]))
-        if live is None:
-            raise ContractError(
-                "Terraform Linux alert replacements must be applied before migration"
-            )
-        verify_replacement_rule(live, replacement)
-        replacement_verified += 1
-
+    replacement_verified = verify_all_replacements(client, replacement_rules)
+    source_count, live_sources = source_presence(client, source_alerts)
+    if source_count not in (0, 24):
+        raise ContractError("vendor Linux alert bundle is partially missing")
     source_verified = 0
-    if not state_before["alerts_disabled"]:
-        # Prove all live vendor definitions match their committed replacements before
-        # changing the integration configuration.
+    if source_count == 24:
         for source in source_alerts:
-            live = get_rule(client, str(source["uid"]))
-            if live is None:
-                raise ContractError("vendor Linux alert bundle is partially missing")
             verify_source_rule(
-                live,
+                live_sources[str(source["uid"])],
                 source,
                 replacement_by_source[str(source["uid"])],
                 str(external["folderUid"]),
             )
             source_verified += 1
-    elif any(get_rule(client, str(source["uid"])) is not None for source in source_alerts):
-        raise ContractError("Linux integration reports alerts disabled but vendor alerts remain")
+    elif not state_before["alerts_disabled"]:
+        raise ContractError("vendor Linux alerts are absent while integration alerts are enabled")
 
-    recording_verified = verify_recordings(
-        client, recordings, str(external["folderUid"])
+    recording_verified = verify_recordings(client, recordings, str(external["folderUid"]))
+    full_snapshot, recordings_only = integration_rule_bundle(
+        client, source_alerts, recordings, replacement_rules
     )
     changed = False
-    if mode == "apply" and not state_before["alerts_disabled"]:
-        client.request(
-            "POST",
-            INTEGRATION_INSTALL_PATH,
-            {
-                "configuration": {
-                    "configurable_logs": {"logs_disabled": False},
-                    "configurable_alerts": {"alerts_disabled": True},
-                }
-            },
-        )
-        changed = True
-
-    if mode == "apply":
-        deadline = time.monotonic() + settle_seconds
-        while True:
-            state_after = integration_state(client, external)
-            remaining_sources = sum(
-                get_rule(client, str(source["uid"])) is not None
-                for source in source_alerts
+    if mode == "apply" and source_count == 24:
+        mutation_started = False
+        try:
+            if not state_before["alerts_disabled"]:
+                set_integration_alerts_disabled(client, True)
+            mutation_started = True
+            replace_converted_namespace(
+                client, recordings_only, allow_missing_delete=False
             )
-            if state_after["alerts_disabled"] and remaining_sources == 0:
-                break
-            if time.monotonic() >= deadline:
-                raise ContractError(
-                    "Linux integration alert disable did not settle before the deadline"
+            wait_for_rule_count(
+                client,
+                source_alerts,
+                recordings,
+                wanted_sources=0,
+                settle_seconds=settle_seconds,
+            )
+            state_after = integration_state(client, external)
+            if not state_after["alerts_disabled"] or state_after["logs_disabled"]:
+                raise ContractError("Linux integration configuration changed during migration")
+            replacement_verified = verify_all_replacements(client, replacement_rules)
+            recording_verified = verify_recordings(
+                client, recordings, str(external["folderUid"])
+            )
+            changed = True
+        except Exception as exc:
+            if not mutation_started:
+                raise
+            try:
+                rollback_full_namespace(
+                    client,
+                    full_snapshot,
+                    source_alerts,
+                    recordings,
+                    replacement_rules,
+                    external,
+                    state_before,
+                    settle_seconds,
                 )
-            time.sleep(5)
-        replacement_verified = 0
-        for replacement in replacement_rules:
-            live = get_rule(client, str(replacement["replacementUid"]))
-            if live is None:
-                raise ContractError("Terraform Linux replacement disappeared during migration")
-            verify_replacement_rule(live, replacement)
-            replacement_verified += 1
-        recording_verified = verify_recordings(
-            client, recordings, str(external["folderUid"])
-        )
+            except Exception as rollback_exc:
+                raise ContractError(
+                    "Linux integration migration failed and automatic full-bundle "
+                    "rollback could not be verified"
+                ) from rollback_exc
+            raise ContractError(
+                "Linux integration migration failed; automatic full-bundle rollback verified"
+            ) from exc
+        remaining_sources = 0
+    elif mode == "apply":
+        state_after = integration_state(client, external)
+        if not state_after["alerts_disabled"] or state_after["logs_disabled"]:
+            raise ContractError("migrated Linux integration configuration drifted")
+        remaining_sources = 0
     else:
         state_after = state_before
-        remaining_sources = 0 if state_before["alerts_disabled"] else 24
+        remaining_sources = source_count
 
     return {
         "schema_version": 1,
@@ -405,6 +644,11 @@ def run(
         "terraform_replacements_verified": replacement_verified,
         "integration_recording_rules_verified": recording_verified,
         "recording_rules_changed": 0,
+        "recording_rules_reconciled": 16 if changed else 0,
+        "converted_namespace": CONVERTED_RULES_NAMESPACE,
+        "rollback_snapshot_rules_verified": sum(
+            len(group["rules"]) for group in full_snapshot
+        ),
         "logs_changed": False,
     }
 
