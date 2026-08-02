@@ -370,6 +370,14 @@ filtering is owned by `ramideltoro/nutsnews-backend`. Revert these allowlists
 only through protected check/apply and only after the Usage / Quota dashboard
 proves sufficient headroom.
 
+The VPS host relabel boundary explicitly publishes the embedded Unix exporter
+and its textfile families as `job="integrations/node_exporter"`. Alloy's Unix
+exporter otherwise supplies `integrations/unix` on its targets and overrides
+the scrape block's `job_name`, which would leave host dashboards, readiness
+alerts, ownership panels, failure-drill prechecks, and post-apply verification
+querying a stale identity. Keep this relabel pinned unless all consumers move
+together in one reviewed rollout.
+
 ## Alert Delivery And Notification Canary
 
 OpenTofu owns the `NutsNews operations email` contact point using the protected
