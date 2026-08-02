@@ -76,7 +76,7 @@ def verification_case(
     return {
         "enabled": enabled,
         "configured": configured,
-        "verify_stale_after_seconds": 691200,
+        "verify_stale_after_seconds": 108000,
         "latest_snapshot": {
             "id": "abc123def456",
             "short_id": "abc123de",
@@ -144,6 +144,9 @@ for key in (
     "configured",
     "smtp_host_configured",
     "next_report_run_at",
+    "last_report_conclusion",
+    "last_report_delivery_success_at",
+    "last_report_exit_code",
     "last_report_run_at",
     "last_report_success_at",
     "last_report_sent_at",
@@ -552,7 +555,16 @@ require(backups.get("verification_status") == "success", "Fixture top-level veri
 require(backups.get("latest_snapshot_verified") is True, "Fixture top-level latest snapshot verified flag must be true.")
 require(backups.get("verify_timer") == "nutsnews-restic-verify.timer", "Fixture verify timer missing.")
 require(backups.get("verify_timer_active") == "active", "Fixture verify timer must be active.")
-require(backups.get("verify_stale_after_hours") == 192, "Fixture verify stale threshold must be 192 hours.")
+require(backups.get("verify_stale_after_hours") == 30, "Fixture verify stale threshold must be 30 hours.")
+require(backups.get("verify_stale_after_seconds") == 108000, "Fixture verify stale seconds must match 30 hours.")
+require(
+    backups.get("latest_snapshot_verification", {}).get("stale_after_hours") == 30,
+    "Fixture verification policy must use the same 30-hour threshold.",
+)
+require(
+    backups.get("latest_snapshot_verification", {}).get("stale_after_seconds") == 108000,
+    "Fixture verification policy seconds must match 30 hours.",
+)
 require(backups.get("retention", {}).get("prune_after_backup") is True, "Backups must prune after backup.")
 require(backups.get("backup_paths_redacted") is True, "Backup paths must be redacted from public status.")
 require("backup_paths" not in backups, "Public backup fixture must not expose raw backup paths.")
@@ -608,7 +620,9 @@ for forbidden in ("<button", "<form", "docker.sock", "child_process", "execFile"
     require(forbidden not in APP_JS, f"Portal JavaScript includes forbidden control surface: {forbidden}.")
 
 require("last_report_run_at" in REPORTER, "Reporter must record report attempts.")
-require("last_report_success_at" in REPORTER, "Reporter must record successful report sends.")
+require("last_report_success_at" in REPORTER, "Reporter must record successful critical-free report runs.")
+require("last_report_delivery_success_at" in REPORTER, "Reporter must separately record successful email delivery.")
+require("last_report_conclusion" in REPORTER, "Reporter must record a bounded health-audit conclusion.")
 backup_provider = next(provider for provider in providers if provider.get("key") == "backup_storage")
 require(backup_provider.get("platform") == "Backup Local Cache", "Backup free-tier provider must describe local cache only.")
 require(

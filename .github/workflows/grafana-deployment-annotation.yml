@@ -1,0 +1,183 @@
+name: Publish Grafana Deployment Annotation
+
+on:
+  workflow_dispatch:
+    inputs:
+      event_type:
+        description: Bounded deployment event class.
+        required: true
+        type: string
+      commit:
+        description: Source commit associated with the production change.
+        required: true
+        type: string
+      image_digest:
+        description: Immutable release digest, or not-applicable for non-image changes.
+        required: true
+        type: string
+      version:
+        description: Bounded build or controller version.
+        required: true
+        type: string
+      target:
+        description: Bounded production target or provider name.
+        required: true
+        type: string
+      outcome:
+        description: Final outcome accepted by the annotation publisher.
+        required: true
+        type: string
+      evidence:
+        description: Bounded durable evidence URL or identifier.
+        required: false
+        default: not-applicable
+        type: string
+  workflow_call:
+    inputs:
+      event_type:
+        description: Bounded deployment event class.
+        required: true
+        type: string
+      commit:
+        description: Source commit associated with the production change.
+        required: true
+        type: string
+      image_digest:
+        description: Immutable release digest, or not-applicable for non-image changes.
+        required: true
+        type: string
+      version:
+        description: Bounded build or controller version.
+        required: true
+        type: string
+      target:
+        description: Bounded production target or provider name.
+        required: true
+        type: string
+      outcome:
+        description: Final outcome accepted by the annotation publisher.
+        required: true
+        type: string
+      evidence:
+        description: Bounded durable evidence URL or identifier.
+        required: false
+        default: not-applicable
+        type: string
+    secrets:
+      NUTSNEWS_GRAFANA_CLOUD_URL:
+        description: Protected Grafana Cloud stack URL used only by the annotation publisher.
+        required: true
+      NUTSNEWS_GRAFANA_CLOUD_SERVICE_ACCOUNT_TOKEN:
+        description: Protected least-privilege token used only by the annotation publisher.
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: grafana-deployment-annotations
+  queue: max
+  cancel-in-progress: false
+
+jobs:
+  audit-production-vps-policy:
+    name: Audit production-vps environment protection
+    if: ${{ github.repository == 'ramideltoro/nutsnews-infra' && github.ref == 'refs/heads/main' }}
+    permissions:
+      actions: read
+      contents: read
+    uses: ./.github/workflows/production-vps-environment-policy-audit.yml
+
+  publish:
+    name: Append deployment event to Grafana
+    if: ${{ github.repository == 'ramideltoro/nutsnews-infra' && github.ref == 'refs/heads/main' }}
+    needs: audit-production-vps-policy
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment: production-vps
+
+    steps:
+      - name: Validate trusted caller scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_REPOSITORY" != "ramideltoro/nutsnews-infra" || "$GITHUB_REF" != "refs/heads/main" ]]; then
+            echo "Grafana deployment annotations must originate from nutsnews-infra main." >&2
+            exit 1
+          fi
+
+      - name: Checkout reviewed annotation publisher
+        id: checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Publish final deployment outcome
+        id: publish
+        if: steps.checkout.outcome == 'success'
+        shell: bash
+        env:
+          GRAFANA_URL: ${{ secrets.NUTSNEWS_GRAFANA_CLOUD_URL }}
+          GRAFANA_SERVICE_ACCOUNT_TOKEN: ${{ secrets.NUTSNEWS_GRAFANA_CLOUD_SERVICE_ACCOUNT_TOKEN }}
+          EVENT_TYPE: ${{ inputs.event_type }}
+          DEPLOYMENT_COMMIT: ${{ inputs.commit }}
+          IMAGE_DIGEST: ${{ inputs.image_digest }}
+          DEPLOYMENT_VERSION: ${{ inputs.version }}
+          DEPLOYMENT_TARGET: ${{ inputs.target }}
+          DEPLOYMENT_OUTCOME: ${{ inputs.outcome }}
+          DEPLOYMENT_EVIDENCE: ${{ inputs.evidence }}
+        run: |
+          set -euo pipefail
+          python3 terraform/grafana-cloud/scripts/publish_deployment_annotation.py \
+            --event-type "$EVENT_TYPE" \
+            --commit "$DEPLOYMENT_COMMIT" \
+            --image-digest "$IMAGE_DIGEST" \
+            --version "$DEPLOYMENT_VERSION" \
+            --target "$DEPLOYMENT_TARGET" \
+            --outcome "$DEPLOYMENT_OUTCOME" \
+            --evidence "$DEPLOYMENT_EVIDENCE" \
+            --output "$RUNNER_TEMP/grafana-deployment-annotation.json"
+
+      - name: Report annotation delivery failure
+        if: ${{ always() && (steps.checkout.outcome != 'success' || steps.publish.outcome != 'success') }}
+        shell: bash
+        env:
+          ANNOTATION_CHECKOUT_OUTCOME: ${{ steps.checkout.outcome }}
+          ANNOTATION_PUBLISH_OUTCOME: ${{ steps.publish.outcome }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          receipt = {
+              "checkout_outcome": os.environ.get("ANNOTATION_CHECKOUT_OUTCOME", "unknown"),
+              "publish_outcome": os.environ.get("ANNOTATION_PUBLISH_OUTCOME", "unknown"),
+              "status": "delivery_unverified",
+              "workflow_run_url": (
+                  f"https://github.com/{os.environ['GITHUB_REPOSITORY']}"
+                  f"/actions/runs/{os.environ['GITHUB_RUN_ID']}"
+              ),
+          }
+          path = Path(os.environ["RUNNER_TEMP"]) / "grafana-deployment-annotation.json"
+          path.write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+          PY
+          echo "::error title=Grafana deployment annotation delivery failed::The separate annotation workflow could not verify delivery. Investigate the protected Grafana credentials or API availability; do not retry a production mutation solely to recreate this annotation."
+          {
+            echo "### Grafana deployment annotation delivery unverified"
+            echo
+            echo "This separate observability workflow failed and retained a value-free failure receipt. The production deployment or promotion result remains authoritative."
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit 1
+
+      - name: Retain deployment annotation receipt
+        if: always()
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: grafana-deployment-annotation-${{ inputs.event_type }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/grafana-deployment-annotation.json
+          if-no-files-found: ignore
+          retention-days: 90
+          overwrite: false

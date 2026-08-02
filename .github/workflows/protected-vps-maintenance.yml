@@ -35,11 +35,22 @@ permissions:
 
 concurrency:
   group: production-vps-maintenance
+  queue: max
   cancel-in-progress: false
 
 jobs:
+  audit-production-vps-policy:
+    name: Audit production-vps environment protection
+    if: ${{ github.repository == 'ramideltoro/nutsnews-infra' && github.ref == 'refs/heads/main' }}
+    permissions:
+      actions: read
+      contents: read
+    uses: ./.github/workflows/production-vps-environment-policy-audit.yml
+
   maintenance:
     name: Protected VPS maintenance
+    if: ${{ github.repository == 'ramideltoro/nutsnews-infra' && github.ref == 'refs/heads/main' }}
+    needs: audit-production-vps-policy
     runs-on: ubuntu-latest
     timeout-minutes: 90
     environment: production-vps

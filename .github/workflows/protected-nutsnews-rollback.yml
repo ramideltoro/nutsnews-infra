@@ -23,12 +23,22 @@ permissions:
 
 concurrency:
   group: nutsnews-production-rollback
+  queue: max
   cancel-in-progress: false
 
 jobs:
+  audit-production-vps-policy:
+    name: Audit production-vps environment protection
+    if: ${{ github.repository == 'ramideltoro/nutsnews-infra' && github.ref == 'refs/heads/main' }}
+    permissions:
+      actions: read
+      contents: read
+    uses: ./.github/workflows/production-vps-environment-policy-audit.yml
+
   rollback:
     name: Select recorded rollback and run protected apply
-    if: inputs.rollback_confirmation == 'rollback-recorded-last-known-good'
+    if: ${{ github.repository == 'ramideltoro/nutsnews-infra' && github.ref == 'refs/heads/main' && inputs.rollback_confirmation == 'rollback-recorded-last-known-good' }}
+    needs: audit-production-vps-policy
     runs-on: ubuntu-latest
     timeout-minutes: 90
     environment: production-vps
@@ -60,6 +70,33 @@ jobs:
             --evidence "$RUNNER_TEMP/nutsnews-rollback.json" \
             --github-output "$GITHUB_OUTPUT"
           git diff --check
+
+      - name: Publish rollback start annotation
+        id: grafana_annotation_started
+        continue-on-error: true
+        shell: bash
+        env:
+          GRAFANA_URL: ${{ secrets.NUTSNEWS_GRAFANA_CLOUD_URL }}
+          GRAFANA_SERVICE_ACCOUNT_TOKEN: ${{ secrets.NUTSNEWS_GRAFANA_CLOUD_SERVICE_ACCOUNT_TOKEN }}
+          RESTORED_SOURCE_COMMIT: ${{ steps.rollback.outputs.restored_source_commit }}
+          RESTORED_IMAGE_DIGEST: ${{ steps.rollback.outputs.restored_image_digest }}
+          RESTORED_BUILD_ID: ${{ steps.rollback.outputs.restored_build_id }}
+        run: |
+          set -euo pipefail
+          python3 terraform/grafana-cloud/scripts/publish_deployment_annotation.py \
+            --event-type rollback \
+            --commit "$RESTORED_SOURCE_COMMIT" \
+            --image-digest "$RESTORED_IMAGE_DIGEST" \
+            --version "$RESTORED_BUILD_ID" \
+            --target production-vps \
+            --outcome started \
+            --output "$RUNNER_TEMP/grafana-rollback-started-annotation.json"
+
+      - name: Report rollback start annotation delivery failure
+        if: ${{ steps.grafana_annotation_started.outcome == 'failure' }}
+        shell: bash
+        run: |
+          echo "::warning::The rollback start annotation could not be published. Rollback continues; do not retry a production mutation solely for observability."
 
       - name: Create rollback pull request
         id: pr
@@ -171,7 +208,7 @@ jobs:
             --field confirm_apply=vps.nutsnews.com \
             --field sync_vercel_production=true \
             --field enable_cloudflare_ddns=false \
-            --field enable_grafana_alloy=false \
+            --field enable_grafana_alloy=true \
             --field enable_staging_access=true \
             --field release_source_commit="$RESTORED_SOURCE_COMMIT" \
             --field release_image_digest="$RESTORED_IMAGE_DIGEST" \
@@ -279,12 +316,48 @@ jobs:
           echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
           echo "run_url=$run_url" >> "$GITHUB_OUTPUT"
 
+      - name: Publish final rollback outcome
+        id: grafana_annotation
+        if: ${{ always() && steps.rollback.outputs.restored_image_digest != '' }}
+        continue-on-error: true
+        shell: bash
+        env:
+          GRAFANA_URL: ${{ secrets.NUTSNEWS_GRAFANA_CLOUD_URL }}
+          GRAFANA_SERVICE_ACCOUNT_TOKEN: ${{ secrets.NUTSNEWS_GRAFANA_CLOUD_SERVICE_ACCOUNT_TOKEN }}
+          ROLLBACK_JOB_STATUS: ${{ job.status }}
+          RESTORED_SOURCE_COMMIT: ${{ steps.rollback.outputs.restored_source_commit }}
+          RESTORED_IMAGE_DIGEST: ${{ steps.rollback.outputs.restored_image_digest }}
+          RESTORED_BUILD_ID: ${{ steps.rollback.outputs.restored_build_id }}
+        run: |
+          set -euo pipefail
+          outcome=failed
+          if [[ "$ROLLBACK_JOB_STATUS" == "success" ]]; then
+            outcome=rolled-back
+          fi
+          python3 terraform/grafana-cloud/scripts/publish_deployment_annotation.py \
+            --event-type rollback \
+            --commit "$RESTORED_SOURCE_COMMIT" \
+            --image-digest "$RESTORED_IMAGE_DIGEST" \
+            --version "$RESTORED_BUILD_ID" \
+            --target production-vps \
+            --outcome "$outcome" \
+            --output "$RUNNER_TEMP/grafana-rollback-annotation.json"
+
+      - name: Report rollback annotation delivery failure
+        if: ${{ always() && steps.grafana_annotation.outcome == 'failure' }}
+        shell: bash
+        run: |
+          echo "::warning::The rollback outcome could not be published to Grafana. Investigate annotation delivery without retrying the completed rollback solely for observability."
+
       - name: Retain rollback evidence
         if: ${{ always() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
           name: nutsnews-production-rollback-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/nutsnews-rollback.json
+          path: |
+            ${{ runner.temp }}/nutsnews-rollback.json
+            ${{ runner.temp }}/grafana-rollback-started-annotation.json
+            ${{ runner.temp }}/grafana-rollback-annotation.json
           if-no-files-found: ignore
           retention-days: 90
           overwrite: false

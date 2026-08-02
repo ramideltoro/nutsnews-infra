@@ -30,11 +30,13 @@ permissions:
 
 concurrency:
   group: cloudflare-cache-rules-apply
+  queue: max
   cancel-in-progress: false
 
 jobs:
   cache-rules:
     name: Protected Cloudflare cache rules plan/apply
+    if: ${{ github.repository == 'ramideltoro/nutsnews-infra' && github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     environment: cloudflare-admin

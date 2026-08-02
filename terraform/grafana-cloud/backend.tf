@@ -2,6 +2,24 @@ locals {
   backend_catalog        = jsondecode(file("${path.module}/catalog/backend-observability.json"))
   worker_uplift_catalog  = jsondecode(file("${path.module}/catalog/worker-uplift-rabbitmq-alerts.json"))
   backend_dashboard_tags = ["nutsnews", "backend", "grafana-cloud", "gitops"]
+  backend_dashboard_no_value = {
+    "nutsnews-backend-host"                    = "Unavailable — backend host scrape telemetry is stale or missing"
+    "nutsnews-backend-docker-runtime"          = "Unavailable — backend Docker/runtime telemetry is missing or stale"
+    "nutsnews-backend-caddy-edge"              = "Unavailable — backend Caddy/edge telemetry is missing or stale"
+    "nutsnews-backend-service-health"          = "Unavailable — backend service-health telemetry is missing or stale"
+    "nutsnews-backend-backups"                 = "Unavailable — backend backup verification telemetry is missing or stale"
+    "nutsnews-backend-postgres-failover"       = "Unavailable — PostgreSQL failover telemetry is missing or stale"
+    "nutsnews-backend-postgres-operations"     = "Unavailable — PostgreSQL exporter telemetry is missing or stale"
+    "nutsnews-backend-os-updates"              = "Unavailable — backend operating-system update telemetry is stale or missing"
+    "nutsnews-backend-metrics-quota"           = "Unavailable — backend metrics or Grafana usage telemetry is stale or missing"
+    "nutsnews-backend-alert-synthetic"         = "Unavailable — required alert or Synthetic Monitoring telemetry is missing"
+    "nutsnews-backend-logs"                    = "Unavailable — required normalized Loki stream is missing for the selected range"
+    "nutsnews-worker-pipeline-run-drilldown"   = "Enter an identifier value or no matching events exist in the selected time range"
+    "nutsnews-worker-uplift-rabbitmq-overview" = "Unavailable — worker-uplift or RabbitMQ telemetry is missing or stale"
+    "nutsnews-worker-uplift-rabbitmq-queues"   = "Unavailable — selected worker-uplift queue telemetry is missing or stale"
+    "nutsnews-worker-uplift-rmq-resources"     = "Unavailable — RabbitMQ resource telemetry is missing or stale"
+    "nutsnews-worker-uplift-slos"              = "Unavailable — required worker-uplift telemetry is missing or stale"
+  }
   backend_dashboard_catalog = concat(
     local.backend_catalog.dashboards,
     try(local.worker_uplift_catalog.dashboards, []),
@@ -12,22 +30,32 @@ locals {
       uid         = dashboard.uid
       title       = dashboard.title
       description = try(dashboard.description, "Backend host, runtime, service, backup, database, quota, alert, synthetic, and log observability imported from nutsnews-backend.")
+      variables   = try(dashboard.variables, [])
       panels = [
         for panel in dashboard.panels : {
-          title       = panel.title
-          type        = try(panel.type, "timeseries")
-          datasource  = try(panel.datasource, "prometheus")
-          unit        = try(panel.unit, "short")
-          width       = try(panel.width, 12)
-          height      = try(panel.height, 8)
-          expr        = panel.expr
-          description = try(panel.description, "")
+          title           = panel.title
+          type            = try(panel.type, "timeseries")
+          datasource      = try(panel.datasource, "prometheus")
+          unit            = try(panel.unit, "short")
+          width           = try(panel.width, 12)
+          height          = try(panel.height, 8)
+          expr            = panel.expr
+          description     = try(panel.description, "")
+          mappings        = try(panel.mappings, [])
+          field_overrides = try(panel.fieldOverrides, [])
           links = [
             for link in try(panel.links, []) : merge(link, {
               url = replace(try(link.url, ""), "%24%24%7Bloki_datasource_uid%7D", urlencode(var.loki_datasource_uid))
             })
           ]
-          noValue = try(panel.noValue, "No data")
+          noValue = try(
+            panel.noValue,
+            lookup(
+              local.backend_dashboard_no_value,
+              dashboard.uid,
+              "Unavailable — telemetry source is disabled, stale, or missing",
+            ),
+          )
         }
       ]
     }
@@ -67,11 +95,11 @@ locals {
                 mode = "off"
               }
             }
-            mappings = []
+            mappings = panel.mappings
             noValue  = panel.noValue
             unit     = panel.unit
           }
-          overrides = []
+          overrides = panel.field_overrides
         }
         gridPos = {
           h = panel.height
@@ -144,6 +172,9 @@ locals {
       reducer         = try(alert.reducer, "last")
       severity        = try(alert.severity, "warning")
       service         = try(alert.service, "backend")
+      owner           = try(alert.owner, "nutsnews-backend-observability")
+      route           = try(alert.route, var.quota_alert_contact_route)
+      dashboard_url   = try(alert.dashboard_url, "/d/nutsnews-backend-host")
       runbook_url     = try(alert.runbook_url, "https://github.com/ramideltoro/nutsnews-infra/blob/main/runbooks/GRAFANA_CLOUD_OBSERVABILITY.md")
       summary         = try(alert.summary, alert.title)
       description     = try(alert.description, "")
@@ -171,6 +202,7 @@ locals {
       queue                   = try(alert.queue, "all")
       owner                   = try(alert.owner, local.worker_uplift_catalog.owner)
       route                   = try(alert.route, local.worker_uplift_catalog.contact_route)
+      dashboard_url           = try(alert.dashboard_url, "/d/nutsnews-worker-uplift-slos")
       runbook_url             = try(alert.runbook_url, local.worker_uplift_catalog.runbook_url)
       summary                 = try(alert.summary, alert.title)
       description             = try(alert.description, "")
@@ -202,6 +234,7 @@ resource "grafana_dashboard" "backend_observability" {
 
   config_json = templatefile("${path.module}/dashboards/nutsnews-dashboard.json.tftpl", {
     description               = each.value.description
+    extra_variables           = each.value.variables
     panels_json               = jsonencode(local.backend_dashboard_panels[each.key])
     prometheus_datasource_uid = var.prometheus_datasource_uid
     tags_json                 = jsonencode(local.backend_dashboard_tags)
@@ -238,8 +271,9 @@ resource "grafana_rule_group" "backend_guardrails" {
 
       annotations = merge(
         {
-          summary     = rule.value.summary
-          runbook_url = rule.value.runbook_url
+          summary       = rule.value.summary
+          dashboard_url = rule.value.dashboard_url
+          runbook_url   = rule.value.runbook_url
         },
         rule.value.description != "" ? { description = rule.value.description } : {}
       )
@@ -249,6 +283,8 @@ resource "grafana_rule_group" "backend_guardrails" {
           component              = "backend-observability"
           deployment_environment = var.deployment_environment
           managed_by             = "nutsnews-infra"
+          owner                  = rule.value.owner
+          route                  = rule.value.route
           service                = rule.value.service
           service_namespace      = "nutsnews"
           severity               = rule.value.severity
@@ -395,6 +431,7 @@ resource "grafana_rule_group" "worker_uplift_guardrails" {
       annotations = {
         summary                 = rule.value.summary
         description             = "${rule.value.description} value={{ $values.B.Value }} threshold=${rule.value.threshold_label} owner=${rule.value.owner} route=${rule.value.route} recovery_window=${rule.value.keep_firing_for} maintenance=${rule.value.maintenance_suppression}"
+        dashboard_url           = rule.value.dashboard_url
         runbook_url             = rule.value.runbook_url
         threshold               = rule.value.threshold_label
         recovery_window         = rule.value.keep_firing_for

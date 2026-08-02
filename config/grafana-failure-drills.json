@@ -1,0 +1,81 @@
+{
+  "schema_version": 1,
+  "default_mode": "dry-run",
+  "artifact_retention_days": 90,
+  "drills": [
+    {
+      "id": "alloy-stopped",
+      "target": "vps.nutsnews.com",
+      "executor": "vps-hook",
+      "expected_alert_uids": ["nn-alloy-readiness"],
+      "injection": "Stop alloy.service after scheduling an independent systemd recovery.",
+      "recovery": "Start alloy.service and require the local readiness endpoint to return healthy."
+    },
+    {
+      "id": "textfile-stale",
+      "target": "vps.nutsnews.com",
+      "executor": "vps-hook",
+      "expected_alert_uids": ["nn-observability-collector-stale"],
+      "injection": "Stop the managed textfile timer and atomically age only its collector-success timestamp.",
+      "recovery": "Run the managed collector, restore the timer, and require a fresh success timestamp."
+    },
+    {
+      "id": "worker-unavailable",
+      "target": "backend.nutsnews.com",
+      "executor": "backend-workflow",
+      "expected_alert_uids": ["nn-wu-worker-scrape-missing"],
+      "injection": "Invoke the backend protected worker-unavailable fixture for one exact shadow worker.",
+      "recovery": "Remove the fixture, restore the exact worker, and require readiness plus scrape freshness."
+    },
+    {
+      "id": "rabbitmq-zero-consumer",
+      "target": "backend.nutsnews.com",
+      "executor": "backend-workflow",
+      "expected_alert_uids": ["nn-wu-rmq-no-consumers"],
+      "injection": "Emit the bounded telemetry-only zero-consumer fixture without calling RabbitMQ, stopping a consumer, or changing a queue.",
+      "recovery": "Emit the exact fixture inactive state and require unchanged real RabbitMQ consumer telemetry."
+    },
+    {
+      "id": "rabbitmq-growing-dlq",
+      "target": "backend.nutsnews.com",
+      "executor": "backend-workflow",
+      "expected_alert_uids": ["nn-wu-rmq-dlq-nonempty", "nn-wu-slo-retry-dlq-burn"],
+      "injection": "Emit the bounded telemetry-only DLQ rule-path fixture without publishing, consuming, or deleting any RabbitMQ message.",
+      "recovery": "Emit the exact fixture inactive state and require unchanged real RabbitMQ queue telemetry."
+    },
+    {
+      "id": "postgres-relay-lag",
+      "target": "backend.nutsnews.com",
+      "executor": "backend-workflow",
+      "expected_alert_uids": ["nn-backend-sync-relay-lag"],
+      "injection": "Emit the bounded telemetry-only relay-lag rule-path fixture without pausing or changing replication.",
+      "recovery": "Emit the exact fixture inactive state, require unchanged relay configuration, and check real relay health only when the relay is configured."
+    },
+    {
+      "id": "backend-readiness-failed",
+      "target": "backend.nutsnews.com",
+      "executor": "backend-workflow",
+      "expected_alert_uids": ["nn-backend-api-not-ready", "nn-backend-endpoint-unhealthy"],
+      "injection": "Invoke the backend readiness failure fixture without changing the compatibility API route.",
+      "recovery": "Remove the fixture and require process, PostgreSQL, and public readiness checks to pass."
+    },
+    {
+      "id": "synthetic-mismatch",
+      "target": "canonical_readiness",
+      "targets": [
+        "canonical_articles_api",
+        "canonical_homepage",
+        "canonical_readiness",
+        "vercel_secondary_readiness",
+        "vps_readiness"
+      ],
+      "executor": "synthetic-api",
+      "variants": ["status", "body", "header"],
+      "expected_alert_uids": [
+        "nn-sm-probe-failure"
+      ],
+      "injection": "Save the complete selected remote check, mutate one assertion family, and prove a controlled probe failure.",
+      "recovery": "Restore the complete saved check representation and prove both public probes recover."
+    }
+  ]
+}

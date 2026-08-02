@@ -21,6 +21,7 @@ permissions:
 
 concurrency:
   group: nutsnews-staging-deploy
+  queue: max
   cancel-in-progress: false
 
 jobs:

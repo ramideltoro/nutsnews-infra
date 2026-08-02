@@ -33,7 +33,9 @@ expected_decisions = {
     "structured_logs": "required",
     "traces": "deferred",
     "exemplars": "deferred",
-    "profiles": "forbidden",
+    "profiles": "deferred",
+    "sentry_exceptions_and_replays": "canonical-existing-provider",
+    "faro_frontend_telemetry": "deferred",
     "article_or_model_payloads": "forbidden",
 }
 for telemetry_class, decision in expected_decisions.items():
@@ -52,15 +54,65 @@ require(
     "metrics must use the scoped telemetry write token",
 )
 
-allowed_labels = {"environment", "host", "service", "version", "queue", "outcome"}
-for label_scope in ("allowedMetricLabels", "allowedLokiStreamLabels"):
+allowed_metric_labels = {
+    "service",
+    "stage",
+    "queue",
+    "outcome",
+    "dependency",
+    "language",
+    "provider",
+    "probe",
+    "check",
+}
+allowed_loki_labels = {
+    "deployment_environment",
+    "service",
+    "service_version",
+    "host",
+    "source",
+    "severity",
+}
+for label_scope, expected_labels in (
+    ("allowedMetricLabels", allowed_metric_labels),
+    ("allowedLokiStreamLabels", allowed_loki_labels),
+):
     labels = set(POLICY["labels"][label_scope])
-    require(labels == allowed_labels, f"{label_scope} must be exactly the approved low-cardinality labels")
+    require(labels == expected_labels, f"{label_scope} must be exactly the approved low-cardinality labels")
     for label in labels:
         for fragment in POLICY["labels"]["forbiddenMetricAndStreamLabelFragments"]:
             require(fragment not in label, f"{label_scope} includes forbidden high-cardinality fragment {fragment}: {label}")
 
-for field in ("correlationId", "causationId", "messageId", "idempotencyKey", "traceparent"):
+require(
+    set(POLICY["labels"]["lifecycleOutcomes"])
+    == {"success", "duplicate", "invalid", "retry", "dlq", "failure"},
+    "lifecycle outcomes must match the shared stage metric contract",
+)
+require(
+    set(POLICY["labels"]["terminalSuccessOutcomes"]) == {"success", "duplicate"},
+    "terminal success must count accepted and duplicate completions",
+)
+require(
+    set(POLICY["labels"]["terminalDenominatorOutcomes"])
+    == {"success", "duplicate", "invalid", "dlq", "failure"},
+    "terminal denominator must exclude intermediate retries",
+)
+require(
+    set(POLICY["labels"]["scrapeAndInfoIdentityLabels"])
+    == {
+        "deployment_environment",
+        "host",
+        "service",
+        "service_version",
+        "revision",
+        "deployment_mode",
+        "adapter_mode",
+        "expected_active",
+    },
+    "scrape/info identity labels must remain bounded and distinct from event dimensions",
+)
+
+for field in ("pipelineRunId", "correlationId", "causationId", "messageId", "idempotencyKey", "traceparent"):
     require(field in POLICY["labels"]["structuredLogFieldsOnly"], f"{field} must remain a structured log field only")
 
 coverage = POLICY["topologyCoverage"]
@@ -95,6 +147,28 @@ logs = POLICY["cardinalityAndVolumeEstimate"]["monthlyLogCeilingsGb"]
 require(logs["backendHostTotalIncludingWorker"] >= logs["workerServicesNormal"], "backend host log ceiling must include worker services")
 require(logs["backendHostTotalIncludingWorker"] <= 5.0, "backend host worker-uplift log ceiling must stay bounded")
 
+require(
+    POLICY["grafanaBudget"]["steadyStateActiveSeriesCeiling"] == 7000,
+    "steady-state active series ceiling must preserve free-tier headroom",
+)
+require(
+    POLICY["grafanaBudget"]["syntheticApiExecutionCeilingMonthly"] == 90000,
+    "synthetic API execution ceiling must preserve free-tier headroom",
+)
+require(
+    "grafanacloud_instance_active_series / on(id) grafanacloud_instance_metrics_limits"
+    in POLICY["grafanaBudget"]["guardrailSource"],
+    "policy must name the documented active-series numerator/denominator join",
+)
+require(
+    signals["sentry_exceptions_and_replays"]["destination"] == "sentry",
+    "Sentry must remain the canonical scrubbed exception/replay provider",
+)
+require(
+    all(signals[name]["destination"] == "none" for name in ("traces", "exemplars", "profiles", "faro_frontend_telemetry")),
+    "Tempo, exemplars, profiling, and Faro must remain deferred with no destination",
+)
+
 for stale in (
     "max(grafanacloud_instance_metrics_usage) / ${var.free_metrics_active_series_monthly}",
     "max(grafanacloud_logs_instance_usage) / ${var.free_logs_ingested_gb_monthly}",
@@ -102,7 +176,7 @@ for stale in (
     require(stale not in LOCALS, f"quota guardrail still uses hard-coded assumption: {stale}")
 
 for token in (
-    "grafanacloud_instance_metrics_usage",
+    "grafanacloud_instance_active_series",
     "grafanacloud_instance_metrics_limits",
     "grafanacloud_logs_instance_active_streams",
     "grafanacloud_logs_instance_limits",
@@ -111,6 +185,16 @@ for token in (
     "grafanacloud_traces_instance_limits",
 ):
     require(token in LOCALS, f"quota guardrail missing live usage/limit metric {token}")
+
+require(
+    r'max(grafanacloud_instance_active_series / on(id) grafanacloud_instance_metrics_limits{limit_name=\"max_global_series_per_user\"})'
+    in LOCALS,
+    "metrics active-series quota must join the live series and matching per-instance limit on id",
+)
+require(
+    "grafanacloud_instance_metrics_usage" not in LOCALS,
+    "obsolete grafanacloud_instance_metrics_usage must not be reintroduced",
+)
 
 for token in (
     "no_data_state  = rule.value.no_data_state",

@@ -54,6 +54,29 @@ jobs:
           python3 scripts/validate_worker_uplift_backup_restore_readiness.py
           python3 -m unittest tests.test_worker_uplift_backup_restore_readiness
 
+      - name: Validate truthful home-server database backup metrics
+        shell: bash
+        run: |
+          python3 -m py_compile \
+            scripts/home_server_db_backup_metrics.py \
+            tests/test_home_server_db_backup_metrics.py
+          python3 tests/test_home_server_db_backup_metrics.py
+
+      - name: Validate bounded Grafana failure-drill contract
+        shell: bash
+        run: |
+          python3 -m py_compile \
+            scripts/grafana_failure_drill.py \
+            tests/test_grafana_failure_drill.py \
+            terraform/grafana-cloud/scripts/exercise_synthetic_failure_drill.py \
+            terraform/grafana-cloud/tests/test_synthetic_failure_drill.py \
+            terraform/grafana-cloud/tests/test_synthetic_recovery_watchdog_workflow.py \
+            ansible/tests/validate_grafana_failure_drill.py
+          python3 tests/test_grafana_failure_drill.py
+          python3 terraform/grafana-cloud/tests/test_synthetic_failure_drill.py
+          python3 terraform/grafana-cloud/tests/test_synthetic_recovery_watchdog_workflow.py
+          python3 ansible/tests/validate_grafana_failure_drill.py
+
   yaml-lint:
     name: YAML lint
     needs: changes
@@ -100,6 +123,21 @@ jobs:
           "$HOME/.local/bin/yamllint" \
             -d "{extends: default, rules: {document-start: disable, line-length: disable, truthy: disable}}" \
             "${yaml_files[@]}"
+
+      - name: Validate concurrency queue semantics
+        if: steps.detect.outputs.has_files == 'true'
+        shell: bash
+        run: |
+          python3 ansible/tests/validate_workflow_concurrency.py --self-test
+          python3 ansible/tests/validate_workflow_concurrency.py
+
+      - name: Validate production-vps environment protection gates
+        if: steps.detect.outputs.has_files == 'true'
+        shell: bash
+        run: |
+          PYTHONDONTWRITEBYTECODE=1 python3 ansible/tests/test_production_vps_environment_policy.py
+          PYTHONDONTWRITEBYTECODE=1 python3 ansible/tests/validate_production_vps_environment_policy.py --self-test
+          PYTHONDONTWRITEBYTECODE=1 python3 ansible/tests/validate_production_vps_environment_policy.py
 
       - name: Skip yamllint
         if: steps.detect.outputs.has_files != 'true'
@@ -308,6 +346,8 @@ jobs:
           set -euo pipefail
           test -d roles/vps_service_foundation
           grep -q 'role: vps_service_foundation' playbooks/bootstrap.yml
+          ansible-inventory -i inventories/production/hosts.yml --host vps.nutsnews.com |
+            python3 -c 'import json, sys; data = json.load(sys.stdin); assert data.get("vps_service_foundation_grafana_alloy_enabled") is True'
 
       - name: Validate service foundation check-mode guard
         if: steps.detect.outputs.has_files == 'true'
@@ -409,6 +449,8 @@ jobs:
           grep -Fq 'ExecStart={{ vps_service_foundation_backup_bin }} --mode verify-latest' ansible/roles/vps_service_foundation/templates/nutsnews-restic-verify.service.j2
           grep -Fq 'Unit={{ vps_service_foundation_backup_verify_service }}' ansible/roles/vps_service_foundation/templates/nutsnews-restic-verify.timer.j2
           python3 ansible/tests/validate_observability_alloy.py
+          python3 ansible/tests/test_observability_textfile_exporter.py
+          python3 ansible/tests/test_observability_failure_drill.py
           python3 ansible/tests/validate_ops_collector_cache.py
           python3 ansible/tests/validate_backup_workflows.py
           python3 ansible/tests/validate_ops_portal_status_workflow.py

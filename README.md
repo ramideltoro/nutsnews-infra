@@ -78,6 +78,10 @@ The observability layer adds optional Grafana Alloy telemetry on the VPS and Ope
 
 ## Protected Manual Applies
 
+Configure and verify the exact-main branch policy and required reviewer gate in
+[runbooks/PRODUCTION_VPS_ENVIRONMENT_PROTECTION.md](runbooks/PRODUCTION_VPS_ENVIRONMENT_PROTECTION.md)
+before any workflow attaches the `production-vps` Environment.
+
 Use [runbooks/PROTECTED_ANSIBLE_APPLY.md](runbooks/PROTECTED_ANSIBLE_APPLY.md) before running the manual Ansible workflow. Root SSH was only for the initial bootstrap and is now break-glass only.
 
 Use [runbooks/VERCEL_VPS_ENV_SYNC.md](runbooks/VERCEL_VPS_ENV_SYNC.md) when synchronizing the reviewed Vercel Production environment variables to the VPS app.

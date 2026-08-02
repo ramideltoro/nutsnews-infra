@@ -15,7 +15,7 @@ Environment="NUTSNEWS_REPORTING_STATUS_FILE={{ vps_service_foundation_reporting_
 Environment="NUTSNEWS_ALERT_STATE_FILE={{ vps_service_foundation_alert_state_file }}"
 Environment="HOME=/tmp"
 Environment="XDG_CACHE_HOME=/tmp/cache"
-ExecStart={{ vps_service_foundation_reporter_bin }} --mode report
+ExecStart={{ vps_service_foundation_reporter_bin }} --mode report --fail-on-critical
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectHome=read-only

@@ -2,14 +2,23 @@
 Description=NutsNews observability textfile metrics exporter
 Documentation={{ vps_service_foundation_docs_base_url }}/blob/main/NUTSNEWS_GRAFANA_CLOUD_OBSERVABILITY.md
 After={{ vps_service_foundation_collector_service }}
-ConditionPathExists={{ vps_service_foundation_portal_status_file }}
 
 [Service]
 Type=oneshot
 User=root
 Group=root
+Environment="HOME=/tmp"
+Environment="DOCKER_CONFIG=/tmp/docker"
+Environment="DOCKER_HOST={{ vps_service_foundation_grafana_alloy_docker_socket }}"
+Environment="XDG_CACHE_HOME=/tmp/cache"
 Environment="NUTSNEWS_PORTAL_STATUS_FILE={{ vps_service_foundation_portal_status_file }}"
 Environment="NUTSNEWS_OBSERVABILITY_TEXTFILE={{ vps_service_foundation_grafana_alloy_textfile_dir }}/nutsnews.prom"
+Environment='NUTSNEWS_DOCKER_STATS_TARGETS={{ vps_service_foundation_observability_docker_stats_targets | to_json }}'
+Environment="NUTSNEWS_ALLOY_READY_URL={{ vps_service_foundation_grafana_alloy_ready_url }}"
+Environment="NUTSNEWS_CADDY_TLS_HOST={{ vps_service_foundation_observability_caddy_tls_host }}"
+Environment="NUTSNEWS_OBSERVABILITY_PROBE_TIMEOUT_SECONDS={{ vps_service_foundation_observability_probe_timeout_seconds }}"
+Environment="NUTSNEWS_PRODUCTION_READINESS_URL={{ vps_service_foundation_observability_production_readiness_url }}"
+Environment="NUTSNEWS_DEPLOYED_INFRA_COMMIT_FILE={{ vps_service_foundation_deployed_infra_commit_file }}"
 ExecStart={{ vps_service_foundation_observability_textfile_bin }}
 NoNewPrivileges=true
 PrivateTmp=true
@@ -21,7 +30,7 @@ ProtectControlGroups=true
 LockPersonality=true
 MemoryDenyWriteExecute=true
 SystemCallArchitectures=native
-RestrictAddressFamilies=AF_UNIX
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 ReadWritePaths={{ vps_service_foundation_grafana_alloy_textfile_dir }}
 
 [Install]

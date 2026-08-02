@@ -26,6 +26,7 @@ permissions:
 
 concurrency:
   group: nutsnews-staging-qualification-${{ github.event.workflow_run.id || inputs.staging_deploy_run_id }}
+  queue: max
   cancel-in-progress: false
 
 jobs:

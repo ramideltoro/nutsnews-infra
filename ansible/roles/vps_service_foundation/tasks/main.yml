@@ -1,3 +1,14 @@
+- name: Require explicit confirmation before disabling Grafana Alloy
+  ansible.builtin.assert:
+    that:
+      - vps_service_foundation_grafana_alloy_disable_confirmed | bool
+    fail_msg: >-
+      Grafana Alloy is production desired state. Set
+      vps_service_foundation_grafana_alloy_disable_confirmed=true only for
+      an explicitly reviewed observability shutdown.
+    success_msg: Grafana Alloy disable confirmation is explicit.
+  when: not (vps_service_foundation_grafana_alloy_enabled | bool)
+
 - name: Install service foundation packages
   ansible.builtin.apt:
     name: >-
@@ -216,6 +227,26 @@
         group: "{{ vps_service_foundation_backup_log_group }}"
         mode: "0640"
       loop: "{{ vps_service_foundation_backup_log_files.files }}"
+      loop_control:
+        label: "{{ item.path }}"
+
+    - name: Find existing Docker cleanup log files
+      ansible.builtin.find:
+        paths: "{{ vps_service_foundation_docker_cleanup_log_dir }}"
+        patterns:
+          - "*.log"
+          - "*.jsonl"
+        file_type: file
+      register: vps_service_foundation_docker_cleanup_log_files
+      changed_when: false
+
+    - name: Allow observability agent to read existing Docker cleanup logs
+      ansible.builtin.file:
+        path: "{{ item.path }}"
+        owner: root
+        group: "{{ vps_service_foundation_backup_log_group }}"
+        mode: "0640"
+      loop: "{{ vps_service_foundation_docker_cleanup_log_files.files }}"
       loop_control:
         label: "{{ item.path }}"
 
@@ -838,8 +869,32 @@
               - vps_service_foundation_grafana_alloy_logs_username | trim | length > 0
               - vps_service_foundation_grafana_alloy_access_policy_token | trim | length > 0
               - vps_service_foundation_grafana_alloy_scrape_interval is match('^[0-9]+(ms|s|m|h)$')
+              - vps_service_foundation_grafana_alloy_caddy_metrics_address is match('^127\\.0\\.0\\.1:[0-9]{2,5}$')
+              - vps_service_foundation_grafana_alloy_caddy_service_version is match('^[A-Za-z0-9][A-Za-z0-9._:-]{0,79}$')
+              - vps_service_foundation_grafana_alloy_service_version is match('^[A-Za-z0-9][A-Za-z0-9._:-]{0,79}$')
+              - vps_service_foundation_grafana_alloy_docker_socket is match('^unix:///var/run/docker\\.sock$')
+              - vps_service_foundation_grafana_alloy_journal_units is sequence
+              - vps_service_foundation_grafana_alloy_journal_units is not string
+              - vps_service_foundation_grafana_alloy_journal_units | length > 0
+              - vps_service_foundation_grafana_alloy_journal_units | length <= 64
+              - >-
+                vps_service_foundation_grafana_alloy_journal_units | unique | length
+                == vps_service_foundation_grafana_alloy_journal_units | length
+              - >-
+                vps_service_foundation_grafana_alloy_journal_units
+                | map('regex_replace', '[^A-Za-z0-9_]', '_')
+                | unique | length
+                == vps_service_foundation_grafana_alloy_journal_units | length
               - vps_service_foundation_grafana_alloy_docker_log_compose_projects is iterable
               - vps_service_foundation_grafana_alloy_docker_log_compose_projects | length > 0
+              - vps_service_foundation_observability_docker_stats_targets is sequence
+              - vps_service_foundation_observability_docker_stats_targets is not string
+              - vps_service_foundation_observability_docker_stats_targets | length == 2
+              - vps_service_foundation_observability_production_readiness_url == 'https://www.nutsnews.com/readyz'
+              - vps_service_foundation_deployed_infra_commit_file is match('^/opt/nutsnews/[A-Za-z0-9_./-]+$')
+              - vps_service_foundation_observability_probe_timeout_seconds | int >= 1
+              - vps_service_foundation_observability_probe_timeout_seconds | int <= 30
+              - vps_service_foundation_observability_caddy_tls_host is match('^[A-Za-z0-9][A-Za-z0-9.-]{0,252}[A-Za-z0-9]$')
               - >-
                 {{
                   (not (vps_service_foundation_grafana_alloy_collect_docker_logs | bool))
@@ -853,6 +908,36 @@
               protected apply.
             success_msg: Grafana Alloy telemetry inputs are complete.
           no_log: true
+
+        - name: Validate bounded observability Docker targets
+          ansible.builtin.assert:
+            that:
+              - item is mapping
+              - item.container | default('') is match('^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$')
+              - item.service | default('') is match('^[A-Za-z0-9][A-Za-z0-9_.-]{0,79}$')
+              - item.expected_active | default(none) is boolean
+            fail_msg: Observability Docker targets must have safe container, service, and boolean expected_active values.
+          loop: "{{ vps_service_foundation_observability_docker_stats_targets }}"
+
+        - name: Validate exact observability Docker target identities
+          ansible.builtin.assert:
+            that:
+              - >-
+                vps_service_foundation_observability_docker_stats_targets
+                | map(attribute='container') | list | sort
+                == ['nutsnews-app', 'nutsnews-caddy']
+              - >-
+                vps_service_foundation_observability_docker_stats_targets
+                | map(attribute='service') | list | sort
+                == ['caddy', 'web']
+            fail_msg: Observability Docker stats must stay bounded to the reviewed Caddy and web containers.
+
+        - name: Validate bounded Grafana Alloy journal units
+          ansible.builtin.assert:
+            that:
+              - item is match('^[A-Za-z0-9@_.:-]{1,120}\\.(service|timer)$')
+            fail_msg: Grafana Alloy journal units must be fixed systemd service or timer names.
+          loop: "{{ vps_service_foundation_grafana_alloy_journal_units }}"
 
         - name: Ensure Grafana apt key directory exists
           ansible.builtin.file:
@@ -950,6 +1035,22 @@
             group: root
             mode: "0755"
 
+        - name: Create NutsNews observability failure drill state directory
+          ansible.builtin.file:
+            path: "{{ vps_service_foundation_observability_failure_drill_state_dir }}"
+            owner: root
+            group: root
+            mode: "0700"
+            state: directory
+
+        - name: Install NutsNews bounded observability failure drill hook
+          ansible.builtin.copy:
+            src: observability_failure_drill.py
+            dest: "{{ vps_service_foundation_observability_failure_drill_bin }}"
+            owner: root
+            group: root
+            mode: "0750"
+
         - name: Install Grafana Alloy environment
           ansible.builtin.template:
             src: grafana-alloy.env.j2
@@ -1011,9 +1112,10 @@
           changed_when: false
 
         - name: Refresh NutsNews observability textfile metrics
-          ansible.builtin.command:
-            argv:
-              - "{{ vps_service_foundation_observability_textfile_bin }}"
+          ansible.builtin.systemd_service:
+            name: "{{ vps_service_foundation_observability_textfile_service }}"
+            state: started
+            daemon_reload: true
           changed_when: false
 
         - name: Enable NutsNews observability textfile timer
@@ -1626,6 +1728,16 @@
           changed_when: false
           when: vps_service_foundation_apply_metadata_enabled | bool
 
+        - name: Refresh production ownership telemetry after apply marker update
+          ansible.builtin.systemd_service:
+            name: "{{ vps_service_foundation_observability_textfile_service }}"
+            state: started
+            daemon_reload: true
+          changed_when: false
+          when:
+            - vps_service_foundation_apply_metadata_enabled | bool
+            - vps_service_foundation_grafana_alloy_enabled | bool
+
         - name: Verify selected NutsNews runtime environment state
           ansible.builtin.include_tasks: nutsnews_environment_apply_state.yml
           loop: "{{ vps_service_foundation_nutsnews_deployment_environments }}"
@@ -1647,6 +1759,31 @@
           until:
             - vps_service_foundation_healthcheck.status == 200
             - vps_service_foundation_healthcheck.content | trim == "ok"
+
+        - name: Validate private Caddy metrics endpoint
+          ansible.builtin.uri:
+            url: "http://{{ vps_service_foundation_grafana_alloy_caddy_metrics_address }}/metrics"
+            return_content: true
+            status_code: 200
+          register: vps_service_foundation_caddy_metrics_check
+          changed_when: false
+          retries: 6
+          delay: 5
+          until:
+            - vps_service_foundation_caddy_metrics_check.status == 200
+            - >-
+              vps_service_foundation_caddy_metrics_check.content
+              is search('(?m)^caddy_http_requests_total\\{')
+            - >-
+              vps_service_foundation_caddy_metrics_check.content
+              is search('(?m)^caddy_http_request_duration_seconds_(bucket|count)\\{')
+
+        - name: Refresh observability metrics after runtime readiness
+          ansible.builtin.systemd_service:
+            name: "{{ vps_service_foundation_observability_textfile_service }}"
+            state: started
+          changed_when: false
+          when: vps_service_foundation_grafana_alloy_enabled | bool
 
         - name: Wait for local infrastructure health endpoint
           ansible.builtin.uri:

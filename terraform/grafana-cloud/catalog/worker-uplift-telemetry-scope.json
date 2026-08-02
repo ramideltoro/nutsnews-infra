@@ -13,7 +13,9 @@
     "approvedIncrementalMonthlySpendUsd": 0,
     "paidTelemetryRequiresOwnerApproval": true,
     "quotaGuardrails": [0.7, 0.85, 0.95],
-    "guardrailSource": "Use the grafanacloud-usage datasource and divide grafanacloud_*_usage metrics by matching grafanacloud_*_limits metrics. Do not use committed free-plan constants for metrics, logs, traces, or exemplars guardrails."
+    "guardrailSource": "Use the grafanacloud-usage datasource. Active-series ratio is max(grafanacloud_instance_active_series / on(id) grafanacloud_instance_metrics_limits{limit_name=\"max_global_series_per_user\"}); alert separately when the numerator or denominator is missing. Do not use committed free-plan constants for metrics, logs, traces, or exemplars guardrails.",
+    "steadyStateActiveSeriesCeiling": 7000,
+    "syntheticApiExecutionCeilingMonthly": 90000
   },
   "signalMatrix": [
     {
@@ -93,11 +95,29 @@
     },
     {
       "telemetryClass": "profiles",
-      "decision": "forbidden",
+      "decision": "deferred",
       "destination": "none",
-      "pipeline": "No profiling signal is approved for worker uplift.",
+      "pipeline": "No profiling signal or Pyroscope credential is provisioned until a reviewed policy and quota assessment explicitly approves it.",
       "rollbackSwitches": [
         "Do not provision a profiles write endpoint or credential."
+      ]
+    },
+    {
+      "telemetryClass": "sentry_exceptions_and_replays",
+      "decision": "canonical-existing-provider",
+      "destination": "sentry",
+      "pipeline": "Keep scrubbed exception events and permitted replays in Sentry. Grafana correlates only bounded release/build identity and must not duplicate exception payloads.",
+      "rollbackSwitches": [
+        "Disable the affected Sentry client integration if scrubbing or consent controls regress."
+      ]
+    },
+    {
+      "telemetryClass": "faro_frontend_telemetry",
+      "decision": "deferred",
+      "destination": "none",
+      "pipeline": "Faro remains disabled unless consent, GPC, and DNT gates pass, query strings and identifiers are removed, session recording stays off, and free-tier headroom remains.",
+      "rollbackSwitches": [
+        "Disable Faro collection and retain Sentry as the canonical scrubbed application-error provider."
       ]
     },
     {
@@ -112,20 +132,52 @@
   ],
   "labels": {
     "allowedMetricLabels": [
-      "environment",
+      "service",
+      "stage",
+      "queue",
+      "outcome",
+      "dependency",
+      "language",
+      "provider",
+      "probe",
+      "check"
+    ],
+    "scrapeAndInfoIdentityLabels": [
+      "deployment_environment",
       "host",
       "service",
-      "version",
-      "queue",
-      "outcome"
+      "service_version",
+      "revision",
+      "deployment_mode",
+      "adapter_mode",
+      "expected_active"
     ],
     "allowedLokiStreamLabels": [
-      "environment",
+      "deployment_environment",
       "host",
       "service",
-      "version",
-      "queue",
-      "outcome"
+      "service_version",
+      "source",
+      "severity"
+    ],
+    "lifecycleOutcomes": [
+      "success",
+      "duplicate",
+      "invalid",
+      "retry",
+      "dlq",
+      "failure"
+    ],
+    "terminalSuccessOutcomes": [
+      "success",
+      "duplicate"
+    ],
+    "terminalDenominatorOutcomes": [
+      "success",
+      "duplicate",
+      "invalid",
+      "dlq",
+      "failure"
     ],
     "forbiddenMetricAndStreamLabelFragments": [
       "article",
@@ -147,12 +199,15 @@
       "model_output"
     ],
     "structuredLogFieldsOnly": [
+      "pipelineRunId",
       "correlationId",
       "causationId",
       "messageId",
       "idempotencyKey",
       "traceparent",
-      "tracestate"
+      "tracestate",
+      "articleId",
+      "feedId"
     ]
   },
   "redaction": {
@@ -308,7 +363,7 @@
     "estimateAssumptions": [
       "Every main, retry, and terminal DLQ is represented by the bounded queue label.",
       "Every service is represented by the bounded service label.",
-      "Outcome values are limited to success, retry, dlq, dropped, timeout, validation_error, dependency_error, and canceled.",
+      "Shared lifecycle outcome values are limited to success, duplicate, invalid, retry, dlq, and failure; retry is nonterminal and excluded from terminal-success denominators.",
       "Normal service logging target is 120 JSON lines per service-hour or lower; emergency burst cap is 600 lines per service-hour.",
       "Log lines larger than 8192 bytes are dropped or truncated before Loki write."
     ]

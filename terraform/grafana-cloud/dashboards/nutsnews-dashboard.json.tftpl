@@ -1,6 +1,27 @@
 {
   "annotations": {
-    "list": []
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(255, 96, 96, 1)",
+        "name": "NutsNews deployment events",
+        "target": {
+          "limit": 100,
+          "matchAny": false,
+          "tags": [
+            "nutsnews-deployment"
+          ],
+          "type": "tags"
+        },
+        "type": "dashboard"
+      }
+    ]
   },
   "description": "${description}",
   "editable": true,
@@ -170,6 +191,9 @@
         "skipUrlSync": false,
         "type": "custom"
       }
+%{ for variable in extra_variables ~}
+      ,${jsonencode(variable)}
+%{ endfor ~}
     ]
   },
   "time": {

@@ -44,6 +44,7 @@ for fragment in [
     "dispatch_vercel_release:",
     "environment: production-vps",
     "concurrency:",
+    "queue: max",
     "cancel-in-progress: false",
     "secrets.NUTSNEWS_VERCEL_TOKEN",
     "secrets.NUTSNEWS_VERCEL_PROJECT_ID",
@@ -66,6 +67,19 @@ for fragment in [
     "provider_switch_confirmation: process.env.PROVIDER_SWITCH_CONFIRMATION",
 ]:
     require(fragment in dispatch_step, f"Vercel release dispatch step missing provider payload guardrail: {fragment}")
+
+start_annotation_step = workflow_step("Publish database provider change start annotation")
+require(
+    "if: inputs.operation == 'apply'" in start_annotation_step
+    and "dispatch_vercel_release" not in start_annotation_step,
+    "Provider start annotations must cover every applied provider mutation.",
+)
+final_annotation_step = workflow_step("Publish final database provider change outcome")
+require(
+    "always() && inputs.operation == 'apply'" in final_annotation_step
+    and "dispatch_vercel_release" not in final_annotation_step,
+    "Provider outcome annotations must cover every applied provider mutation.",
+)
 
 for fragment in [
     "backend_postgres_primary",

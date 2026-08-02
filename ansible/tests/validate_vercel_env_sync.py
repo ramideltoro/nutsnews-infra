@@ -27,7 +27,12 @@ mapping = sync.load_mapping(MAPPING_PATH)
 require('sync_vercel_production:' in WORKFLOW, "Protected workflow must expose the Vercel sync input.")
 require('default: "true"' in WORKFLOW, "Vercel Production sync must be the default operation.")
 require("environment: production-vps" in WORKFLOW, "Vercel sync must remain behind the production-vps Environment.")
-require("concurrency:" in WORKFLOW and "cancel-in-progress: false" in WORKFLOW, "Sync runs must be serialized.")
+require(
+    "concurrency:" in WORKFLOW
+    and "queue: max" in WORKFLOW
+    and "cancel-in-progress: false" in WORKFLOW,
+    "Sync runs must be serialized without replacing a pending run.",
+)
 require("--check --diff" in WORKFLOW or "args+=(--check --diff)" in WORKFLOW, "Check mode must use Ansible check and diff mode.")
 require("--report-output" in WORKFLOW and "--report" in WORKFLOW, "Sync must retain a classification report without values.")
 require("sudo -n python3 - fingerprint" in WORKFLOW, "VPS comparison must be read-only and name/hash-only.")

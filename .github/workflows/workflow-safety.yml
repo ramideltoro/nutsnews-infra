@@ -39,6 +39,18 @@ jobs:
         shell: bash
         run: .tools/actionlint/actionlint -color
 
+      - name: Validate concurrency queue semantics
+        shell: bash
+        run: |
+          python3 ansible/tests/validate_workflow_concurrency.py --self-test
+          python3 ansible/tests/validate_workflow_concurrency.py
+
+      - name: Validate production-vps environment protection gates
+        shell: bash
+        run: |
+          PYTHONDONTWRITEBYTECODE=1 python3 ansible/tests/test_production_vps_environment_policy.py
+          PYTHONDONTWRITEBYTECODE=1 python3 ansible/tests/validate_production_vps_environment_policy.py
+
   security-scan:
     name: Security scan
     runs-on: ubuntu-latest
@@ -115,6 +127,10 @@ jobs:
       - name: Validate protected VPS maintenance workflow guardrails
         shell: bash
         run: python3 ansible/tests/validate_vps_maintenance_workflow.py
+
+      - name: Validate protected Grafana failure-drill guardrails
+        shell: bash
+        run: python3 ansible/tests/validate_grafana_failure_drill.py
 
       - name: Validate Ops Portal status verifier guardrails
         shell: bash

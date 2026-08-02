@@ -4,11 +4,11 @@
     "uid": "nutsnews-backend-ops"
   },
   "guardrails": {
-    "max_dashboards": 13,
-    "max_panels_per_dashboard": 12,
-    "max_total_panels": 80,
+    "max_dashboards": 15,
+    "max_panels_per_dashboard": 13,
+    "max_total_panels": 125,
     "max_unique_queries": 130,
-    "max_alert_rules": 12
+    "max_alert_rules": 19
   },
   "alert_group": {
     "name": "NutsNews Backend Guardrails",
@@ -44,8 +44,17 @@
       "uid": "nutsnews-backend-caddy-edge",
       "panels": [
         {"title": "Caddy Active", "unit": "short", "expr": "nutsnews_backend_service_active{job=\"nutsnews-backend-host\",unit=\"caddy\"}"},
-        {"title": "Public Endpoint Healthy", "unit": "short", "expr": "nutsnews_backend_public_endpoint_healthy{job=\"nutsnews-backend-host\"}"},
-        {"title": "HTTP/HTTPS Listeners", "unit": "short", "expr": "node_netstat_Tcp_CurrEstab{job=\"nutsnews-backend-host\"}"},
+        {"title": "Public Readiness", "type": "stat", "unit": "short", "description": "PostgreSQL-aware /readyz state with deployment identity validation.", "expr": "nutsnews_backend_public_endpoint_ready{job=\"nutsnews-backend-host\"}"},
+        {"title": "Terminal Request Rate", "unit": "reqps", "description": "Requests counted only at Caddy's terminal reverse_proxy handler, avoiding per-handler double counting.", "expr": "sum(rate(caddy_http_requests_total{job=\"nutsnews-backend-caddy\",handler=\"reverse_proxy\"}[5m]))"},
+        {"title": "4xx Ratio", "unit": "percentunit", "description": "Client-error ratio; absent when there were no requests, because zero traffic is not 0% errors.", "expr": "(sum(rate(caddy_http_request_duration_seconds_count{job=\"nutsnews-backend-caddy\",handler=\"reverse_proxy\",code=~\"4..\"}[5m])) / sum(rate(caddy_http_request_duration_seconds_count{job=\"nutsnews-backend-caddy\",handler=\"reverse_proxy\"}[5m]))) and on() (sum(rate(caddy_http_request_duration_seconds_count{job=\"nutsnews-backend-caddy\",handler=\"reverse_proxy\"}[5m])) > 0)"},
+        {"title": "429 Ratio", "unit": "percentunit", "description": "Rate-limit response ratio at the terminal reverse proxy.", "expr": "(sum(rate(caddy_http_request_duration_seconds_count{job=\"nutsnews-backend-caddy\",handler=\"reverse_proxy\",code=\"429\"}[5m])) / sum(rate(caddy_http_request_duration_seconds_count{job=\"nutsnews-backend-caddy\",handler=\"reverse_proxy\"}[5m]))) and on() (sum(rate(caddy_http_request_duration_seconds_count{job=\"nutsnews-backend-caddy\",handler=\"reverse_proxy\"}[5m])) > 0)"},
+        {"title": "5xx Ratio", "unit": "percentunit", "description": "Server-error ratio at the terminal reverse proxy.", "expr": "(sum(rate(caddy_http_request_duration_seconds_count{job=\"nutsnews-backend-caddy\",handler=\"reverse_proxy\",code=~\"5..\"}[5m])) / sum(rate(caddy_http_request_duration_seconds_count{job=\"nutsnews-backend-caddy\",handler=\"reverse_proxy\"}[5m]))) and on() (sum(rate(caddy_http_request_duration_seconds_count{job=\"nutsnews-backend-caddy\",handler=\"reverse_proxy\"}[5m])) > 0)"},
+        {"title": "Caddy p95 Latency", "unit": "s", "expr": "histogram_quantile(0.95, sum by (le) (rate(caddy_http_request_duration_seconds_bucket{job=\"nutsnews-backend-caddy\",handler=\"reverse_proxy\"}[5m])))"},
+        {"title": "Caddy p99 Latency", "unit": "s", "expr": "histogram_quantile(0.99, sum by (le) (rate(caddy_http_request_duration_seconds_bucket{job=\"nutsnews-backend-caddy\",handler=\"reverse_proxy\"}[5m])))"},
+        {"title": "Upstream And Middleware Error Rate", "unit": "ops", "description": "Errors reported inside Caddy's terminal reverse-proxy handler; inspect alongside the terminal 5xx ratio because middleware or upstream failures can be recovered before the final response. A source-backed zero is derived only while Caddy is up and its terminal request counter is present.", "mappings": [{"type": "value", "options": {"0": {"text": "No upstream or middleware errors"}}}], "expr": "(sum(rate(caddy_http_request_errors_total{job=\"nutsnews-backend-caddy\",handler=\"reverse_proxy\"}[5m])) or on() (0 * sum(rate(caddy_http_request_duration_seconds_count{job=\"nutsnews-backend-caddy\",handler=\"reverse_proxy\"}[5m])))) and on() (max(up{job=\"nutsnews-backend-caddy\"}) == 1)"},
+        {"title": "Upstream Health", "type": "stat", "unit": "short", "description": "Caddy active-health state when a safe reverse_proxy health_uri is configured. The current backend has no active health check, so global absence is rendered as an explicit disabled state; use Caddy Active for scrape/process health.", "noValue": "Unavailable — Caddy upstream-health configuration state cannot be determined", "mappings": [{"type": "value", "options": {"-1": {"text": "Disabled by configuration — no active health_uri"}, "0": {"text": "Unhealthy"}, "1": {"text": "Healthy"}}}], "expr": "min by (upstream) (caddy_reverse_proxy_upstreams_healthy{job=\"nutsnews-backend-caddy\"}) or on() label_replace(vector(-1), \"upstream\", \"disabled_by_configuration\", \"\", \"\")"},
+        {"title": "External Readiness Probe", "type": "stat", "unit": "short", "expr": "min(probe_success{job=\"nutsnews-backend-caddy-tls\",probe=\"tls\",check=\"certificate\"})"},
+        {"title": "TLS Certificate Time Remaining", "unit": "s", "expr": "min(probe_ssl_earliest_cert_expiry{job=\"nutsnews-backend-caddy-tls\",probe=\"tls\",check=\"certificate\"}) - time()"},
         {"title": "Failed Units", "unit": "short", "expr": "nutsnews_backend_failed_systemd_units{job=\"nutsnews-backend-host\"}"}
       ]
     },
@@ -56,7 +65,15 @@
         {"title": "Core Service Active", "unit": "short", "expr": "nutsnews_backend_service_active{job=\"nutsnews-backend-host\",unit=~\"ssh|ufw|fail2ban|caddy|alloy|sysstat\"}"},
         {"title": "NutsNews Timers Active", "unit": "short", "expr": "nutsnews_backend_service_active{job=\"nutsnews-backend-host\",unit=~\"nutsnews-.+timer\"}"},
         {"title": "Systemd Active State", "unit": "short", "expr": "node_systemd_unit_state{job=\"nutsnews-backend-host\",name=~\"ssh.service|ufw.service|fail2ban.service|caddy.service|alloy.service|sysstat.service|nutsnews-.+\",state=\"active\"}"},
-        {"title": "Host Up", "unit": "short", "expr": "up{job=\"nutsnews-backend-host\"}"}
+        {"title": "Host Up", "unit": "short", "expr": "up{job=\"nutsnews-backend-host\"}"},
+        {"title": "Compatibility API Up", "type": "stat", "unit": "short", "expr": "nutsnews_backend_api_up{job=\"nutsnews-backend-api\"}"},
+        {"title": "API PostgreSQL Readiness", "type": "stat", "unit": "short", "expr": "nutsnews_backend_api_dependency_ready{job=\"nutsnews-backend-api\",dependency=\"postgresql\"}"},
+        {"title": "API Request Rate", "unit": "reqps", "expr": "sum by (operation, method) (rate(nutsnews_backend_api_requests_total{job=\"nutsnews-backend-api\"}[5m]))"},
+        {"title": "API Error Ratio", "unit": "percentunit", "description": "Errors divided by all requests; absent when no requests occurred.", "expr": "(sum(rate(nutsnews_backend_api_request_errors_total{job=\"nutsnews-backend-api\"}[5m])) / sum(rate(nutsnews_backend_api_requests_total{job=\"nutsnews-backend-api\"}[5m]))) and on() (sum(rate(nutsnews_backend_api_requests_total{job=\"nutsnews-backend-api\"}[5m])) > 0)"},
+        {"title": "API p95 Latency", "unit": "s", "expr": "histogram_quantile(0.95, sum by (le, operation) (rate(nutsnews_backend_api_request_duration_seconds_bucket{job=\"nutsnews-backend-api\"}[5m])))"},
+        {"title": "API p99 Latency", "unit": "s", "expr": "histogram_quantile(0.99, sum by (le, operation) (rate(nutsnews_backend_api_request_duration_seconds_bucket{job=\"nutsnews-backend-api\"}[5m])))"},
+        {"title": "API Write Mode", "type": "stat", "unit": "short", "expr": "nutsnews_backend_api_write_mode{job=\"nutsnews-backend-api\"}"},
+        {"title": "API Build Identity", "type": "stat", "unit": "short", "expr": "nutsnews_backend_api_build_info{job=\"nutsnews-backend-api\"}"}
       ]
     },
     {
@@ -65,6 +82,7 @@
       "panels": [
         {"title": "Backup Stage Healthy", "unit": "short", "expr": "nutsnews_backend_backup_stage_healthy{job=\"nutsnews-backend-host\"}"},
         {"title": "Latest Snapshot Verified", "unit": "short", "expr": "nutsnews_backend_backup_latest_snapshot_verified{job=\"nutsnews-backend-host\"}"},
+        {"title": "Last Successfully Verified Backup Age", "unit": "s", "description": "Age of the newest successfully verified backend backup against the standardized 30-hour freshness objective.", "noValue": "Unavailable — successfully verified backend backup telemetry is missing", "expr": "nutsnews_backend_backup_last_success_age_seconds{job=\"nutsnews-backend-host\"} and on() (max(nutsnews_backend_backup_last_success_age_seconds{job=\"nutsnews-backend-host\"}) >= 0) and on() (max(nutsnews_backend_backup_status_available{job=\"nutsnews-backend-host\"}) == 1)"},
         {"title": "Backup Storage Quota Configured", "unit": "short", "expr": "nutsnews_backend_backup_storage_quota_configured{job=\"nutsnews-backend-host\"}"},
         {"title": "Backup Timers Active", "unit": "short", "expr": "nutsnews_backend_service_active{job=\"nutsnews-backend-host\",unit=~\"nutsnews-backup.*timer|nutsnews-restore-drill.timer\"}"}
       ]
@@ -78,7 +96,35 @@
         {"title": "PostgreSQL Service Active", "unit": "short", "expr": "nutsnews_backend_service_active{job=\"nutsnews-backend-host\",unit=\"postgresql\"}"},
         {"title": "Failover Restore Ready", "unit": "short", "expr": "nutsnews_backend_postgres_failover_ready{job=\"nutsnews-backend-host\"}"},
         {"title": "Restore Drill Healthy", "unit": "short", "expr": "nutsnews_backend_postgres_restore_drill_healthy{job=\"nutsnews-backend-host\"}"},
-        {"title": "Replication Lag Configured", "unit": "short", "expr": "nutsnews_backend_postgres_replication_lag_configured{job=\"nutsnews-backend-host\"}"}
+        {"title": "Replication Lag Configured", "unit": "short", "expr": "nutsnews_backend_postgres_replication_lag_configured{job=\"nutsnews-backend-host\"}"},
+        {"title": "Sync Relay Available", "type": "stat", "unit": "short", "mappings": [{"type": "value", "options": {"-1": {"text": "Disabled by configuration"}, "0": {"text": "Unavailable"}, "1": {"text": "Available"}}}], "expr": "(nutsnews_backend_sync_relay_available{job=\"nutsnews-backend-host\"} and on() max(nutsnews_backend_sync_relay_status{job=\"nutsnews-backend-host\",status!=\"not_configured\"})) or (-1 * max(nutsnews_backend_sync_relay_status{job=\"nutsnews-backend-host\",status=\"not_configured\"}))"},
+        {"title": "Sync Relay Configuration State", "type": "stat", "unit": "short", "description": "Explicit one-hot pass, fail, not_configured, or unknown state; not_configured is a deliberate disabled state rather than No data.", "expr": "nutsnews_backend_sync_relay_status{job=\"nutsnews-backend-host\"}"},
+        {"title": "Sync Relay Collector Fresh", "type": "stat", "unit": "short", "mappings": [{"type": "value", "options": {"-1": {"text": "Disabled by configuration"}, "0": {"text": "Stale"}, "1": {"text": "Fresh"}}}], "expr": "(nutsnews_backend_sync_relay_collector_fresh{job=\"nutsnews-backend-host\"} and on() max(nutsnews_backend_sync_relay_status{job=\"nutsnews-backend-host\",status!=\"not_configured\"})) or (-1 * max(nutsnews_backend_sync_relay_status{job=\"nutsnews-backend-host\",status=\"not_configured\"}))"},
+        {"title": "Sync Relay Healthy", "type": "stat", "unit": "short", "mappings": [{"type": "value", "options": {"-1": {"text": "Disabled by configuration"}, "0": {"text": "Unhealthy"}, "1": {"text": "Healthy"}}}], "expr": "(nutsnews_backend_sync_relay_healthy{job=\"nutsnews-backend-host\"} and on() max(nutsnews_backend_sync_relay_status{job=\"nutsnews-backend-host\",status!=\"not_configured\"})) or (-1 * max(nutsnews_backend_sync_relay_status{job=\"nutsnews-backend-host\",status=\"not_configured\"}))"},
+        {"title": "Sync Relay Real Lag", "unit": "s", "mappings": [{"type": "value", "options": {"-1": {"text": "Disabled by configuration"}}}], "expr": "(nutsnews_backend_sync_relay_lag_seconds{job=\"nutsnews-backend-host\"} and on() (nutsnews_backend_sync_relay_lag_seconds{job=\"nutsnews-backend-host\"} >= 0) and on() max(nutsnews_backend_sync_relay_status{job=\"nutsnews-backend-host\",status!=\"not_configured\"})) or (-1 * max(nutsnews_backend_sync_relay_status{job=\"nutsnews-backend-host\",status=\"not_configured\"}))"},
+        {"title": "Sync Relay Failed Tables", "type": "stat", "unit": "short", "mappings": [{"type": "value", "options": {"-1": {"text": "Disabled by configuration"}}}], "expr": "(nutsnews_backend_sync_relay_failed_table_count{job=\"nutsnews-backend-host\"} and on() (nutsnews_backend_sync_relay_failed_table_count{job=\"nutsnews-backend-host\"} >= 0) and on() max(nutsnews_backend_sync_relay_status{job=\"nutsnews-backend-host\",status!=\"not_configured\"})) or (-1 * max(nutsnews_backend_sync_relay_status{job=\"nutsnews-backend-host\",status=\"not_configured\"}))"},
+        {"title": "Sync Relay Last Success Age", "unit": "s", "mappings": [{"type": "value", "options": {"-1": {"text": "Disabled by configuration"}}}], "expr": "(nutsnews_backend_sync_relay_last_success_age_seconds{job=\"nutsnews-backend-host\"} and on() (nutsnews_backend_sync_relay_last_success_age_seconds{job=\"nutsnews-backend-host\"} >= 0) and on() max(nutsnews_backend_sync_relay_status{job=\"nutsnews-backend-host\",status!=\"not_configured\"})) or (-1 * max(nutsnews_backend_sync_relay_status{job=\"nutsnews-backend-host\",status=\"not_configured\"}))"}
+      ]
+    },
+    {
+      "title": "NutsNews Backend PostgreSQL Operations",
+      "uid": "nutsnews-backend-postgres-operations",
+      "description": "PostgreSQL exporter coverage for availability, connections, transactions, locks, cache, checkpoints, vacuum, storage, WAL, and replication.",
+      "importExisting": false,
+      "missingRemoteObjectReason": "New source-controlled PostgreSQL operations dashboard for the Grafana Cloud observability enhancement.",
+      "panels": [
+        {"title": "PostgreSQL Exporter Up", "type": "stat", "unit": "short", "expr": "pg_up{job=\"nutsnews-backend-postgres\"}"},
+        {"title": "Connections By Database", "unit": "short", "expr": "sum by (datname) (pg_stat_database_numbackends{job=\"nutsnews-backend-postgres\"})"},
+        {"title": "Transactions", "unit": "ops", "description": "Combined commit and rollback transaction rate by database.", "expr": "sum by (datname) (rate(pg_stat_database_xact_commit{job=\"nutsnews-backend-postgres\"}[5m])) + sum by (datname) (rate(pg_stat_database_xact_rollback{job=\"nutsnews-backend-postgres\"}[5m]))"},
+        {"title": "Locks By Mode", "unit": "short", "expr": "sum by (datname, mode) (pg_locks_count{job=\"nutsnews-backend-postgres\"})"},
+        {"title": "Deadlocks", "unit": "ops", "expr": "sum by (datname) (rate(pg_stat_database_deadlocks{job=\"nutsnews-backend-postgres\"}[5m]))"},
+        {"title": "Cache Hit Ratio", "unit": "percentunit", "description": "Block hits divided by hits plus reads; absent when the database reported no block activity.", "expr": "(sum by (datname) (rate(pg_stat_database_blks_hit{job=\"nutsnews-backend-postgres\"}[5m])) / (sum by (datname) (rate(pg_stat_database_blks_hit{job=\"nutsnews-backend-postgres\"}[5m])) + sum by (datname) (rate(pg_stat_database_blks_read{job=\"nutsnews-backend-postgres\"}[5m])))) and on(datname) ((sum by (datname) (rate(pg_stat_database_blks_hit{job=\"nutsnews-backend-postgres\"}[5m])) + sum by (datname) (rate(pg_stat_database_blks_read{job=\"nutsnews-backend-postgres\"}[5m]))) > 0)"},
+        {"title": "Checkpoints And Buffers", "unit": "ops", "description": "Version-compatible scheduled-checkpoint rate plus the independently emitted buffer-allocation rate from postgres_exporter counter families.", "expr": "(sum(rate(pg_stat_bgwriter_checkpoints_timed_total{job=\"nutsnews-backend-postgres\"}[5m])) or sum(rate(pg_stat_checkpointer_num_timed_total{job=\"nutsnews-backend-postgres\"}[5m]))) + sum(rate(pg_stat_bgwriter_buffers_alloc_total{job=\"nutsnews-backend-postgres\"}[5m]))"},
+        {"title": "Dead Tuples Awaiting Vacuum", "unit": "short", "expr": "sum by (schemaname, relname) (pg_stat_user_tables_n_dead_tup{job=\"nutsnews-backend-postgres\"})"},
+        {"title": "Autovacuum Activity", "type": "table", "unit": "short", "description": "Active autovacuum start timestamps and the emitted total, scanned, and vacuumed heap-block gauges. The -1 sentinel means PostgreSQL is queryable but no vacuum is active; exporter or database loss remains unavailable.", "noValue": "Unavailable — PostgreSQL exporter or database telemetry is missing", "mappings": [{"type": "value", "options": {"-1": {"text": "Idle — no autovacuum or manual vacuum is active"}}}], "expr": "(pg_stat_activity_autovacuum_timestamp_seconds{job=\"nutsnews-backend-postgres\"} or pg_stat_progress_vacuum_heap_blks{job=\"nutsnews-backend-postgres\"} or pg_stat_progress_vacuum_heap_blks_scanned{job=\"nutsnews-backend-postgres\"} or pg_stat_progress_vacuum_heap_blks_vacuumed{job=\"nutsnews-backend-postgres\"}) or on() label_replace(((0 * (max(pg_up{job=\"nutsnews-backend-postgres\"}) == 1)) - 1), \"activity\", \"idle\", \"\", \"\")"},
+        {"title": "Database Storage", "unit": "bytes", "expr": "sum by (datname) (pg_database_size_bytes{job=\"nutsnews-backend-postgres\"})"},
+        {"title": "WAL Growth", "unit": "Bps", "description": "Positive fifteen-minute slope of the current pg_wal directory size gauge; segment recycling decreases are clamped to zero.", "expr": "clamp_min(deriv(pg_wal_size_bytes{job=\"nutsnews-backend-postgres\"}[15m]), 0)"},
+        {"title": "Replication State And Lag", "type": "table", "unit": "short", "description": "Server replication lag in seconds plus emitted physical/logical slot activity and retained-WAL byte families. A host-owned -1 sentinel explicitly identifies a standalone primary with replication monitoring disabled; configured-but-missing exporter families remain unavailable.", "noValue": "Unavailable — configured replication collector telemetry is missing", "mappings": [{"type": "value", "options": {"-1": {"text": "Disabled by configuration — standalone primary has no replication target"}}}], "expr": "((pg_replication_lag_seconds{job=\"nutsnews-backend-postgres\"} or pg_replication_slots_active{job=\"nutsnews-backend-postgres\"} or pg_replication_slots_slot_is_active{job=\"nutsnews-backend-postgres\"} or pg_replication_slots_pg_wal_lsn_diff{job=\"nutsnews-backend-postgres\"}) and on() (max(nutsnews_backend_postgres_replication_lag_configured{job=\"nutsnews-backend-host\"}) == 1)) or on() label_replace(((0 * (max(nutsnews_backend_postgres_replication_lag_configured{job=\"nutsnews-backend-host\"}) == 0)) - 1), \"replication_state\", \"disabled_by_configuration\", \"\", \"\")"}
       ]
     },
     {
@@ -97,8 +143,8 @@
       "panels": [
         {"title": "Series Count By Metric", "unit": "short", "expr": "topk(20, count by (__name__) ({job=\"nutsnews-backend-host\"}))"},
         {"title": "Unique Metric Names", "unit": "short", "expr": "count(count by (__name__) ({job=\"nutsnews-backend-host\"}))"},
-        {"title": "Alloy Remote Write Pending Samples", "unit": "short", "expr": "prometheus_remote_storage_samples_pending{job=\"nutsnews-backend-host\"}"},
-        {"title": "Alloy Remote Write Failed Samples", "unit": "short", "expr": "increase(prometheus_remote_storage_samples_failed_total{job=\"nutsnews-backend-host\"}[1h])"}
+        {"title": "Alloy Remote Write Pending Samples", "unit": "short", "expr": "prometheus_remote_storage_samples_pending{job=\"nutsnews-backend-alloy\",instance=\"backend.nutsnews.com\"}"},
+        {"title": "Alloy Remote Write Failed Samples", "unit": "short", "expr": "increase(prometheus_remote_storage_samples_failed_total{job=\"nutsnews-backend-alloy\",instance=\"backend.nutsnews.com\"}[1h])"}
       ]
     },
     {
@@ -106,9 +152,15 @@
       "uid": "nutsnews-backend-alert-synthetic",
       "panels": [
         {"title": "Grafana Alert State", "unit": "short", "expr": "ALERTS{alertname=~\"NutsNews.*\"}"},
-        {"title": "Synthetic Probe Success", "unit": "short", "expr": "probe_success{job=~\".*nutsnews.*|.*backend.*\"}"},
-        {"title": "Synthetic Probe Duration", "unit": "s", "expr": "probe_duration_seconds{job=~\".*nutsnews.*|.*backend.*\"}"},
-        {"title": "Missing Backend Metrics", "unit": "short", "expr": "absent(up{job=\"nutsnews-backend-host\"})"}
+        {"title": "Synthetic Probe Success", "unit": "short", "expr": "probe_success * on(job, instance, probe, config_version) group_left() sm_check_info{label_service_namespace=\"nutsnews\",label_deployment_environment=\"production\"}"},
+        {"title": "Synthetic Probe Duration", "unit": "s", "expr": "probe_duration_seconds * on(job, instance, probe, config_version) group_left() sm_check_info{label_service_namespace=\"nutsnews\",label_deployment_environment=\"production\"}"},
+        {"title": "Missing Or Down Backend Metrics", "unit": "short", "noValue": "Healthy — required backend host metrics are present", "expr": "(1 - min(up{job=\"nutsnews-backend-host\",instance=\"backend.nutsnews.com\",service_namespace=\"nutsnews\",service=\"host\",environment=\"production\",deployment_environment=\"production\",host=\"backend.nutsnews.com\"})) or max(absent(up{job=\"nutsnews-backend-host\",instance=\"backend.nutsnews.com\",service_namespace=\"nutsnews\",service=\"host\",environment=\"production\",deployment_environment=\"production\",host=\"backend.nutsnews.com\"})) or vector(0)"},
+        {"title": "Health Audit Available", "type": "stat", "unit": "short", "description": "Whether the latest durable scheduled health-audit state was readable by the host exporter.", "noValue": "Unavailable — scheduled health-audit state telemetry is missing", "expr": "max(nutsnews_backend_health_audit_available{job=\"nutsnews-backend-host\",deployment_environment=~\"$environment\",host=~\"$host\"})"},
+        {"title": "Health Audit Conclusion", "type": "stat", "unit": "short", "description": "Latest bounded scheduled health-audit workflow conclusion.", "noValue": "Unavailable — scheduled health-audit conclusion is missing", "expr": "max by (conclusion) (nutsnews_backend_health_audit_conclusion{job=\"nutsnews-backend-host\",deployment_environment=~\"$environment\",host=~\"$host\"})"},
+        {"title": "Health Audit Last Run Age", "type": "stat", "unit": "s", "description": "Age of the latest scheduled health-audit run; the alert threshold is standardized at 30 hours.", "noValue": "Unavailable — scheduled health-audit run time is unknown", "expr": "max(nutsnews_backend_health_audit_last_run_age_seconds{job=\"nutsnews-backend-host\",deployment_environment=~\"$environment\",host=~\"$host\"})"},
+        {"title": "Health Audit Last Success Age", "type": "stat", "unit": "s", "description": "Age of the most recent successful scheduled health audit.", "noValue": "Unavailable — scheduled health-audit success time is unknown", "expr": "max(nutsnews_backend_health_audit_last_success_age_seconds{job=\"nutsnews-backend-host\",deployment_environment=~\"$environment\",host=~\"$host\"})"},
+        {"title": "Health Audit Consecutive Failures", "type": "stat", "unit": "short", "description": "Number of consecutive non-successful scheduled health-audit conclusions.", "noValue": "Unavailable — scheduled health-audit failure history is unknown", "expr": "max(nutsnews_backend_health_audit_consecutive_failures{job=\"nutsnews-backend-host\",deployment_environment=~\"$environment\",host=~\"$host\"})"},
+        {"title": "Health Audit Critical Checks", "type": "stat", "unit": "short", "description": "Count of critical checks reported by the latest scheduled health audit.", "noValue": "Unavailable — scheduled health-audit critical-check state is unknown", "expr": "max(nutsnews_backend_health_audit_critical_checks{job=\"nutsnews-backend-host\",deployment_environment=~\"$environment\",host=~\"$host\"})"}
       ]
     },
     {
@@ -116,13 +168,78 @@
       "uid": "nutsnews-backend-logs",
       "panels": [
         {"title": "Recent Systemd Journal Logs", "datasource": "loki", "type": "logs", "expr": "{host=\"backend.nutsnews.com\",source=\"journal\"}"},
-        {"title": "Log Volume By Service", "datasource": "loki", "unit": "short", "expr": "sum by (service) (count_over_time({host=\"backend.nutsnews.com\"}[15m]))"},
-        {"title": "Warnings And Errors", "datasource": "loki", "type": "logs", "expr": "{host=\"backend.nutsnews.com\",severity=~\"warning|error|crit|alert|emerg\"}"},
+        {"title": "Log Volume By Service", "datasource": "loki", "unit": "short", "expr": "sum by (service) (count_over_time({host=\"backend.nutsnews.com\"}[15m])) or vector(0)"},
+        {"title": "Warnings And Errors", "datasource": "loki", "type": "logs", "expr": "{host=\"backend.nutsnews.com\",severity=~\"warn|warning|error|fatal|crit|alert|emerg\"}"},
         {"title": "Security Logs", "datasource": "loki", "type": "logs", "expr": "{host=\"backend.nutsnews.com\",service=\"security\"}"},
-        {"title": "SSH Auth Failure Volume", "datasource": "loki", "unit": "short", "expr": "sum(count_over_time({host=\"backend.nutsnews.com\",service=\"security\"} |~ \"(?i)(failed password|invalid user|authentication failure|maximum authentication attempts)\" [15m]))"},
-        {"title": "Fail2ban Ban Events", "datasource": "loki", "unit": "short", "expr": "sum(count_over_time({host=\"backend.nutsnews.com\",service=\"security\"} |~ \"(?i)(notice.*\\bban\\b|sshd.*\\bban\\b)\" [15m]))"},
+        {"title": "SSH Auth Failure Volume", "datasource": "loki", "unit": "short", "expr": "sum(count_over_time({host=\"backend.nutsnews.com\",service=\"security\"} |~ \"(?i)(failed password|invalid user|authentication failure|maximum authentication attempts)\" [15m])) or vector(0)"},
+        {"title": "Fail2ban Ban Events", "datasource": "loki", "unit": "short", "expr": "sum(count_over_time({host=\"backend.nutsnews.com\",service=\"security\"} |~ \"(?i)(notice.*\\bban\\b|sshd.*\\bban\\b)\" [15m])) or vector(0)"},
         {"title": "Backup And Timer Logs", "datasource": "loki", "type": "logs", "expr": "{host=\"backend.nutsnews.com\",service=~\"backup|timer\"}"},
-        {"title": "Log Volume By Source", "datasource": "loki", "unit": "short", "expr": "sum by (source) (count_over_time({host=\"backend.nutsnews.com\"}[15m]))"}
+        {"title": "Log Volume By Source", "datasource": "loki", "unit": "short", "expr": "sum by (source) (count_over_time({host=\"backend.nutsnews.com\"}[15m])) or vector(0)"}
+      ]
+    },
+    {
+      "title": "NutsNews Worker Pipeline Run Drilldown",
+      "uid": "nutsnews-worker-pipeline-run-drilldown",
+      "description": "Cross-service worker event rate, structured identifier fields, and log timeline filtered by one exact pipeline, correlation, or W3C trace-context value. No Tempo or indexed identifier labels are used.",
+      "importExisting": false,
+      "missingRemoteObjectReason": "New source-controlled Loki correlation dashboard for the Grafana Cloud observability enhancement.",
+      "variables": [
+        {
+          "name": "identifier_value",
+          "label": "Pipeline, correlation, or traceparent value",
+          "type": "textbox",
+          "query": "__enter_id__",
+          "current": {
+            "selected": true,
+            "text": "__enter_id__",
+            "value": "__enter_id__"
+          },
+          "hide": 0,
+          "options": [],
+          "skipUrlSync": false
+        }
+      ],
+      "panels": [
+        {
+          "title": "Matched Events By Service And Outcome",
+          "datasource": "loki",
+          "type": "timeseries",
+          "unit": "short",
+          "width": 12,
+          "height": 8,
+          "description": "Event volume for one exact high-cardinality identifier, parsed only at query time and reduced to bounded service/outcome dimensions.",
+          "noValue": "Enter an identifier value or no matching events exist in the selected time range",
+          "expr": "sum by (service, outcome) (count_over_time({deployment_environment=~\"$environment\",host=~\"$host\",source=\"container\",service=~\"$service\"} | json | pipelineRunId=~\"^${identifier_value:regex}$\" or pipeline_run_id=~\"^${identifier_value:regex}$\" or correlationId=~\"^${identifier_value:regex}$\" or correlation_id=~\"^${identifier_value:regex}$\" or traceparent=~\"^${identifier_value:regex}$\" | keep service, outcome [$__interval]))"
+        },
+        {
+          "title": "Structured Identifier Fields",
+          "datasource": "loki",
+          "type": "table",
+          "unit": "short",
+          "width": 12,
+          "height": 8,
+          "description": "Query-time JSON fields with per-value links back to this bounded drilldown. Camel-case runtime fields and snake-case service aliases are both supported.",
+          "noValue": "Enter an identifier value or no matching identifier fields exist in the selected time range",
+          "expr": "{deployment_environment=~\"$environment\",host=~\"$host\",source=\"container\",service=~\"$service\"} | json | pipelineRunId=~\"^${identifier_value:regex}$\" or pipeline_run_id=~\"^${identifier_value:regex}$\" or correlationId=~\"^${identifier_value:regex}$\" or correlation_id=~\"^${identifier_value:regex}$\" or traceparent=~\"^${identifier_value:regex}$\" | keep service, severity, outcome, pipelineRunId, pipeline_run_id, correlationId, correlation_id, traceparent",
+          "fieldOverrides": [
+            {"matcher": {"id": "byName", "options": "pipelineRunId"}, "properties": [{"id": "links", "value": [{"title": "Open this pipelineRunId", "url": "/d/nutsnews-worker-pipeline-run-drilldown?${__url_time_range}&${environment:queryparam}&${host:queryparam}&${service:queryparam}&var-identifier_value=${__value.raw}"}]}]},
+            {"matcher": {"id": "byName", "options": "pipeline_run_id"}, "properties": [{"id": "links", "value": [{"title": "Open this pipeline_run_id", "url": "/d/nutsnews-worker-pipeline-run-drilldown?${__url_time_range}&${environment:queryparam}&${host:queryparam}&${service:queryparam}&var-identifier_value=${__value.raw}"}]}]},
+            {"matcher": {"id": "byName", "options": "correlationId"}, "properties": [{"id": "links", "value": [{"title": "Open this correlationId", "url": "/d/nutsnews-worker-pipeline-run-drilldown?${__url_time_range}&${environment:queryparam}&${host:queryparam}&${service:queryparam}&var-identifier_value=${__value.raw}"}]}]},
+            {"matcher": {"id": "byName", "options": "correlation_id"}, "properties": [{"id": "links", "value": [{"title": "Open this correlation_id", "url": "/d/nutsnews-worker-pipeline-run-drilldown?${__url_time_range}&${environment:queryparam}&${host:queryparam}&${service:queryparam}&var-identifier_value=${__value.raw}"}]}]},
+            {"matcher": {"id": "byName", "options": "traceparent"}, "properties": [{"id": "links", "value": [{"title": "Search this traceparent (logs only)", "url": "/d/nutsnews-worker-pipeline-run-drilldown?${__url_time_range}&${environment:queryparam}&${host:queryparam}&${service:queryparam}&var-identifier_value=${__value.raw}"}]}]}
+          ]
+        },
+        {
+          "title": "Cross-Service Pipeline Log Timeline",
+          "datasource": "loki",
+          "type": "logs",
+          "unit": "short",
+          "width": 12,
+          "height": 8,
+          "description": "Raw structured worker logs matching the selected pipeline-run, correlation, or W3C trace-context identifier; no Tempo lookup is performed.",
+          "noValue": "Enter an identifier value or no matching events exist in the selected time range",
+          "expr": "{deployment_environment=~\"$environment\",host=~\"$host\",source=\"container\",service=~\"$service\"} | json | pipelineRunId=~\"^${identifier_value:regex}$\" or pipeline_run_id=~\"^${identifier_value:regex}$\" or correlationId=~\"^${identifier_value:regex}$\" or correlation_id=~\"^${identifier_value:regex}$\" or traceparent=~\"^${identifier_value:regex}$\""
+        }
       ]
     },
     {
@@ -136,14 +253,14 @@
         {"title": "Queue Metrics Scrape Up", "type": "stat", "unit": "short", "description": "Detailed queue scrape health for the declared worker-uplift queues.", "expr": "max(up{job=\"nutsnews-rabbitmq-queues\",environment=~\"$environment\",host=~\"$host\"})"},
         {"title": "Ready Messages Total", "type": "stat", "unit": "short", "description": "Ready backlog across selected worker-uplift queues.", "expr": "sum(rabbitmq_detailed_queue_messages_ready{job=\"nutsnews-rabbitmq-queues\",environment=~\"$environment\",host=~\"$host\",vhost=~\"$vhost\",queue=~\"$queue\"})"},
         {"title": "Unacked Messages Total", "type": "stat", "unit": "short", "description": "In-flight messages that have been delivered but not acknowledged.", "expr": "sum(rabbitmq_detailed_queue_messages_unacked{job=\"nutsnews-rabbitmq-queues\",environment=~\"$environment\",host=~\"$host\",vhost=~\"$vhost\",queue=~\"$queue\"})"},
-        {"title": "Ingress Publish Rate", "unit": "ops", "description": "Aggregate RabbitMQ publish rate when the broker exposes publish counters.", "expr": "sum(rate(rabbitmq_queue_messages_published_total{job=\"nutsnews-rabbitmq\",environment=~\"$environment\",host=~\"$host\"}[$__rate_interval]))"},
+        {"title": "Ingress Publish Rate", "unit": "ops", "description": "Aggregate RabbitMQ publish rate from the required broker exporter.", "expr": "sum(rate(rabbitmq_queue_messages_published_total{job=\"nutsnews-rabbitmq\",environment=~\"$environment\",host=~\"$host\"}[$__rate_interval]))"},
         {"title": "Egress Ack Rate", "unit": "ops", "description": "Acknowledgement throughput across selected worker-uplift queues.", "expr": "sum(rate(rabbitmq_detailed_queue_messages_acked_total{job=\"nutsnews-rabbitmq-queues\",environment=~\"$environment\",host=~\"$host\",vhost=~\"$vhost\",queue=~\"$queue\"}[$__rate_interval]))"},
         {"title": "Redelivery Rate", "unit": "ops", "description": "Message redelivery rate across selected worker-uplift queues.", "expr": "sum(rate(rabbitmq_detailed_queue_messages_redelivered_total{job=\"nutsnews-rabbitmq-queues\",environment=~\"$environment\",host=~\"$host\",vhost=~\"$vhost\",queue=~\"$queue\"}[$__rate_interval]))"},
-        {"title": "DLQ Ready Messages", "type": "stat", "unit": "short", "description": "Ready messages parked in terminal worker-uplift DLQs.", "expr": "sum(rabbitmq_detailed_queue_messages_ready{job=\"nutsnews-rabbitmq-queues\",environment=~\"$environment\",host=~\"$host\",vhost=~\"$vhost\",queue=~\".*\\.dlq$\"})"},
-        {"title": "Stage Ack Throughput", "unit": "ops", "description": "Acknowledgement throughput grouped by selected main-stage queue.", "expr": "sum by (queue) (rate(rabbitmq_detailed_queue_messages_acked_total{job=\"nutsnews-rabbitmq-queues\",environment=~\"$environment\",host=~\"$host\",vhost=~\"$vhost\",queue=~\"nutsnews\\.worker\\.($stage)\\.v1\"}[$__rate_interval]))"},
-        {"title": "Queue Metric Freshness", "type": "stat", "unit": "s", "description": "Age of the newest detailed queue metric sample; worker-owned oldest-content age metrics are expected later.", "expr": "max(time() - timestamp(rabbitmq_detailed_queue_messages{job=\"nutsnews-rabbitmq-queues\",environment=~\"$environment\",host=~\"$host\",vhost=~\"$vhost\",queue=~\"$queue\"}))"},
-        {"title": "Broker Alarms", "type": "stat", "unit": "short", "description": "RabbitMQ memory, disk, and general alarm signals when exposed by the broker exporter.", "expr": "max(rabbitmq_alarms{job=\"nutsnews-rabbitmq\",environment=~\"$environment\",host=~\"$host\"} or rabbitmq_alarms_memory_used_watermark{job=\"nutsnews-rabbitmq\",environment=~\"$environment\",host=~\"$host\"} or rabbitmq_alarms_free_disk_space_watermark{job=\"nutsnews-rabbitmq\",environment=~\"$environment\",host=~\"$host\"})"},
-        {"title": "Alloy Remote Write Pending Samples", "type": "stat", "unit": "short", "description": "Backend Alloy remote-write backlog; sustained nonzero values can mean telemetry is not leaving the host.", "expr": "max(prometheus_remote_storage_samples_pending{job=\"nutsnews-backend-host\",instance=~\"$host\"})"}
+        {"title": "DLQ Ready Messages", "type": "stat", "unit": "short", "description": "Ready messages parked in terminal worker-uplift DLQs.", "expr": "sum(rabbitmq_detailed_queue_messages_ready{job=\"nutsnews-rabbitmq-queues\",environment=~\"$environment\",host=~\"$host\",vhost=~\"$vhost\",queue=~\".*\\\\.dlq$\"})"},
+        {"title": "Stage Ack Throughput", "unit": "ops", "description": "Acknowledgement throughput grouped by selected main-stage queue.", "expr": "sum by (queue) (rate(rabbitmq_detailed_queue_messages_acked_total{job=\"nutsnews-rabbitmq-queues\",environment=~\"$environment\",host=~\"$host\",vhost=~\"$vhost\",queue=~\"nutsnews\\\\.worker\\\\.($stage)\\\\.v1\"}[$__rate_interval]))"},
+        {"title": "Queue Metric Freshness", "type": "stat", "unit": "s", "description": "Age of the newest detailed metric sample for the selected bounded queue set.", "expr": "max(time() - timestamp(rabbitmq_detailed_queue_messages{job=\"nutsnews-rabbitmq-queues\",environment=~\"$environment\",host=~\"$host\",vhost=~\"$vhost\",queue=~\"$queue\"}))"},
+        {"title": "Broker Alarms", "type": "stat", "unit": "short", "description": "RabbitMQ memory, disk, and general alarm state from the required broker exporter.", "expr": "max(rabbitmq_alarms{job=\"nutsnews-rabbitmq\",environment=~\"$environment\",host=~\"$host\"} or rabbitmq_alarms_memory_used_watermark{job=\"nutsnews-rabbitmq\",environment=~\"$environment\",host=~\"$host\"} or rabbitmq_alarms_free_disk_space_watermark{job=\"nutsnews-rabbitmq\",environment=~\"$environment\",host=~\"$host\"})"},
+        {"title": "Alloy Remote Write Pending Samples", "type": "stat", "unit": "short", "description": "Backend Alloy remote-write backlog; sustained nonzero values can mean telemetry is not leaving the host.", "expr": "max(prometheus_remote_storage_samples_pending{job=\"nutsnews-backend-alloy\",instance=~\"$host\"})"}
       ]
     },
     {
@@ -153,7 +270,7 @@
       "importExisting": false,
       "missingRemoteObjectReason": "New source-controlled dashboard for ramideltoro/nutsnews-worker#89; OpenTofu creates it after the #141 Grafana ownership handoff.",
       "panels": [
-        {"title": "Selected Queue Depth", "unit": "short", "description": "Total messages in every selected queue.", "expr": "sum by (queue) (rabbitmq_detailed_queue_messages{job=\"nutsnews-rabbitmq-queues\",environment=~\"$environment\",host=~\"$host\",vhost=~\"$vhost\",queue=~\"$queue\"})", "links": [{"title": "Filtered queue logs", "targetBlank": false, "url": "/explore?left=%7B%22datasource%22%3A%22%24%24%7Bloki_datasource_uid%7D%22%2C%22queries%22%3A%5B%7B%22refId%22%3A%22A%22%2C%22datasource%22%3A%7B%22type%22%3A%22loki%22%2C%22uid%22%3A%22%24%24%7Bloki_datasource_uid%7D%22%7D%2C%22expr%22%3A%22%7Bhost%3D~%5C%22%24host%5C%22%2Csource%3D%5C%22container%5C%22%2Cqueue%3D~%5C%22%24queue%5C%22%7D%22%2C%22queryType%22%3A%22range%22%7D%5D%2C%22range%22%3A%7B%22from%22%3A%22now-6h%22%2C%22to%22%3A%22now%22%7D%7D"}]},
+        {"title": "Selected Queue Depth", "unit": "short", "description": "Total messages in every selected queue.", "expr": "sum by (queue) (rabbitmq_detailed_queue_messages{job=\"nutsnews-rabbitmq-queues\",environment=~\"$environment\",host=~\"$host\",vhost=~\"$vhost\",queue=~\"$queue\"})"},
         {"title": "Ready By Queue", "unit": "short", "description": "Messages ready for delivery by selected queue.", "expr": "sum by (queue) (rabbitmq_detailed_queue_messages_ready{job=\"nutsnews-rabbitmq-queues\",environment=~\"$environment\",host=~\"$host\",vhost=~\"$vhost\",queue=~\"$queue\"})"},
         {"title": "Unacked By Queue", "unit": "short", "description": "Delivered but unacknowledged messages by selected queue.", "expr": "sum by (queue) (rabbitmq_detailed_queue_messages_unacked{job=\"nutsnews-rabbitmq-queues\",environment=~\"$environment\",host=~\"$host\",vhost=~\"$vhost\",queue=~\"$queue\"})"},
         {"title": "Consumer Count By Queue", "unit": "short", "description": "Consumer count by selected queue.", "expr": "sum by (queue) (rabbitmq_detailed_queue_consumers{job=\"nutsnews-rabbitmq-queues\",environment=~\"$environment\",host=~\"$host\",vhost=~\"$vhost\",queue=~\"$queue\"})"},
@@ -161,9 +278,9 @@
         {"title": "Consumer Capacity By Queue", "unit": "percentunit", "description": "RabbitMQ consumer capacity by selected queue.", "expr": "avg by (queue) (rabbitmq_detailed_queue_consumer_capacity{job=\"nutsnews-rabbitmq-queues\",environment=~\"$environment\",host=~\"$host\",vhost=~\"$vhost\",queue=~\"$queue\"})"},
         {"title": "Deliver Rate By Queue", "unit": "ops", "description": "Delivered message rate by selected queue.", "expr": "sum by (queue) (rate(rabbitmq_detailed_queue_messages_delivered_total{job=\"nutsnews-rabbitmq-queues\",environment=~\"$environment\",host=~\"$host\",vhost=~\"$vhost\",queue=~\"$queue\"}[$__rate_interval]))"},
         {"title": "Ack Rate By Queue", "unit": "ops", "description": "Acknowledgement rate by selected queue.", "expr": "sum by (queue) (rate(rabbitmq_detailed_queue_messages_acked_total{job=\"nutsnews-rabbitmq-queues\",environment=~\"$environment\",host=~\"$host\",vhost=~\"$vhost\",queue=~\"$queue\"}[$__rate_interval]))"},
-        {"title": "Retry Queue Depth", "unit": "short", "description": "Backlog in selected retry queues.", "expr": "sum by (queue) (rabbitmq_detailed_queue_messages_ready{job=\"nutsnews-rabbitmq-queues\",environment=~\"$environment\",host=~\"$host\",vhost=~\"$vhost\",queue=~\".*\\.retry-(30s|5m|30m)$\"})"},
-        {"title": "DLQ Queue Depth", "unit": "short", "description": "Backlog in selected terminal DLQs.", "expr": "sum by (queue) (rabbitmq_detailed_queue_messages_ready{job=\"nutsnews-rabbitmq-queues\",environment=~\"$environment\",host=~\"$host\",vhost=~\"$vhost\",queue=~\".*\\.dlq$\"})"},
-        {"title": "Worker Service Versions And Logs", "datasource": "loki", "type": "logs", "description": "Structured worker-uplift logs filtered by selected host, service, and queue; worker services can be empty until deployment.", "expr": "{host=~\"$host\",source=\"container\",service=~\"$service\",queue=~\"$queue\"}"}
+        {"title": "Retry Queue Depth", "unit": "short", "description": "Backlog in selected retry queues.", "expr": "sum by (queue) (rabbitmq_detailed_queue_messages_ready{job=\"nutsnews-rabbitmq-queues\",environment=~\"$environment\",host=~\"$host\",vhost=~\"$vhost\",queue=~\".*\\\\.retry-(30s|5m|30m)$\"})"},
+        {"title": "DLQ Queue Depth", "unit": "short", "description": "Backlog in selected terminal DLQs.", "expr": "sum by (queue) (rabbitmq_detailed_queue_messages_ready{job=\"nutsnews-rabbitmq-queues\",environment=~\"$environment\",host=~\"$host\",vhost=~\"$vhost\",queue=~\".*\\\\.dlq$\"})"},
+        {"title": "Worker Service Versions And Logs", "datasource": "loki", "type": "logs", "description": "Structured worker-uplift logs filtered by selected host, service, and queue. Queue is structured metadata, never an indexed Loki label.", "noValue": "No matching worker log events in the selected time range", "expr": "{deployment_environment=~\"$environment\",host=~\"$host\",source=\"container\",service=~\"$service\"} | queue=~\"$queue\"", "links": [{"title": "Pipeline-run drilldown", "targetBlank": false, "url": "/d/nutsnews-worker-pipeline-run-drilldown?${__url_time_range}&${environment:queryparam}&${host:queryparam}&${service:queryparam}"}]}
       ]
     },
     {
@@ -177,9 +294,9 @@
         {"title": "RabbitMQ Channels", "unit": "short", "description": "Open RabbitMQ channels.", "expr": "sum(rabbitmq_channels{job=\"nutsnews-rabbitmq\",environment=~\"$environment\",host=~\"$host\"})"},
         {"title": "RabbitMQ Consumers", "unit": "short", "description": "Total RabbitMQ consumers.", "expr": "sum(rabbitmq_consumers{job=\"nutsnews-rabbitmq\",environment=~\"$environment\",host=~\"$host\"})"},
         {"title": "RabbitMQ Queue Count", "unit": "short", "description": "Queue count visible from the aggregate RabbitMQ exporter.", "expr": "sum(rabbitmq_queues{job=\"nutsnews-rabbitmq\",environment=~\"$environment\",host=~\"$host\"})"},
-        {"title": "RabbitMQ Memory Used", "unit": "bytes", "description": "RabbitMQ process or node memory used when exposed by the exporter.", "expr": "max(rabbitmq_process_resident_memory_bytes{job=\"nutsnews-rabbitmq\",environment=~\"$environment\",host=~\"$host\"} or rabbitmq_node_mem_used{job=\"nutsnews-rabbitmq\",environment=~\"$environment\",host=~\"$host\"})"},
-        {"title": "RabbitMQ Disk Free", "unit": "bytes", "description": "RabbitMQ free disk signal when exposed by the exporter.", "expr": "min(rabbitmq_node_disk_free{job=\"nutsnews-rabbitmq\",environment=~\"$environment\",host=~\"$host\"} or rabbitmq_disk_space_available_bytes{job=\"nutsnews-rabbitmq\",environment=~\"$environment\",host=~\"$host\"})"},
-        {"title": "RabbitMQ File Descriptor Usage", "unit": "percentunit", "description": "RabbitMQ file descriptor usage ratio when open/max file descriptor gauges are exposed.", "expr": "max(rabbitmq_process_open_fds{job=\"nutsnews-rabbitmq\",environment=~\"$environment\",host=~\"$host\"} / rabbitmq_process_max_fds{job=\"nutsnews-rabbitmq\",environment=~\"$environment\",host=~\"$host\"})"},
+        {"title": "RabbitMQ Memory Used", "unit": "bytes", "description": "RabbitMQ process or node memory from the required broker exporter.", "expr": "max(rabbitmq_process_resident_memory_bytes{job=\"nutsnews-rabbitmq\",environment=~\"$environment\",host=~\"$host\"} or rabbitmq_node_mem_used{job=\"nutsnews-rabbitmq\",environment=~\"$environment\",host=~\"$host\"})"},
+        {"title": "RabbitMQ Disk Free", "unit": "bytes", "description": "RabbitMQ free-disk state from the required broker exporter.", "expr": "min(rabbitmq_node_disk_free{job=\"nutsnews-rabbitmq\",environment=~\"$environment\",host=~\"$host\"} or rabbitmq_disk_space_available_bytes{job=\"nutsnews-rabbitmq\",environment=~\"$environment\",host=~\"$host\"})"},
+        {"title": "RabbitMQ File Descriptor Usage", "unit": "percentunit", "description": "RabbitMQ open-to-maximum file descriptor ratio from the required broker exporter.", "expr": "max(rabbitmq_process_open_fds{job=\"nutsnews-rabbitmq\",environment=~\"$environment\",host=~\"$host\"} / rabbitmq_process_max_fds{job=\"nutsnews-rabbitmq\",environment=~\"$environment\",host=~\"$host\"})"},
         {"title": "RabbitMQ Resource Logs", "datasource": "loki", "type": "logs", "description": "RabbitMQ logs filtered for resource, connection, channel, and alarm terms.", "expr": "{host=~\"$host\",source=\"container\",service=\"rabbitmq\"} |~ \"(?i)(memory|disk|alarm|connection|channel|file descriptor)\""}
       ]
     }
@@ -190,26 +307,26 @@
       "title": "NutsNews backend host metrics missing",
       "severity": "critical",
       "service": "alloy",
-      "expr": "absent(up{job=\"nutsnews-backend-host\"})",
+      "expr": "(1 - min(up{job=\"nutsnews-backend-host\",instance=\"backend.nutsnews.com\",service_namespace=\"nutsnews\",service=\"host\",environment=\"production\",deployment_environment=\"production\",host=\"backend.nutsnews.com\"})) or max(absent(up{job=\"nutsnews-backend-host\",instance=\"backend.nutsnews.com\",service_namespace=\"nutsnews\",service=\"host\",environment=\"production\",deployment_environment=\"production\",host=\"backend.nutsnews.com\"})) or vector(0)",
       "threshold": 0,
       "evaluator": "gt",
       "for": "5m",
       "range_seconds": 600,
-      "no_data_state": "OK",
-      "summary": "Grafana Cloud is not receiving backend host metrics from Alloy."
+      "no_data_state": "Alerting",
+      "summary": "Grafana Cloud reports the exact backend host scrape down or missing from Alloy."
     },
     {
       "uid": "nn-backend-endpoint-unhealthy",
-      "title": "NutsNews backend public endpoint unhealthy",
+      "title": "NutsNews backend public readiness failed",
       "severity": "critical",
       "service": "caddy",
-      "expr": "min_over_time(nutsnews_backend_public_endpoint_healthy{job=\"nutsnews-backend-host\"}[5m])",
+      "expr": "(min(min_over_time(nutsnews_backend_public_endpoint_ready{job=\"nutsnews-backend-host\"}[5m])) * (1 - (max(nutsnews_observability_failure_drill_active{job=\"nutsnews-backend-host\",instance=\"backend.nutsnews.com\",service_namespace=\"nutsnews\",service=\"host\",environment=\"production\",deployment_environment=\"production\",host=\"backend.nutsnews.com\",drill=\"backend-readiness-failed\"}) or vector(0)))) or ((1 - (max(nutsnews_observability_failure_drill_active{job=\"nutsnews-backend-host\",instance=\"backend.nutsnews.com\",service_namespace=\"nutsnews\",service=\"host\",environment=\"production\",deployment_environment=\"production\",host=\"backend.nutsnews.com\",drill=\"backend-readiness-failed\"}) or vector(0))) == 0)",
       "threshold": 1,
       "evaluator": "lt",
       "for": "5m",
       "range_seconds": 600,
       "no_data_state": "OK",
-      "summary": "The backend /healthz endpoint is failing from the host probe."
+      "summary": "The PostgreSQL-aware backend /readyz endpoint is failing from the host probe."
     },
     {
       "uid": "nn-backend-failed-units",
@@ -333,6 +450,135 @@
       "range_seconds": 3600,
       "no_data_state": "OK",
       "summary": "Backend log volume is above the free-tier guardrail threshold."
+    },
+    {
+      "uid": "nn-backend-health-audit-repeated",
+      "title": "NutsNews backend health audit repeatedly failing",
+      "severity": "major",
+      "service": "health-audit",
+      "expr": "max(nutsnews_backend_health_audit_consecutive_failures{job=\"nutsnews-backend-host\",deployment_environment=\"production\",host=\"backend.nutsnews.com\"}) and on() (max(nutsnews_backend_health_audit_available{job=\"nutsnews-backend-host\",deployment_environment=\"production\",host=\"backend.nutsnews.com\"}) == 1)",
+      "threshold": 1,
+      "evaluator": "gt",
+      "for": "5m",
+      "range_seconds": 900,
+      "no_data_state": "OK",
+      "summary": "The scheduled backend health audit has failed at least twice consecutively.",
+      "description": "Inspect the latest health-audit artifact and critical-check count before the next production change.",
+      "dashboard_url": "/d/nutsnews-backend-alert-synthetic"
+    },
+    {
+      "uid": "nn-backend-health-audit-missed",
+      "title": "NutsNews backend health audit missed schedule",
+      "severity": "major",
+      "service": "health-audit",
+      "expr": "((max(nutsnews_backend_health_audit_last_run_age_seconds{job=\"nutsnews-backend-host\",deployment_environment=\"production\",host=\"backend.nutsnews.com\"}) > bool 108000) or vector(0)) + ((max(nutsnews_backend_health_audit_last_run_age_seconds{job=\"nutsnews-backend-host\",deployment_environment=\"production\",host=\"backend.nutsnews.com\"}) < bool 0) or vector(0)) + ((1 - max(nutsnews_backend_health_audit_available{job=\"nutsnews-backend-host\",deployment_environment=\"production\",host=\"backend.nutsnews.com\"})) or max(absent(nutsnews_backend_health_audit_available{job=\"nutsnews-backend-host\",deployment_environment=\"production\",host=\"backend.nutsnews.com\"})) or vector(0))",
+      "threshold": 0,
+      "evaluator": "gt",
+      "for": "15m",
+      "range_seconds": 14400,
+      "no_data_state": "Alerting",
+      "summary": "The scheduled backend health audit has not published a valid run within 30 hours.",
+      "description": "Check the workflow schedule, artifact publication, and host textfile exporter path.",
+      "dashboard_url": "/d/nutsnews-backend-alert-synthetic"
+    },
+    {
+      "uid": "nn-backend-api-not-ready",
+      "title": "NutsNews backend compatibility API not ready",
+      "severity": "critical",
+      "service": "backend-api",
+      "expr": "(min(nutsnews_backend_api_up{job=\"nutsnews-backend-api\"} * on() nutsnews_backend_api_dependency_ready{job=\"nutsnews-backend-api\",dependency=\"postgresql\"}) * (1 - (max(nutsnews_observability_failure_drill_active{job=\"nutsnews-backend-host\",instance=\"backend.nutsnews.com\",service_namespace=\"nutsnews\",service=\"host\",environment=\"production\",deployment_environment=\"production\",host=\"backend.nutsnews.com\",drill=\"backend-readiness-failed\"}) or vector(0)))) or ((1 - (max(nutsnews_observability_failure_drill_active{job=\"nutsnews-backend-host\",instance=\"backend.nutsnews.com\",service_namespace=\"nutsnews\",service=\"host\",environment=\"production\",deployment_environment=\"production\",host=\"backend.nutsnews.com\",drill=\"backend-readiness-failed\"}) or vector(0))) == 0)",
+      "threshold": 1,
+      "evaluator": "lt",
+      "for": "5m",
+      "range_seconds": 900,
+      "no_data_state": "Alerting",
+      "summary": "The compatibility API process or its PostgreSQL readiness dependency is unhealthy.",
+      "dashboard_url": "/d/nutsnews-backend-service-health"
+    },
+    {
+      "uid": "nn-backend-postgres-exporter-down",
+      "title": "NutsNews backend PostgreSQL exporter down",
+      "severity": "critical",
+      "service": "postgresql",
+      "expr": "min(pg_up{job=\"nutsnews-backend-postgres\"})",
+      "threshold": 1,
+      "evaluator": "lt",
+      "for": "5m",
+      "range_seconds": 900,
+      "no_data_state": "Alerting",
+      "summary": "The PostgreSQL exporter cannot scrape the production backend database.",
+      "dashboard_url": "/d/nutsnews-backend-postgres-operations"
+    },
+    {
+      "uid": "nn-backend-sync-relay-contract",
+      "title": "NutsNews backend sync relay telemetry contract broken",
+      "severity": "major",
+      "service": "sync-relay",
+      "expr": "abs(1 - (count(nutsnews_backend_sync_relay_status{job=\"nutsnews-backend-host\",instance=\"backend.nutsnews.com\",service_namespace=\"nutsnews\",service=\"host\",environment=\"production\",deployment_environment=\"production\",host=\"backend.nutsnews.com\"}) or vector(0))) + abs(1 - (sum(nutsnews_backend_sync_relay_status{job=\"nutsnews-backend-host\",instance=\"backend.nutsnews.com\",service_namespace=\"nutsnews\",service=\"host\",environment=\"production\",deployment_environment=\"production\",host=\"backend.nutsnews.com\"}) or vector(0))) + ((max(nutsnews_backend_sync_relay_status{job=\"nutsnews-backend-host\",instance=\"backend.nutsnews.com\",service_namespace=\"nutsnews\",service=\"host\",environment=\"production\",deployment_environment=\"production\",host=\"backend.nutsnews.com\",status!=\"not_configured\"}) or vector(0)) * (abs(6 - (count({__name__=~\"nutsnews_backend_sync_relay_(available|collector_fresh|healthy|lag_seconds|failed_table_count|last_success_age_seconds)\",job=\"nutsnews-backend-host\",instance=\"backend.nutsnews.com\",service_namespace=\"nutsnews\",service=\"host\",environment=\"production\",deployment_environment=\"production\",host=\"backend.nutsnews.com\"}) or vector(0))) + abs(6 - (count(count by (__name__) ({__name__=~\"nutsnews_backend_sync_relay_(available|collector_fresh|healthy|lag_seconds|failed_table_count|last_success_age_seconds)\",job=\"nutsnews-backend-host\",instance=\"backend.nutsnews.com\",service_namespace=\"nutsnews\",service=\"host\",environment=\"production\",deployment_environment=\"production\",host=\"backend.nutsnews.com\"})) or vector(0))) + (sum({__name__=~\"nutsnews_backend_sync_relay_(available|collector_fresh|healthy)\",job=\"nutsnews-backend-host\",instance=\"backend.nutsnews.com\",service_namespace=\"nutsnews\",service=\"host\",environment=\"production\",deployment_environment=\"production\",host=\"backend.nutsnews.com\"} < bool 0) or vector(0)) + (sum({__name__=~\"nutsnews_backend_sync_relay_(available|collector_fresh|healthy)\",job=\"nutsnews-backend-host\",instance=\"backend.nutsnews.com\",service_namespace=\"nutsnews\",service=\"host\",environment=\"production\",deployment_environment=\"production\",host=\"backend.nutsnews.com\"} > bool 1) or vector(0)) + (sum({__name__=~\"nutsnews_backend_sync_relay_(lag_seconds|failed_table_count|last_success_age_seconds)\",job=\"nutsnews-backend-host\",instance=\"backend.nutsnews.com\",service_namespace=\"nutsnews\",service=\"host\",environment=\"production\",deployment_environment=\"production\",host=\"backend.nutsnews.com\"} < bool 0) or vector(0))))",
+      "threshold": 0,
+      "evaluator": "gt",
+      "for": "10m",
+      "range_seconds": 900,
+      "no_data_state": "Alerting",
+      "summary": "The sync-relay status or a configured-mode metric family is missing, duplicated, or invalid.",
+      "description": "A disabled relay remains explicit through status=not_configured. Any configured relay must continuously emit one available, freshness, health, lag, failed-table, and last-success-age series.",
+      "dashboard_url": "/d/nutsnews-backend-postgres-failover"
+    },
+    {
+      "uid": "nn-backend-sync-relay-unhealthy",
+      "title": "NutsNews backend sync relay unhealthy",
+      "severity": "major",
+      "service": "sync-relay",
+      "expr": "min((nutsnews_backend_sync_relay_available{job=\"nutsnews-backend-host\"} * nutsnews_backend_sync_relay_collector_fresh{job=\"nutsnews-backend-host\"} * nutsnews_backend_sync_relay_healthy{job=\"nutsnews-backend-host\"}) and on() max(nutsnews_backend_sync_relay_status{job=\"nutsnews-backend-host\",status!=\"not_configured\"}))",
+      "threshold": 1,
+      "evaluator": "lt",
+      "for": "10m",
+      "range_seconds": 1800,
+      "no_data_state": "OK",
+      "summary": "The configured PostgreSQL sync relay is unavailable, stale, or unhealthy.",
+      "dashboard_url": "/d/nutsnews-backend-postgres-failover"
+    },
+    {
+      "uid": "nn-backend-sync-relay-lag",
+      "title": "NutsNews backend sync relay lag high",
+      "severity": "major",
+      "service": "sync-relay",
+      "expr": "((max(nutsnews_backend_sync_relay_lag_seconds{job=\"nutsnews-backend-host\"}) and on() (max(nutsnews_backend_sync_relay_lag_seconds{job=\"nutsnews-backend-host\"}) >= 0) and on() max(nutsnews_backend_sync_relay_status{job=\"nutsnews-backend-host\",status!=\"not_configured\"})) or vector(0)) + ((max(nutsnews_observability_failure_drill_active{job=\"nutsnews-backend-host\",instance=\"backend.nutsnews.com\",service_namespace=\"nutsnews\",service=\"host\",environment=\"production\",deployment_environment=\"production\",host=\"backend.nutsnews.com\",drill=\"postgres-relay-lag\"}) or vector(0)) * 301)",
+      "threshold": 300,
+      "evaluator": "gt",
+      "for": "10m",
+      "range_seconds": 1800,
+      "no_data_state": "OK",
+      "summary": "The configured PostgreSQL sync relay is more than five minutes behind.",
+      "dashboard_url": "/d/nutsnews-backend-postgres-failover"
+    },
+    {
+      "uid": "nn-backend-sync-relay-failed-tables",
+      "title": "NutsNews backend sync relay has failed tables",
+      "severity": "critical",
+      "service": "sync-relay",
+      "expr": "max(nutsnews_backend_sync_relay_failed_table_count{job=\"nutsnews-backend-host\"}) and on() (max(nutsnews_backend_sync_relay_failed_table_count{job=\"nutsnews-backend-host\"}) >= 0) and on() max(nutsnews_backend_sync_relay_status{job=\"nutsnews-backend-host\",status!=\"not_configured\"})",
+      "threshold": 0,
+      "evaluator": "gt",
+      "for": "5m",
+      "range_seconds": 900,
+      "no_data_state": "OK",
+      "summary": "One or more required tables failed in the configured PostgreSQL sync relay.",
+      "dashboard_url": "/d/nutsnews-backend-postgres-failover"
+    },
+    {
+      "uid": "nn-backend-tls-expiry",
+      "title": "NutsNews backend TLS certificate expiring",
+      "severity": "major",
+      "service": "caddy",
+      "expr": "min(probe_ssl_earliest_cert_expiry{job=\"nutsnews-backend-caddy-tls\",probe=\"tls\",check=\"certificate\"}) - time()",
+      "threshold": 1209600,
+      "evaluator": "lt",
+      "for": "30m",
+      "range_seconds": 3600,
+      "no_data_state": "Alerting",
+      "summary": "The backend TLS certificate has less than fourteen days remaining.",
+      "dashboard_url": "/d/nutsnews-backend-caddy-edge"
     }
   ]
 }

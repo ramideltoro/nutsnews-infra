@@ -41,6 +41,7 @@ permissions:
 
 concurrency:
   group: cloudflare-dns-failover
+  queue: max
   cancel-in-progress: false
 
 jobs:

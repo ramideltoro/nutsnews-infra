@@ -5,11 +5,16 @@
 # macOS
 .DS_Store
 
+# Python
+__pycache__/
+*.py[cod]
+
 # Terraform
 .terraform/
 terraform.tfstate
 terraform.tfstate.*
 *.tfvars
+*.tfplan
 crash.log
 crash.*.log
 

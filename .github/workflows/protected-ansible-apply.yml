@@ -46,13 +46,18 @@ on:
           - "false"
           - "true"
       enable_grafana_alloy:
-        description: Enable Grafana Alloy telemetry writes to Grafana Cloud.
+        description: Keep production Grafana Alloy telemetry enabled.
         required: true
-        default: "false"
+        default: "true"
         type: choice
         options:
-          - "false"
           - "true"
+          - "false"
+      confirm_disable_grafana_alloy:
+        description: Only when disabling Alloy, type disable-grafana-alloy.
+        required: false
+        default: ""
+        type: string
       enable_staging_access:
         description: Materialize the reviewed staging hostname and origin Access boundary.
         required: true
@@ -135,9 +140,18 @@ permissions:
 
 concurrency:
   group: production-vps-ansible-baseline
+  queue: max
   cancel-in-progress: false
 
 jobs:
+  audit-production-vps-policy:
+    name: Audit production-vps environment protection
+    if: ${{ github.repository == 'ramideltoro/nutsnews-infra' && github.ref == 'refs/heads/main' }}
+    permissions:
+      actions: read
+      contents: read
+    uses: ./.github/workflows/production-vps-environment-policy-audit.yml
+
   verify-production-eligibility:
     name: Verify production eligibility before secrets
     runs-on: ubuntu-latest
@@ -333,7 +347,8 @@ jobs:
 
   baseline:
     name: VPS baseline
-    needs: verify-production-eligibility
+    if: ${{ github.repository == 'ramideltoro/nutsnews-infra' && github.ref == 'refs/heads/main' }}
+    needs: [verify-production-eligibility, audit-production-vps-policy]
     runs-on: ubuntu-latest
     timeout-minutes: 30
     environment: production-vps
@@ -515,6 +530,7 @@ jobs:
           APP_RELEASE: ${{ needs.verify-production-eligibility.outputs.app_release }}
           ENABLE_CLOUDFLARE_DDNS: ${{ inputs.enable_cloudflare_ddns }}
           ENABLE_GRAFANA_ALLOY: ${{ inputs.enable_grafana_alloy }}
+          CONFIRM_DISABLE_GRAFANA_ALLOY: ${{ inputs.confirm_disable_grafana_alloy }}
           ENABLE_STAGING_ACCESS: ${{ inputs.enable_staging_access }}
           PRODUCTION_WRITES_PAUSED: ${{ inputs.production_writes_paused }}
           NUTSNEWS_STAGING_ACCESS_TEAM_DOMAIN: ${{ secrets.NUTSNEWS_STAGING_ACCESS_TEAM_DOMAIN }}
@@ -682,6 +698,7 @@ jobs:
           NUTSNEWS_BACKUP_RESTIC_PASSWORD: ${{ secrets.NUTSNEWS_BACKUP_RESTIC_PASSWORD }}
           NUTSNEWS_BACKUP_RCLONE_CONFIG: ${{ secrets.NUTSNEWS_BACKUP_RCLONE_CONFIG }}
           NUTSNEWS_BACKUP_STALE_AFTER_HOURS: ${{ secrets.NUTSNEWS_BACKUP_STALE_AFTER_HOURS }}
+          NUTSNEWS_BACKUP_VERIFY_STALE_AFTER_HOURS: ${{ secrets.NUTSNEWS_BACKUP_VERIFY_STALE_AFTER_HOURS }}
           NUTSNEWS_BACKUP_CHECK_READ_DATA_SUBSET: ${{ secrets.NUTSNEWS_BACKUP_CHECK_READ_DATA_SUBSET }}
           NUTSNEWS_BACKUP_KEEP_DAILY: ${{ secrets.NUTSNEWS_BACKUP_KEEP_DAILY }}
           NUTSNEWS_BACKUP_KEEP_WEEKLY: ${{ secrets.NUTSNEWS_BACKUP_KEEP_WEEKLY }}
@@ -726,6 +743,7 @@ jobs:
           NUTSNEWS_FAILOVER_RUNBOOK_URL: https://github.com/ramideltoro/nutsnews/blob/main/.github/deployment/failover-visibility-runbook.md
           NUTSNEWS_FAILOVER_CLOUDFLARE_DASHBOARD_URL: ${{ secrets.NUTSNEWS_FAILOVER_CLOUDFLARE_DASHBOARD_URL }}
           ENABLE_GRAFANA_ALLOY: ${{ inputs.enable_grafana_alloy }}
+          CONFIRM_DISABLE_GRAFANA_ALLOY: ${{ inputs.confirm_disable_grafana_alloy }}
           ENABLE_STAGING_ACCESS: ${{ inputs.enable_staging_access }}
           NUTSNEWS_STAGING_ACCESS_TEAM_DOMAIN: ${{ secrets.NUTSNEWS_STAGING_ACCESS_TEAM_DOMAIN }}
           NUTSNEWS_STAGING_ACCESS_AUDIENCE: ${{ secrets.NUTSNEWS_STAGING_ACCESS_AUDIENCE }}
@@ -979,6 +997,14 @@ jobs:
               raise SystemExit("NUTSNEWS_OPS_PORTAL_SESSION_SECRET must be at least 32 characters.")
 
           grafana_alloy_enabled = truthy("ENABLE_GRAFANA_ALLOY")
+          grafana_alloy_disable_confirmed = (
+              os.environ.get("CONFIRM_DISABLE_GRAFANA_ALLOY", "").strip()
+              == "disable-grafana-alloy"
+          )
+          if not grafana_alloy_enabled and not grafana_alloy_disable_confirmed:
+              raise SystemExit(
+                  "Disabling production Grafana Alloy requires confirm_disable_grafana_alloy=disable-grafana-alloy."
+              )
           if grafana_alloy_enabled:
               missing_grafana = [
                   name
@@ -1068,7 +1094,7 @@ jobs:
               ),
               "vps_service_foundation_backup_verify_stale_after_hours": env_int(
                   "NUTSNEWS_BACKUP_VERIFY_STALE_AFTER_HOURS",
-                  192,
+                  30,
               ),
               "vps_service_foundation_backup_check_read_data_subset": os.environ.get(
                   "NUTSNEWS_BACKUP_CHECK_READ_DATA_SUBSET",
@@ -1148,6 +1174,7 @@ jobs:
                   "NUTSNEWS_GITHUB_ACTIONS_USAGE_API_URL",
               ),
               "vps_service_foundation_grafana_alloy_enabled": grafana_alloy_enabled,
+              "vps_service_foundation_grafana_alloy_disable_confirmed": grafana_alloy_disable_confirmed,
               "vps_service_foundation_grafana_alloy_metrics_url": os.environ.get(
                   "NUTSNEWS_GRAFANA_CLOUD_METRICS_URL",
                   "",

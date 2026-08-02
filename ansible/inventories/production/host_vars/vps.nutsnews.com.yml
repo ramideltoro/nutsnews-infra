@@ -1,6 +1,9 @@
 # Reviewed, non-secret NutsNews application release state for the production VPS.
 # Promotion changes update this file through a pull request before Protected
 # Ansible Apply. Application secrets remain in NUTSNEWS_APP_ENVS_JSON.
+# Grafana Alloy is also persisted here as production desired state. The protected
+# workflow requires a separate typed confirmation before it may override this to false.
+vps_service_foundation_grafana_alloy_enabled: true
 vps_service_foundation_nutsnews_app_enabled: true
 vps_service_foundation_nutsnews_app_staged_route_enabled: true
 vps_service_foundation_nutsnews_app_public_route_enabled: true

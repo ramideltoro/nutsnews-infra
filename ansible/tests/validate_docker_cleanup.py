@@ -60,8 +60,21 @@ for token in (
     "Install conservative Docker cleanup timer",
     "Seed Docker cleanup status before the first scheduled run",
     "Manage conservative Docker cleanup timer",
+    "Find existing Docker cleanup log files",
+    "Allow observability agent to read existing Docker cleanup logs",
 ):
     require(token in TASKS, f"Ansible tasks missing {token}.")
+
+docker_log_reconciliation = TASKS.split("- name: Find existing Docker cleanup log files", 1)[1].split(
+    "- name: Install Caddy Compose file", 1
+)[0]
+for token in (
+    "vps_service_foundation_docker_cleanup_log_dir",
+    "vps_service_foundation_docker_cleanup_log_files.files",
+    "vps_service_foundation_backup_log_group",
+    'mode: "0640"',
+):
+    require(token in docker_log_reconciliation, f"Docker cleanup log reconciliation missing {token}.")
 
 require("force: false" in TASKS, "Initial status seeding must not overwrite cleanup history.")
 require("installed_pending_first_run" in TASKS, "Initial status must advertise pending first run.")

@@ -109,6 +109,9 @@ SLOW_SECTION_TTLS = {
     "free_tier_local": int(os.environ.get("NUTSNEWS_COLLECTOR_FREE_TIER_LOCAL_CACHE_SECONDS", "900")),
     "oom_evidence": int(os.environ.get("NUTSNEWS_COLLECTOR_OOM_EVIDENCE_CACHE_SECONDS", "900")),
     "observability": int(os.environ.get("NUTSNEWS_COLLECTOR_OBSERVABILITY_CACHE_SECONDS", "300")),
+    "synthetic_inventory_audit": int(
+        os.environ.get("NUTSNEWS_COLLECTOR_SYNTHETIC_AUDIT_CACHE_SECONDS", "900")
+    ),
 }
 SWAP_USAGE_CACHE_FILE = Path(
     os.environ.get("NUTSNEWS_SWAP_USAGE_CACHE_FILE", "/opt/nutsnews/portal-assets/data/swap-usage-cache.json")
@@ -126,6 +129,11 @@ FIREWALL_COUNTER_RE = re.compile(r"counter packets\s+(\d+)\s+bytes\s+(\d+)\s+jum
 FIREWALL_COUNTER_LABELS = ("ufw-after-logging-input", "ufw-reject-input", "ufw-track-input")
 DOCS_BASE_URL = os.environ.get("NUTSNEWS_DOCS_BASE_URL", "https://github.com/ramideltoro/nutsnews-docs")
 INFRA_REPO_URL = os.environ.get("NUTSNEWS_INFRA_REPO_URL", "https://github.com/ramideltoro/nutsnews-infra")
+SYNTHETIC_AUDIT_RUNS_URL = (
+    "https://api.github.com/repos/ramideltoro/nutsnews-infra/actions/workflows/"
+    "grafana-cloud-synthetic-audit.yml/runs?branch=main&event=schedule&per_page=20"
+)
+GITHUB_USAGE_API_TOKEN = os.environ.get("NUTSNEWS_GITHUB_USAGE_API_TOKEN", "").strip()
 ALLOY_ENABLED = os.environ.get("NUTSNEWS_ALLOY_ENABLED", "0").strip().lower() in {"1", "true", "yes", "on"}
 ALLOY_COLLECT_DOCKER = os.environ.get("NUTSNEWS_ALLOY_COLLECT_DOCKER", "0").strip().lower() in {"1", "true", "yes", "on"}
 ALLOY_COLLECT_DOCKER_LOGS = os.environ.get("NUTSNEWS_ALLOY_COLLECT_DOCKER_LOGS", "0").strip().lower() in {
@@ -260,7 +268,7 @@ def backup_verification_status(backups: dict[str, Any]) -> dict[str, Any]:
     latest = latest_snapshot if isinstance(latest_snapshot, dict) else {}
     last_check_value = backups.get("last_check")
     last_check = last_check_value if isinstance(last_check_value, dict) else {}
-    threshold_seconds = safe_int(backups.get("verify_stale_after_seconds"), 691200)
+    threshold_seconds = safe_int(backups.get("verify_stale_after_seconds"), 108000)
     finished_at = last_check.get("finished_at")
     finished_at_age = age_seconds(finished_at)
     latest_snapshot_age = age_seconds(latest.get("time")) if latest else None
@@ -349,7 +357,7 @@ def backup_verification_status(backups: dict[str, Any]) -> dict[str, Any]:
                 "status": "latest_unverified",
                 "policy_status": "pending",
                 "pending": True,
-                "detail": "The newest daily snapshot is awaiting the scheduled weekly verification within policy.",
+                "detail": "The newest daily snapshot is awaiting the scheduled daily verification within policy.",
             }
         )
     else:
@@ -1613,8 +1621,8 @@ def backup_state() -> dict[str, Any]:
         "retention": {},
         "stale_after_hours": 30,
         "stale_after_seconds": 108000,
-        "verify_stale_after_hours": 192,
-        "verify_stale_after_seconds": 691200,
+        "verify_stale_after_hours": 30,
+        "verify_stale_after_seconds": 108000,
         "missing_configuration": [],
         "backup_path_count": 0,
         "protected_path_count": 0,
@@ -1697,7 +1705,10 @@ def reporting_state() -> dict[str, Any]:
         "last_alert_sent_at": "never",
         "last_report_run_at": "never",
         "last_report_success_at": "never",
+        "last_report_delivery_success_at": "never",
         "last_report_sent_at": "never",
+        "last_report_conclusion": "unknown",
+        "last_report_exit_code": -1,
         "last_error": "",
         "cooldown_seconds": 21600,
         "pending_alerts": 0,
@@ -1728,6 +1739,62 @@ def free_tier_usage_state() -> dict[str, Any]:
             "providers": [],
             "errors": ["Free-tier usage collector failed; check the collector service journal."],
         }
+
+
+def synthetic_inventory_audit_state() -> dict[str, Any]:
+    """Read bounded scheduled-workflow health from GitHub's public Actions API."""
+    headers = {
+        "Accept": "application/vnd.github+json",
+        "User-Agent": "nutsnews-ops-portal-collector",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+    if GITHUB_USAGE_API_TOKEN:
+        headers["Authorization"] = f"Bearer {GITHUB_USAGE_API_TOKEN}"
+    request = urllib.request.Request(SYNTHETIC_AUDIT_RUNS_URL, headers=headers)
+    try:
+        with urllib.request.urlopen(request, timeout=8) as response:
+            payload = json.loads(response.read(1_000_001).decode("utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError, urllib.error.URLError):
+        return {
+            "available": False,
+            "latest_conclusion": "unknown",
+            "last_run_at": "never",
+            "last_success_at": "never",
+            "expected_interval_seconds": 86400,
+        }
+    runs = payload.get("workflow_runs") if isinstance(payload, dict) else None
+    completed = [
+        run
+        for run in runs
+        if isinstance(run, dict)
+        and run.get("event") == "schedule"
+        and run.get("status") == "completed"
+        and isinstance(run.get("updated_at"), str)
+    ] if isinstance(runs, list) else []
+    latest = completed[0] if completed else {}
+    latest_success = next(
+        (run for run in completed if run.get("conclusion") == "success"), {}
+    )
+    allowed_conclusions = {
+        "success",
+        "failure",
+        "cancelled",
+        "timed_out",
+        "action_required",
+        "neutral",
+        "skipped",
+        "stale",
+    }
+    conclusion = str(latest.get("conclusion", "unknown"))
+    if conclusion not in allowed_conclusions:
+        conclusion = "unknown"
+    return {
+        "available": True,
+        "latest_conclusion": conclusion,
+        "last_run_at": latest.get("updated_at", "never"),
+        "last_success_at": latest_success.get("updated_at", "never"),
+        "expected_interval_seconds": 86400,
+    }
 
 
 def compact_command_result(value: Any) -> dict[str, Any]:
@@ -2766,6 +2833,11 @@ def collect() -> dict[str, Any]:
         section_ttl("observability"),
         observability_state,
     )
+    synthetic_inventory_audit = cached_slow_section(
+        "synthetic_inventory_audit",
+        section_ttl("synthetic_inventory_audit"),
+        synthetic_inventory_audit_state,
+    )
     docker_cleanup = docker_cleanup_state()
     processes = cached_slow_section("processes", section_ttl("processes"), process_state)
     logs = cached_slow_section("logs", section_ttl("logs"), log_sections)
@@ -2808,6 +2880,7 @@ def collect() -> dict[str, Any]:
         "security": security,
         "backups": backups,
         "observability": observability,
+        "synthetic_inventory_audit": synthetic_inventory_audit,
         "docker_cleanup": docker_cleanup,
         "free_tier_usage": free_tier,
         "email_reporting": reporting,

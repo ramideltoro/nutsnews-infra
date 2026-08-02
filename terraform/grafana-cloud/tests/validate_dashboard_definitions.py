@@ -93,17 +93,28 @@ for token in (
     'uid         = "nutsnews-logs-overview"',
     "Log volume by source",
     "Log volume by service",
-    "Log volume by level",
-    "Systemd journal by unit",
-    "Docker logs by container",
+    "Log volume by severity",
+    "Systemd journal by service",
+    "Docker logs by service",
     "Caddy status classes",
     "Dropped log guardrails",
-    'source=\\"docker\\",container=\\"nutsnews-caddy\\"',
+    'source=\\"docker\\",service=\\"caddy\\"',
+    "caddy_http_request_duration_seconds_count",
     'loki_write_dropped_entries_total',
     'loki_write_batch_retries_total',
     'high_error_log_volume',
 ):
     require(token in LOCALS, f"Logs dashboard or alert locals missing {token}.")
+
+require(
+    'title = "High-priority journal"' in LOCALS
+    and 'source=\\"journal\\",severity=~\\"critical|error|warning\\"' in LOCALS,
+    "High-priority journal panel must query the normalized Loki severity values.",
+)
+require(
+    'severity=~\\"emerg|alert|crit|err|warning\\"' not in LOCALS,
+    "High-priority journal panel must not use raw journald priority aliases after Alloy normalization.",
+)
 
 require(
     'resource "grafana_rule_group" "log_pipeline"' in ALERTS,

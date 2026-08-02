@@ -1,0 +1,286 @@
+name: Grafana Notification Canary
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: Fire/resolve a new canary or record a human receipt attestation without refiring.
+        required: true
+        type: choice
+        options:
+          - fire-resolve
+          - attest-receipt
+      confirm_canary:
+        description: Select notification-canary to authorize the bounded operation.
+        required: true
+        type: choice
+        options:
+          - notification-canary
+      canary_id:
+        description: Existing stable canary ID; required only for attest-receipt.
+        required: false
+        type: string
+      api_transition_evidence_sha256:
+        description: Opaque sha256:<64-hex> digest of the retained API-transition evidence; never provide a URL or share token.
+        required: false
+        type: string
+      receipt_evidence_sha256:
+        description: Opaque sha256:<64-hex> digest of the retained firing/resolved mailbox evidence; never provide a URL or share token.
+        required: false
+        type: string
+      human_attestation:
+        description: Exact explicit confirmation documented in the runbook; required only for attest-receipt.
+        required: false
+        type: string
+  schedule:
+    - cron: "17 15 15 1,4,7,10 *"
+
+permissions:
+  contents: read  # Required only to check out and validate the canary implementation.
+
+concurrency:
+  group: grafana-notification-canary
+  queue: max
+  cancel-in-progress: false
+
+jobs:
+  audit-production-vps-policy:
+    name: Audit production-vps environment protection
+    if: ${{ github.repository == 'ramideltoro/nutsnews-infra' && github.ref == 'refs/heads/main' }}
+    permissions:
+      actions: read  # Inspect the production-vps environment protection metadata.
+      contents: read
+    uses: ./.github/workflows/production-vps-environment-policy-audit.yml
+
+  fire-resolve:
+    name: Fire and resolve operations-email canary
+    if: ${{ github.repository == 'ramideltoro/nutsnews-infra' && github.ref == 'refs/heads/main' && (github.event_name == 'schedule' || inputs.action == 'fire-resolve') }}
+    needs: audit-production-vps-policy
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: production-vps
+
+    steps:
+      - name: Validate fire/resolve guard
+        id: guard
+        shell: bash
+        env:
+          CONFIRM_CANARY: ${{ inputs.confirm_canary }}
+        run: |
+          set -euo pipefail
+
+          if [[ "$GITHUB_REF" != "refs/heads/main" ]]; then
+            echo "Grafana notification canary must run from main." >&2
+            exit 1
+          fi
+          if [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" && "$CONFIRM_CANARY" != "notification-canary" ]]; then
+            echo "Manual canary requires confirm_canary=notification-canary." >&2
+            exit 1
+          fi
+
+          echo "canary_id=github-${GITHUB_RUN_ID}" >> "$GITHUB_OUTPUT"
+          if [[ "$GITHUB_RUN_ATTEMPT" == "1" ]]; then
+            echo "should_fire=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "should_fire=false" >> "$GITHUB_OUTPUT"
+            echo "A rerun never refires the email pair; attest the original stable canary ID instead." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Validate canary implementation
+        run: python3 terraform/grafana-cloud/tests/test_notification_canary.py
+
+      - name: Fire and resolve notification canary once
+        if: steps.guard.outputs.should_fire == 'true'
+        env:
+          GRAFANA_URL: ${{ secrets.NUTSNEWS_GRAFANA_CLOUD_URL }}
+          GRAFANA_SERVICE_ACCOUNT_TOKEN: ${{ secrets.NUTSNEWS_GRAFANA_CLOUD_SERVICE_ACCOUNT_TOKEN }}
+          CANARY_ID: ${{ steps.guard.outputs.canary_id }}
+        run: |
+          set -euo pipefail
+
+          python3 terraform/grafana-cloud/scripts/exercise_notification_canary.py \
+            --canary-id "$CANARY_ID" \
+            --hold-seconds 45 \
+            --state-timeout-seconds 120 \
+            --output "$RUNNER_TEMP/grafana-notification-canary.json"
+
+      - name: Record pending-receipt phase
+        if: always()
+        shell: bash
+        env:
+          CANARY_ID: ${{ steps.guard.outputs.canary_id }}
+          SHOULD_FIRE: ${{ steps.guard.outputs.should_fire }}
+        run: |
+          set -euo pipefail
+
+          api_file="$RUNNER_TEMP/grafana-notification-canary.json"
+          evidence_file="$RUNNER_TEMP/grafana-notification-receipt-evidence.json"
+          run_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+
+          if [[ "$SHOULD_FIRE" == "true" ]]; then
+            if [[ ! -f "$api_file" ]] || ! jq -e '.status == "pass" and .firing_state_observed == true and .resolved_state_observed == true' "$api_file" > /dev/null; then
+              jq -n \
+                --arg canary_id "$CANARY_ID" \
+                '{schema_version: 2, phase: "api_transition_failed", canary_id: $canary_id, status: "fail", firing_state_observed: false, resolved_state_observed: false}' \
+                > "$api_file"
+              jq -n \
+                --arg canary_id "$CANARY_ID" \
+                --arg run_url "$run_url" \
+                '{schema_version: 2, phase: "api_transition_failed", canary_id: $canary_id, receipt_status: "not_attestable", api_transition_run_reference: $run_url, firing_attempted: true, refired: false}' \
+                > "$evidence_file"
+              echo "Canary API transition failed; no receipt attestation may be recorded." >&2
+              exit 1
+            fi
+            fired_in_this_phase=true
+          else
+            jq -n \
+              --arg canary_id "$CANARY_ID" \
+              --arg run_url "$run_url" \
+              '{schema_version: 2, phase: "rerun_no_refire", canary_id: $canary_id, status: "not_run", no_refire: true, original_run_reference: $run_url}' \
+              > "$api_file"
+            fired_in_this_phase=false
+          fi
+
+          jq -n \
+            --arg canary_id "$CANARY_ID" \
+            --arg run_url "$run_url" \
+            --argjson fired_in_this_phase "$fired_in_this_phase" \
+            '{schema_version: 2, phase: "pending_receipt", canary_id: $canary_id, receipt_status: "pending_receipt", api_transition_run_reference: $run_url, receipt_attestation_required: true, fired_in_this_phase: $fired_in_this_phase, refired: false}' \
+            > "$evidence_file"
+
+      - name: Record mailbox evidence instructions
+        if: always()
+        shell: bash
+        env:
+          CANARY_ID: ${{ steps.guard.outputs.canary_id }}
+        run: |
+          set -euo pipefail
+
+          {
+            if jq -e '.receipt_status == "pending_receipt"' "$RUNNER_TEMP/grafana-notification-receipt-evidence.json" > /dev/null; then
+              echo "## Grafana notification canary — pending receipt attestation"
+              echo
+              echo "Stable canary ID: ${CANARY_ID}"
+              echo "The supporting Actions artifact is retained for 90 days. Retain the transition record and matching firing/resolved mailbox evidence in the private operator-owned store, compute a distinct SHA-256 content digest for each, then run action=attest-receipt with this canary ID, both opaque sha256:<64-hex> references, and the exact human confirmation from the runbook."
+              echo "Never paste an evidence URL or path-embedded share token into workflow inputs; this workflow does not fetch or independently verify the private store."
+              echo "Do not rerun fire-resolve to attach receipt evidence; reruns are intentionally no-refire."
+            else
+              echo "## Grafana notification canary — transition failed"
+              echo
+              echo "No receipt attestation may be recorded for this run."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload pending notification canary evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
+        with:
+          name: grafana-notification-canary-pending-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/grafana-notification-canary.json
+            ${{ runner.temp }}/grafana-notification-receipt-evidence.json
+          if-no-files-found: error
+          retention-days: 90
+
+  attest-receipt:
+    name: Record human attestation of firing and resolved email receipts
+    if: ${{ github.repository == 'ramideltoro/nutsnews-infra' && github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && inputs.action == 'attest-receipt' }}
+    needs: audit-production-vps-policy
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment: production-vps
+
+    steps:
+      - name: Validate human receipt-attestation guard
+        shell: bash
+        env:
+          CONFIRM_CANARY: ${{ inputs.confirm_canary }}
+          CANARY_ID: ${{ inputs.canary_id }}
+          API_TRANSITION_EVIDENCE_SHA256: ${{ inputs.api_transition_evidence_sha256 }}
+          RECEIPT_EVIDENCE_SHA256: ${{ inputs.receipt_evidence_sha256 }}
+          HUMAN_ATTESTATION: ${{ inputs.human_attestation }}
+        run: |
+          set -euo pipefail
+
+          if [[ "$GITHUB_REF" != "refs/heads/main" ]]; then
+            echo "Grafana notification canary attestation must run from main." >&2
+            exit 1
+          fi
+          if [[ "$CONFIRM_CANARY" != "notification-canary" ]]; then
+            echo "Human receipt attestation requires confirm_canary=notification-canary." >&2
+            exit 1
+          fi
+          expected_attestation="human-attest-grafana-notification-canary:${CANARY_ID}:firing-and-resolved-received"
+          if [[ -z "$CANARY_ID" || ! "$API_TRANSITION_EVIDENCE_SHA256" =~ ^sha256:[a-f0-9]{64}$ || ! "$RECEIPT_EVIDENCE_SHA256" =~ ^sha256:[a-f0-9]{64}$ ]]; then
+            echo "Human attestation requires a canary ID and two opaque lowercase SHA-256 evidence references." >&2
+            exit 1
+          fi
+          if [[ "$API_TRANSITION_EVIDENCE_SHA256" == "$RECEIPT_EVIDENCE_SHA256" ]]; then
+            echo "API-transition and mailbox evidence must use distinct SHA-256 references." >&2
+            exit 1
+          fi
+          if [[ "$HUMAN_ATTESTATION" != "$expected_attestation" ]]; then
+            echo "Human attestation requires the exact canary-bound confirmation documented in the runbook." >&2
+            exit 1
+          fi
+
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Validate canary implementation
+        run: python3 terraform/grafana-cloud/tests/test_notification_canary.py
+
+      - name: Record human receipt evidence without refiring
+        env:
+          CANARY_ID: ${{ inputs.canary_id }}
+          API_TRANSITION_EVIDENCE_SHA256: ${{ inputs.api_transition_evidence_sha256 }}
+          RECEIPT_EVIDENCE_SHA256: ${{ inputs.receipt_evidence_sha256 }}
+          HUMAN_ATTESTATION: ${{ inputs.human_attestation }}
+          ATTESTED_BY: ${{ github.triggering_actor }}
+        run: |
+          set -euo pipefail
+
+          python3 terraform/grafana-cloud/scripts/attest_notification_canary.py \
+            --canary-id "$CANARY_ID" \
+            --api-transition-evidence-sha256 "$API_TRANSITION_EVIDENCE_SHA256" \
+            --receipt-evidence-sha256 "$RECEIPT_EVIDENCE_SHA256" \
+            --human-confirmation "$HUMAN_ATTESTATION" \
+            --github-actor "$ATTESTED_BY" \
+            --github-run-id "$GITHUB_RUN_ID" \
+            --github-run-attempt "$GITHUB_RUN_ATTEMPT" \
+            --github-repository "$GITHUB_REPOSITORY" \
+            --github-ref "$GITHUB_REF" \
+            --github-event-name "$GITHUB_EVENT_NAME" \
+            --output "$RUNNER_TEMP/grafana-notification-receipt-attestation.json"
+
+      - name: Summarize receipt attestation
+        shell: bash
+        env:
+          CANARY_ID: ${{ inputs.canary_id }}
+        run: |
+          set -euo pipefail
+
+          {
+            echo "## Grafana notification canary — receipt human-attested"
+            echo
+            echo "Stable canary ID: ${CANARY_ID}"
+            echo "GitHub actor ${GITHUB_TRIGGERING_ACTOR} explicitly attested that both firing and resolved receipts were observed in this run attempt."
+            echo "Attestation workflow run: ${GITHUB_RUN_ID}, attempt: ${GITHUB_RUN_ATTEMPT}."
+            echo "This workflow did not fetch an allowlisted evidence store, so this is human-attested evidence, not independent delivery verification."
+            echo "This receipt-only phase did not post an Alertmanager alert or send another email pair."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload human receipt attestation
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
+        with:
+          name: grafana-notification-canary-human-attestation-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/grafana-notification-receipt-attestation.json
+          if-no-files-found: error
+          retention-days: 90

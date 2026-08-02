@@ -1,6 +1,6 @@
 # Grafana Cloud Observability
 
-This OpenTofu module manages Grafana Cloud folders, dashboards, quota guardrail alert rules, log-pipeline alert rules, backend host observability imports, and optional Synthetic Monitoring HTTP checks for NutsNews hosts.
+This OpenTofu module manages Grafana Cloud folders, dashboards, alert routing, quota and pipeline guardrails, backend host observability imports, five Synthetic Monitoring HTTP checks, and four Grafana SLOs for NutsNews hosts.
 
 ## Ownership
 
@@ -17,7 +17,7 @@ Do not remove existing backend Grafana resources until import and query/alert ve
 
 ## Worker-Uplift Telemetry Scope
 
-The worker-uplift telemetry scope is approved in `catalog/worker-uplift-telemetry-scope.json`. It makes RabbitMQ metrics, worker service metrics, and structured logs required; keeps traces and exemplars deferred; forbids profiles and article/model payload telemetry; and fixes the worker metric/Loki stream label set to `environment`, `host`, `service`, `version`, `queue`, and `outcome`.
+The worker-uplift telemetry scope is approved in `catalog/worker-uplift-telemetry-scope.json`. It makes RabbitMQ metrics, worker service metrics, and structured logs required; keeps Tempo traces, exemplars, profiling, and Faro deferred; retains Sentry as the canonical scrubbed exception/replay provider; and forbids article/model payload telemetry. Application event and histogram dimensions are bounded to `service`, `stage`, `queue`, `outcome`, `dependency`, `language`, `provider`, `probe`, and `check`. Loki indexing is bounded separately to `deployment_environment`, `service`, `service_version`, `host`, `source`, and `severity`; identifiers remain structured metadata.
 
 This policy is source-controlled only and does not enable the worker-uplift production path. The shared operating guide is `ramideltoro/nutsnews-docs/NUTSNEWS_WORKER_UPLIFT_TELEMETRY_SCOPE.md`.
 
@@ -49,8 +49,9 @@ resource.
 
 The alert catalog covers broker down, private canary failure, Alloy
 scrape/write loss, zero consumers on any main queue even when that queue is
-empty, sustained backlog or
-oldest-age pressure, publish/ack imbalance, unacked growth, DLQs, retry and
+empty, sustained production-owned queue backlog or oldest-unconfirmed durable
+outbox age, per-queue publish/ack imbalance across the seven main worker queues,
+unacked growth, DLQs, retry and
 redelivery pressure, connection churn, broker memory/disk alarms, low disk,
 file descriptor pressure, stale recovery proof, repeated restarts, and
 multi-window SLO burn-rate alerts. Every rule carries severity, owner, route,
@@ -59,9 +60,11 @@ suppression metadata.
 
 The SLO dashboard exposes broker availability, private canary success and
 latency, stage success/latency, feed freshness, retry/DLQ budget, final
-publication success, alert state, canary fixtures, and recovery proof age. The
-stage, feed freshness, and final publication queries intentionally remain
-`NoData=OK` until the worker services in later issues emit those metrics.
+publication success, alert state, canary fixtures, and recovery proof age.
+Seven delivery processors initialize their bounded terminal-outcome counters
+and fixed-bucket histogram series to zero before traffic, so acceptance is
+deterministic without synthetic Prometheus samples. Worker-owned paging remains
+host-gated while the deployment is shadow-only.
 
 Use the backend `Backend RabbitMQ Canary` workflow from #91 to exercise alert
 firing and recovery with fixed drills such as `network-interruption`,
@@ -88,38 +91,81 @@ Supply these values through protected GitHub environment secrets or local enviro
 - `TF_VAR_prometheus_datasource_uid`
 - `TF_VAR_loki_datasource_uid`
 - `TF_VAR_usage_datasource_uid`
+- `TF_VAR_operations_email_recipients`, sourced from the existing protected `NUTSNEWS_EMAIL_TO` secret
 
 The service account token should be scoped to manage Grafana folders, dashboards, alert rules, and Synthetic Monitoring checks. Telemetry write tokens are separate and belong to the Ansible-managed Alloy deployment.
 
 Backend telemetry write credentials remain in `ramideltoro/nutsnews-backend` for the backend Alloy deployment. Do not add `GRAFANA_URL` or a Grafana service account token back to the backend repository; use this infra module and the protected `production-vps` environment for Grafana resource management.
 
-## Optional Synthetic Checks
+## Synthetic Checks
 
-Synthetic checks are disabled unless both of these are supplied:
+Production plan/apply requires both of these protected inputs:
 
 - `TF_VAR_synthetic_monitoring_probe_ids`
 - `TF_VAR_synthetic_http_checks`
+- `TF_VAR_synthetic_major_forecast_acknowledged`, sourced from the protected environment variable `NUTSNEWS_GRAFANA_SYNTHETIC_MAJOR_FORECAST_ACKNOWLEDGED`
 
-When synthetic checks are enabled, also supply `GRAFANA_SM_ACCESS_TOKEN` from the protected GitHub Environment secret `NUTSNEWS_GRAFANA_SYNTHETIC_MONITORING_ACCESS_TOKEN`. The Grafana provider uses this separate Synthetic Monitoring token for `grafana_synthetic_monitoring_check` resources.
+Also supply `GRAFANA_SM_ACCESS_TOKEN` and `GRAFANA_SM_URL` from the protected
+GitHub Environment secrets
+`NUTSNEWS_GRAFANA_SYNTHETIC_MONITORING_ACCESS_TOKEN` and
+`NUTSNEWS_GRAFANA_SYNTHETIC_MONITORING_URL`. The URL must be the regional
+Synthetic Monitoring API backend reported by the live Grafana plugin, not the
+Grafana stack UI URL. The provider uses this separate endpoint and token for
+`grafana_synthetic_monitoring_check` resources; the controlled mismatch drill
+uses the same pair for exact snapshot/update/restore operations.
 
-Also supply the stack-region API endpoint as `GRAFANA_SM_URL` from protected secret `NUTSNEWS_GRAFANA_SYNTHETIC_MONITORING_URL`. Copy the endpoint from **Testing & synthetics > Synthetics > Config > General**; the protected validator requires a bounded HTTPS `grafana.net` endpoint whenever checks are enabled. A valid token sent to another regional endpoint is rejected, so both protected plan and apply map this value explicitly and fail closed when it is absent or malformed.
+Copy the stack-region endpoint from **Testing & synthetics > Synthetics >
+Config > General**. The protected validator accepts only a query-free HTTPS
+origin in the `synthetic-monitoring-api*.grafana.net` service family, so plan
+and apply fail closed before attaching the token when the endpoint is absent,
+malformed, or belongs to another Grafana service role.
 
-Example shape for the checks variable:
+The check map must contain exactly `canonical_homepage`, `canonical_readiness`, `canonical_articles_api`, `vps_readiness`, and `vercel_secondary_readiness`, use exactly two unique public probes, and run every five minutes. The three canonical checks share one host; direct VPS and Vercel-secondary readiness use two other distinct hosts. Targets are credential-free, query-free HTTPS URLs on port 443 with exact approved paths. Every check must assert response content or headers in addition to status. Refresh, controller, ingestion, trigger, and publication routes are rejected. Checks stay in Grafana's default Synthetic Monitoring folder; do not assign the general NutsNews dashboard folder because Synthetic Monitoring only supports its own folder tree.
+
+Example shape for one member of the protected checks map:
 
 ```hcl
-synthetic_http_checks = {
-  public_health = {
-    target             = local.public_health_url
-    frequency_ms       = 1800000
-    timeout_ms         = 5000
-    valid_status_codes = [200]
+canonical_readiness = {
+    target                          = "https://<protected-target>/readyz"
+    frequency_ms                    = 300000
+    timeout_ms                      = 5000
+    valid_status_codes              = [200]
+    fail_if_body_matches_regexp     = ["deploymentTarget.*unknown"]
+    fail_if_body_not_matches_regexp = [
+      "ready.*true",
+      "deploymentTarget.*(production-vps|vercel-production)",
+    ]
+    fail_if_header_not_matches_regexp = [{
+      allow_missing = false
+      header        = "Cache-Control"
+      regexp        = "no-store"
+    }]
   }
-}
 ```
 
-Keep real targets in protected variables or untracked local tfvars. The module accepts Grafana's 10-second through 60-minute API-check interval range and blocks plan/apply when the projected monthly API executions exceed 90% of the configured free-tier assumption. This preserves a 10% hard buffer while allowing the current value-free 86,400-execution configuration. The protected validator emits only counts, interval bounds, and the projected execution total; it never emits check names, targets, probe IDs, or credentials.
+Keep real targets in protected variables or untracked local tfvars. The input schema preserves Grafana's 10-second through 60-minute API-check bounds and one- through 60-second timeout bounds, while the production policy requires exactly five checks across two probes every five minutes. That topology projects to 86,400 executions in a 30-day month. The module blocks at or above the lower of 90% of the configured free API allowance and the absolute 90,000-execution ceiling; the literal topology consumes 86.4% of the 100,000-execution allowance and therefore enters the 85% `major` forecast band. The protected validator emits only counts, interval bounds, the projected execution total, thresholds, and the reviewed-decision state; it never emits check names, targets, probe IDs, or credentials.
 
-Set `TF_VAR_synthetic_http_checks` to `{}` to disable Synthetic Monitoring resources while keeping dashboards and quota alerts managed.
+That contradiction is an explicit fail-closed rollout decision, not an accepted default. Production plan/apply keeps `enforce_rollout_decisions=true` and fails until a reviewer chooses one of: retain the requested topology and set the protected `NUTSNEWS_GRAFANA_SYNTHETIC_MAJOR_FORECAST_ACKNOWLEDGED=true`; change cadence/topology in source; or change the threshold/allowance in source with supporting quota evidence. Setting the acknowledgment true means only that the operator chose the standing-major five-check/two-probe/five-minute option; it must not silence or reclassify the alert. `enforce_rollout_decisions=false` is permitted only for an explicitly non-mutating static CI fixture, never a saved production plan or apply.
+
+The Terraform variable defaults remain empty for backendless local validation; resource preconditions and protected production workflows reject plan/apply unless all five checks and two probes are present.
+
+Post-apply verification enumerates `GET /api/v1/check`, compares the exact managed IDs, public probe IDs, protected targets, and all status/body/header assertion families, rejects any enabled browser or unmanaged API check, and forecasts every enabled API check from its live frequency and probe count. Those raw provider values remain in memory only. The uploaded report uses a closed schema of bounded statuses, counts, booleans, label-key structure, and source-catalog-UID-keyed SHA-256 definition fingerprints needed for the reviewed vendor-rule baseline; it omits check IDs, jobs, probe IDs, targets, provider text, raw errors, and scheduling details. It then polls for up to 13 minutes for a source-fresh `timestamp(probe_success)` sample from exactly two distinct probes on one current `config_version` for every check.
+
+`Grafana Cloud Synthetic Inventory Audit` repeats the read-only remote inventory/quota check daily between applies. It runs from the dedicated exact-main `grafana-observability-readonly` Environment without a reviewer gate and receives only a Synthetic Monitoring reader token plus bounded expected inventory/configuration; see `runbooks/GRAFANA_OBSERVABILITY_READONLY_ENVIRONMENT.md`. The VPS collector reads only that workflow's scheduled-run status from GitHub, exports its conclusion plus last-run/last-success ages, and Grafana alerts on a failed audit or a 30-hour dead-man breach. The controlled mismatch drill accepts one source-controlled check target at a time and covers status, body, and header assertion failures for all five checks. Before the parent can mutate Synthetic Monitoring, it dispatches a separate protected recovery watchdog. That watchdog verifies the exact live parent run and revision, fetches the remote check, keeps the complete restore payload only in a mode-`0600` runner-local snapshot, and publishes a sanitized, freshness-bounded armed handshake. An HMAC binds that handshake to the private payload so the parent fails closed if the check changes before injection. The parent self-restores, publishes a sanitized release handshake, and waits for the watchdog to exact-restore and verify independently; a missing release instead triggers restoration after a bounded 7,200-second hold or when the parent terminates. Neither targets nor assertion values are uploaded. Restoration writes only when the current check is either the saved state or this drill's one approved mutation, so a later unrelated configuration change is never overwritten.
+
+The watchdog intentionally uses a separate per-check concurrency group. Once the parent failure-drill workflow shares the `grafana-cloud-apply` group, reusing that group in the child would deadlock because the parent waits for the child while holding the group. On the normal release path, the child restores while the still-running parent transitively excludes Grafana applies. If the parent terminates or remains hung until the watchdog deadline, that transitive lock can disappear; the exact-state ownership check is the fail-closed fallback and may report recovery failure instead of overwriting a newer apply. This is the safest serialization GitHub Actions can provide without uploading the private snapshot or introducing an external lock service.
+
+## Alert Delivery, SLOs, And Ownership
+
+`grafana_contact_point.operations_email` reuses `NUTSNEWS_EMAIL_TO`, sends firing and resolved notifications, and is protected from destroy. The global managed policy routes `critical|major` with 30-second grouping, five-minute updates, and hourly repeats; `warning|minor|low` uses five-minute grouping, 15-minute updates, and six-hour repeats. Every Terraform-managed rule carries bounded owner, route, service, severity, environment, dashboard, and runbook context.
+
+`grafana_slo.nutsnews` creates public availability (99.5%), API latency (95% of successful checks within 750 ms), feed freshness (99% of valid durable observations within 15 minutes), and worker terminal success (99%) objectives over 30 days. Public and API SLOs use Grafana's documented gauge execution ratios over `$__interval`; feed freshness is a ratio of good valid observations to all valid observations, so it remains event-style and supports generated burn alerts. The API latency denominator contains only successful article-API checks; failed article-API probes trigger the all-check synthetic operational alert and do not dilute the latency objective. Fast/slow burn alerts are generated for the first three. Worker terminal burn alerts stay disabled while the split worker path is shadow-only.
+
+The `integration---linux-node` inventory distinguishes 24 vendor alert rules from 16 recording rules. Thirty-five rules remain retained and integration-owned. The five legacy `asserts-node.rules` recording rules are explicitly marked for removal only through the supported Linux integration 1.6.3 upgrade, whose changelog says the Asserts base pipeline now provides them; the post-upgrade inventory is therefore 24 alerts plus 11 recording rules. Post-apply verification recognizes the reviewed 40-rule pre-upgrade shape for diagnosis but passes only the exact 35-rule post-upgrade shape, rejects partial or unknown replacement inventories, and checks each retained rule's live folder/group/title/kind, integration marker, query material, and evaluation health. Never delete the five recording rules by UID; use the supported integration upgrade.
+
+The 24 vendor alerts are not exempt from the universal NutsNews label and annotation contract. Their catalog status is deliberately `blocked_pending_owned_replacements_or_supported_vendor_relabel`, and authenticated post-apply verification fails until each alert has normalized `severity`, `owner`, `route`, `service`, `deployment_environment`, dashboard, and runbook context. Resolve that blocker only by proving a supported in-place integration relabel or by comparing pinned official definitions, provisioning source-owned normalized equivalents, and then disabling vendor duplicates after authenticated equivalence review. Root-policy fallback alone is not normalization. Separately, the catalog starts with `baselineStatus=pending_authenticated_rollout`: the first authenticated verification exports deterministic definition hashes and fails closed. An operator must review the live definitions, commit `definitionFingerprintSha256` for all 35 retained rules, and set the status to `approved`; only subsequent matching runs validate definition drift. Until both blockers are resolved, do not claim all-rule normalization or fingerprint drift validation.
+
+All dashboards include the `nutsnews-deployment` annotation stream. Deployment workflows should append promotion, rollback, failover, and database-provider events through the Grafana annotations API; Terraform-managed `grafana_annotation` is intentionally not used because it updates one stateful event rather than retaining append-only history. Database-provider start and outcome annotations cover every applied provider mutation, including an apply where the optional Vercel release dispatch is disabled. Final promotion annotations are dispatched as a separate workflow run: an annotation API outage leaves that observability run failed with a retained `delivery_unverified` receipt, but cannot change an already-authoritative production promotion result or cause the production mutation to be retried. Grafana UI/API publishers accept only the exact query-free `https://nutsnews.grafana.net` origin (with optional explicit port 443) before attaching a bearer token; Synthetic Monitoring clients independently require the `synthetic-monitoring-api*.grafana.net` service family and every client refuses redirects. The `NutsNews Current Production Ownership` dashboard observes the routed web target, database provider, and web revision from the canonical `https://www.nutsnews.com/readyz` response after validating status, no-store semantics, bounded identity values, and matching identity headers; it joins that observation with the VPS deployment receipt for the infrastructure revision. The ingestion-owner and worker mode/write-gate cards consume the backend host's protected deployment signal, validate its mode/expected-active pair, and gate it on exporter freshness. This signal reflects the protected deployment configuration; a future direct read of `worker_uplift_final.cutover_control` is required before calling it database-confirmed cutover state. The remaining cards show backend API revision, host-verified version/revision/running-image-digest identity for all eight workers, runtime deployment/adapter identity, ownership-aware readiness, and source freshness. Until telemetry-enabled worker images are published and repinned, the runtime deployment and readiness cards explicitly show that rollout dependency rather than inferring health from the host image inventory. Shadow worker readiness renders as an explicit disabled state; only production-owned workers are required to report `outcome="ok"`.
 
 ## Backend Import Handoff
 
@@ -143,7 +189,7 @@ The committed defaults for optional Synthetic Monitoring and k6 still assume the
 - Synthetic Monitoring browser tests: 10,000 executions per month.
 - k6: 500 virtual user hours per month.
 
-Metrics, logs, and traces quota guardrails use live `grafanacloud_*_usage` and `grafanacloud_*_limits` data from the `grafanacloud-usage` datasource instead of hard-coded free-plan constants. Current alert thresholds are 70%, 85%, and 95% of the live platform limit for metrics active series, log active streams, log ingestion rate, and trace ingestion rate. Trace alert `NoData` is OK because full worker trace export and exemplars are explicitly deferred.
+Metrics active-series quota uses `grafanacloud_instance_active_series` joined to the matching `grafanacloud_instance_metrics_limits` series on `id`. Logs and traces use their live usage/limit series instead of hard-coded free-plan constants. Threshold alerts remain at 70%, 85%, and 95% and use `NoData=OK`; a separate major alert detects missing required usage numerator/denominator telemetry. Trace threshold `NoData` is expected because full trace export and exemplars remain deferred.
 
 The `NutsNews Logs Overview` dashboard uses the Loki datasource for source, service, level, systemd unit, Docker container, Caddy status-class, and recent-error views. Log active-stream and ingest-rate quota risk are covered by the quota guardrail rules, while the log-pipeline rules alert on Alloy Loki dropped entries, write retries, and high error log volume.
 
@@ -159,4 +205,6 @@ python3 terraform/grafana-cloud/tests/validate_worker_uplift_telemetry_scope.py
 python3 terraform/grafana-cloud/tests/validate_worker_uplift_rabbitmq_dashboards.py
 python3 terraform/grafana-cloud/tests/validate_worker_uplift_alerts_slos.py
 python3 terraform/grafana-cloud/tests/test_validate_synthetic_monitoring_inputs.py
+python3 terraform/grafana-cloud/tests/validate_observability_enhancements.py
+python3 terraform/grafana-cloud/tests/test_verify_post_apply.py
 ```

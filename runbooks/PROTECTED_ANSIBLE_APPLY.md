@@ -2,6 +2,12 @@
 
 Use this runbook for the manual GitHub Actions workflow that applies the Ansible baseline through the protected `production-vps` Environment.
 
+Before rollout, configure and verify the exact-main branch policy and required
+reviewer gate in [Production VPS Environment Protection](PRODUCTION_VPS_ENVIRONMENT_PROTECTION.md).
+The protected baseline now needs both the no-secret release eligibility check
+and the read-only live Environment-policy audit before it can request approval
+or receive Environment secrets.
+
 The workflow is manual-only for now. It does not run on merge, does not use root SSH, and does not store secrets in the repository.
 
 Production app releases normally enter this workflow through
@@ -77,14 +83,14 @@ Optional backup tuning secrets:
 | --- | --- |
 | `NUTSNEWS_BACKUP_REPOSITORY` | `rclone:nutsnews-onedrive:nutsnews-backups/vps` |
 | `NUTSNEWS_BACKUP_STALE_AFTER_HOURS` | `30` |
-| `NUTSNEWS_BACKUP_VERIFY_STALE_AFTER_HOURS` | `192` |
+| `NUTSNEWS_BACKUP_VERIFY_STALE_AFTER_HOURS` | `30` |
 | `NUTSNEWS_BACKUP_CHECK_READ_DATA_SUBSET` | `5%` |
 | `NUTSNEWS_BACKUP_KEEP_DAILY` | `14` |
 | `NUTSNEWS_BACKUP_KEEP_WEEKLY` | `8` |
 | `NUTSNEWS_BACKUP_KEEP_MONTHLY` | `12` |
 | `NUTSNEWS_BACKUP_KEEP_YEARLY` | `2` |
 
-The protected workflow rejects enabled backups unless the restic password and rclone config are present. It also rejects backup repositories that do not use the dedicated `nutsnews-onedrive` rclone remote. When backups are enabled, Ansible enables both the backup timer and the weekly latest-snapshot verification timer.
+The protected workflow rejects enabled backups unless the restic password and rclone config are present. It also rejects backup repositories that do not use the dedicated `nutsnews-onedrive` rclone remote. When backups are enabled, Ansible enables both the backup timer and the daily latest-snapshot verification timer.
 
 ## Run Check Mode
 
@@ -93,7 +99,7 @@ The protected workflow rejects enabled backups unless the restic password and rc
 3. Select `Run workflow`.
 4. Leave `run_mode` as `check`.
 5. Set `enable_cloudflare_ddns` to `false` unless you are intentionally testing [Cloudflare DDNS](CLOUDFLARE_DDNS.md).
-6. Set `enable_grafana_alloy` to `true` only after Grafana Cloud write secrets are configured and [Grafana Cloud Observability](GRAFANA_CLOUD_OBSERVABILITY.md) has been reviewed.
+6. Leave `enable_grafana_alloy` at its production desired state of `true`; first-time setup requires the Grafana Cloud write secrets and a review of [Grafana Cloud Observability](GRAFANA_CLOUD_OBSERVABILITY.md). Disabling it requires the separate typed confirmation.
 7. Leave `confirm_apply` blank.
 8. Approve the `production-vps` Environment gate if prompted.
 9. Review the Ansible diff and recap.
@@ -130,7 +136,7 @@ The gate rehearsal and bypass inventory are covered by
 3. Set `run_mode` to `apply`.
 4. Set `confirm_apply` to `vps.nutsnews.com`.
 5. Set `enable_cloudflare_ddns` to `true` only after the DNS record state has been reviewed and approved.
-6. Set `enable_grafana_alloy` to `true` only after check mode validates the Alloy package, config, and telemetry inputs.
+6. Leave `enable_grafana_alloy` at `true` after check mode validates the Alloy package, config, and telemetry inputs. A reviewed shutdown must set it to `false` and supply `confirm_disable_grafana_alloy=disable-grafana-alloy`.
 7. Approve the `production-vps` Environment gate.
 8. Review the final `PLAY RECAP`.
 

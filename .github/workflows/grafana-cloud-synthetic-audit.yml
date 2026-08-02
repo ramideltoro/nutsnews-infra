@@ -1,0 +1,75 @@
+name: Grafana Cloud Synthetic Inventory Audit
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 8 * * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: grafana-cloud-synthetic-inventory-audit
+  queue: max
+  cancel-in-progress: false
+
+jobs:
+  audit:
+    name: Read-only remote inventory and quota audit
+    if: ${{ github.repository == 'ramideltoro/nutsnews-infra' && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: grafana-observability-readonly
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Materialize expected check and probe inventory
+        shell: bash
+        env:
+          EXPECTED_INVENTORY_JSON: ${{ vars.NUTSNEWS_GRAFANA_SYNTHETIC_EXPECTED_INVENTORY_JSON }}
+        run: |
+          set -euo pipefail
+          umask 077
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          expected_keys = {"synthetic_check_ids", "synthetic_probe_selection"}
+          try:
+              inventory = json.loads(os.environ.get("EXPECTED_INVENTORY_JSON", ""))
+              if not isinstance(inventory, dict) or set(inventory) != expected_keys:
+                  raise ValueError("invalid inventory shape")
+              wrapped = {key: {"value": inventory[key]} for key in sorted(expected_keys)}
+              output = Path(os.environ["RUNNER_TEMP"]) / "grafana-cloud-expected-inventory.json"
+              output.write_text(json.dumps(wrapped, sort_keys=True) + "\n", encoding="utf-8")
+          except (KeyError, OSError, TypeError, ValueError, json.JSONDecodeError):
+              raise SystemExit("Missing or invalid read-only Synthetic Monitoring expected inventory.")
+          PY
+
+      - name: Audit live Synthetic Monitoring inventory
+        shell: bash
+        env:
+          GRAFANA_SM_ACCESS_TOKEN: ${{ secrets.NUTSNEWS_GRAFANA_SYNTHETIC_MONITORING_READONLY_ACCESS_TOKEN }}
+          GRAFANA_SM_URL: ${{ vars.NUTSNEWS_GRAFANA_SYNTHETIC_MONITORING_URL }}
+          NUTSNEWS_GRAFANA_SYNTHETIC_HTTP_CHECKS_JSON: ${{ secrets.NUTSNEWS_GRAFANA_SYNTHETIC_HTTP_CHECKS_JSON }}
+        run: |
+          set -euo pipefail
+          python3 terraform/grafana-cloud/scripts/audit_synthetic_inventory.py \
+            --terraform-outputs "$RUNNER_TEMP/grafana-cloud-expected-inventory.json" \
+            --output "$RUNNER_TEMP/grafana-cloud-synthetic-inventory-audit.json"
+
+      - name: Upload sanitized audit evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
+        with:
+          name: grafana-cloud-synthetic-inventory-audit-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/grafana-cloud-synthetic-inventory-audit.json
+          if-no-files-found: ignore
+          retention-days: 90
