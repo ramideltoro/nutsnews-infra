@@ -1290,7 +1290,7 @@ jobs:
           chmod 0600 .runtime-extra-vars.json
 
       - name: Verify active backend PostgreSQL schema contract
-        if: inputs.release_source_commit != ''
+        if: inputs.release_source_commit != '' && steps.vercel_production.outputs.database_provider_mode == 'backend_postgres_primary'
         shell: bash
         env:
           NUTSNEWS_APP_ENVS_JSON: ${{ secrets.NUTSNEWS_APP_ENVS_JSON }}
