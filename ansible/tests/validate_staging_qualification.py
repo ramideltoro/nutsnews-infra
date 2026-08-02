@@ -182,6 +182,45 @@ assert resolved.staging_deployment_id == DEPLOYMENT_ID
 assert resolved.migration_head == "20260713000000"
 assert resolved.supabase_project_ref == "mpqfulvvagyzqneiaqky"
 
+
+def retry_fetch_json(url: str) -> object:
+    if url.endswith("/deployments?environment=staging&per_page=100"):
+        failed = deployment_payload()
+        failed["id"] = 41
+        succeeded = deployment_payload()
+        succeeded["id"] = 43
+        return [succeeded, failed]
+    if url.endswith("/deployments/41/statuses"):
+        return [status_payload("failure", f"{DEPLOYMENT_ID} status=failure")]
+    if url.endswith("/deployments/43/statuses"):
+        return [status_payload()]
+    raise AssertionError(f"unexpected URL {url}")
+
+
+retried = module.fetch_deployment_evidence(RUN_ID, DEPLOYMENT_ID, retry_fetch_json)
+assert retried.github_deployment_id == 43
+
+
+def conflicting_retry_fetch_json(url: str) -> object:
+    if url.endswith("/deployments?environment=staging&per_page=100"):
+        first = deployment_payload()
+        first["id"] = 42
+        conflicting = deployment_payload()
+        conflicting["id"] = 43
+        conflicting["payload"] = {**conflicting["payload"], "source_commit": "f" * 40}
+        return [conflicting, first]
+    if url.endswith("/deployments/42/statuses") or url.endswith("/deployments/43/statuses"):
+        return [status_payload()]
+    raise AssertionError(f"unexpected URL {url}")
+
+
+try:
+    module.fetch_deployment_evidence(RUN_ID, DEPLOYMENT_ID, conflicting_retry_fetch_json)
+except module.QualificationError:
+    pass
+else:
+    raise AssertionError("conflicting successful retries must be rejected")
+
 passing_record = record()
 assert passing_record["source"]["migration_head"] == "20260713000000"
 assert passing_record["source"]["schema_version"] == "20260715000100"
