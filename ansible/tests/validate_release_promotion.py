@@ -426,6 +426,8 @@ for required in (
     "Checkout exact app post-production smoke suite",
     "Checkout current app smoke helper",
     "Install current app smoke helper",
+    "Verify active backend PostgreSQL schema contract",
+    "scripts/verify_backend_release_schema_contract.mjs",
     "Run safe production app smoke surfaces",
     "Run production admin backend operation smoke",
     "NUTSNEWS_BACKEND_API_TOKEN",
@@ -448,6 +450,7 @@ assert protected_workflow.count("PRODUCTION_WRITES_PAUSED: ${{ inputs.production
 )
 assert "release_smoke_helper_ref must be a full lowercase SHA when set." in protected_workflow
 assert "nutsnews-current-smoke/scripts/dual_target_web_smoke.mjs" in protected_workflow
+assert "nutsnews-current-smoke/scripts/dual_target_web_smoke_contract.mjs" in protected_workflow
 assert "nutsnews-current-smoke/scripts/admin_backend_operation_smoke.mjs" in protected_workflow
 assert "nutsnews-current-smoke/api-contracts/admin-backend-operations.json" in protected_workflow
 assert 'release_deployment_target" != "production-vps"' in protected_workflow
@@ -459,6 +462,10 @@ assert "healthDeploymentTargets.has(payloadDeploymentTarget)" in protected_workf
 assert 'response.headers.get("x-nutsnews-deployment-target") === payloadDeploymentTarget' in protected_workflow
 assert "--expected-deployment-target production-vps" in protected_workflow
 assert "--expected-health-deployment-target vps,production-vps" in protected_workflow
+assert (
+    protected_workflow.index("Verify active backend PostgreSQL schema contract")
+    < protected_workflow.index("Run Ansible baseline")
+), "Protected app release must verify the active backend schema before Ansible can mutate production."
 assert (
     protected_workflow.index("Run safe production app smoke surfaces")
     < protected_workflow.index("Run production admin backend operation smoke")
