@@ -465,6 +465,7 @@ jobs:
           python3 ansible/tests/validate_nutsnews_environment_isolation.py
           python3 ansible/tests/validate_release_promotion.py
           node --test tests/production_schema_contract_retry.test.mjs
+          node --test tests/backend_release_schema_contract.test.mjs
           python3 ansible/tests/validate_staging_deployment.py
           python3 ansible/tests/validate_staging_access_boundary.py
           python3 ansible/tests/validate_staging_qualification.py

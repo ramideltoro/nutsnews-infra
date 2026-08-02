@@ -1289,6 +1289,17 @@ jobs:
 
           chmod 0600 .runtime-extra-vars.json
 
+      - name: Verify active backend PostgreSQL schema contract
+        if: inputs.release_source_commit != ''
+        shell: bash
+        env:
+          NUTSNEWS_APP_ENVS_JSON: ${{ secrets.NUTSNEWS_APP_ENVS_JSON }}
+          RELEASE_MIGRATION_HEAD: ${{ inputs.release_migration_head }}
+          RELEASE_SCHEMA_VERSION: ${{ inputs.release_schema_version }}
+        run: |
+          set -euo pipefail
+          node scripts/verify_backend_release_schema_contract.mjs
+
       - name: Inspect Cloudflare DDNS record
         if: inputs.enable_cloudflare_ddns == 'true'
         shell: bash
@@ -1468,6 +1479,7 @@ jobs:
             api-contracts/admin-backend-operations.json
             scripts/admin_backend_operation_smoke.mjs
             scripts/dual_target_web_smoke.mjs
+            scripts/dual_target_web_smoke_contract.mjs
           sparse-checkout-cone-mode: false
           persist-credentials: false
 
@@ -1483,10 +1495,14 @@ jobs:
             nutsnews-current-smoke/scripts/dual_target_web_smoke.mjs \
             nutsnews-source/scripts/dual_target_web_smoke.mjs
           install -m 0644 \
+            nutsnews-current-smoke/scripts/dual_target_web_smoke_contract.mjs \
+            nutsnews-source/scripts/dual_target_web_smoke_contract.mjs
+          install -m 0644 \
             nutsnews-current-smoke/api-contracts/admin-backend-operations.json \
             nutsnews-source/api-contracts/admin-backend-operations.json
           node --check nutsnews-source/scripts/admin_backend_operation_smoke.mjs
           node --check nutsnews-source/scripts/dual_target_web_smoke.mjs
+          node --check nutsnews-source/scripts/dual_target_web_smoke_contract.mjs
 
       - name: Run safe production app smoke surfaces
         if: inputs.release_source_commit != ''
