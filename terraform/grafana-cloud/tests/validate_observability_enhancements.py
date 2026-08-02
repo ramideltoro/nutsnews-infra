@@ -160,13 +160,18 @@ for forbidden in (
     )
 
 for token in (
-    r'(?i)^https://nutsnews\\.grafana\\.net(:443)?/?\\z',
+    r'(?i)^https://kindcantaloupe2036\\.grafana\\.net(:443)?/?\\z',
     "grafana_url must be the exact query-free https://kindcantaloupe2036.grafana.net origin using implicit or explicit port 443.",
+    "check.enabled && length(check.valid_status_codes) == 1 && check.valid_status_codes[0] == 200",
 ):
     require(token in VARIABLES, f"Terraform Grafana origin validation is missing {token}")
 require(
     'startswith(var.grafana_url, "https://")' not in VARIABLES,
     "Terraform must not rely on prefix-only Grafana URL validation",
+)
+require(
+    "check.valid_status_codes == [200]" not in VARIABLES,
+    "Terraform must not compare a typed status-code list with an untyped tuple literal",
 )
 
 for workflow, name in ((PLAN_WORKFLOW, "plan"), (APPLY_WORKFLOW, "apply")):
@@ -341,7 +346,8 @@ for check in approved_checks:
 require("length(var.synthetic_monitoring_probe_ids) == 2" in VARIABLES, "synthetics must require two probes")
 require("check.frequency_ms == 300000" in VARIABLES, "synthetics must run every five minutes")
 require(
-    "check.enabled && check.valid_status_codes == [200]" in VARIABLES,
+    "check.enabled && length(check.valid_status_codes) == 1 && check.valid_status_codes[0] == 200"
+    in VARIABLES,
     "synthetic checks must fail closed on disabled checks or non-200 status contracts",
 )
 for token in (
