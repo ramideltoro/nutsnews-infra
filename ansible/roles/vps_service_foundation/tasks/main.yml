@@ -1248,8 +1248,10 @@
               vps_service_foundation_alloy_docker_component.status == 200
               and
               (
-                vps_service_foundation_alloy_docker_component
-                .get('json', {})
+                (
+                  vps_service_foundation_alloy_docker_component.content
+                  | from_json
+                )
                 .get('debugInfo', {})
                 .get('targets_info', [])
                 | selectattr('is_running', 'equalto', true)
@@ -1258,8 +1260,10 @@
               and
               'service="caddy"' in
               (
-                vps_service_foundation_alloy_docker_component
-                .get('json', {})
+                (
+                  vps_service_foundation_alloy_docker_component.content
+                  | from_json
+                )
                 .get('debugInfo', {})
                 .get('targets_info', [])
                 | selectattr('is_running', 'equalto', true)
@@ -1269,8 +1273,10 @@
               and
               'service="web"' in
               (
-                vps_service_foundation_alloy_docker_component
-                .get('json', {})
+                (
+                  vps_service_foundation_alloy_docker_component.content
+                  | from_json
+                )
                 .get('debugInfo', {})
                 .get('targets_info', [])
                 | selectattr('is_running', 'equalto', true)
@@ -1290,23 +1296,29 @@
           response_status: "{{ vps_service_foundation_alloy_docker_component.status | default(0) | int }}"
           component_health: >-
             {{
-              vps_service_foundation_alloy_docker_component
-              .get('json', {})
+              (
+                vps_service_foundation_alloy_docker_component.content
+                | from_json
+              )
               .get('health', {})
               .get('state', 'unavailable')
             }}
           targets_total: >-
             {{
-              vps_service_foundation_alloy_docker_component
-              .get('json', {})
+              (
+                vps_service_foundation_alloy_docker_component.content
+                | from_json
+              )
               .get('debugInfo', {})
               .get('targets_info', [])
               | length
             }}
           running_total: >-
             {{
-              vps_service_foundation_alloy_docker_component
-              .get('json', {})
+              (
+                vps_service_foundation_alloy_docker_component.content
+                | from_json
+              )
               .get('debugInfo', {})
               .get('targets_info', [])
               | selectattr('is_running', 'equalto', true)
@@ -1316,8 +1328,10 @@
             {{
               'service="caddy"' in
               (
-                vps_service_foundation_alloy_docker_component
-                .get('json', {})
+                (
+                  vps_service_foundation_alloy_docker_component.content
+                  | from_json
+                )
                 .get('debugInfo', {})
                 .get('targets_info', [])
                 | selectattr('is_running', 'equalto', true)
@@ -1329,8 +1343,10 @@
             {{
               'service="web"' in
               (
-                vps_service_foundation_alloy_docker_component
-                .get('json', {})
+                (
+                  vps_service_foundation_alloy_docker_component.content
+                  | from_json
+                )
                 .get('debugInfo', {})
                 .get('targets_info', [])
                 | selectattr('is_running', 'equalto', true)
