@@ -203,8 +203,15 @@ require(
     "Protected apply must inspect the bounded Alloy Docker source component.",
 )
 require(
-    ".get('debugInfo', {})" in TASKS and ".get('targets_info', [])" in TASKS,
+    "vps_service_foundation_alloy_docker_component.content" in TASKS
+    and "| from_json" in TASKS
+    and ".get('debugInfo', {})" in TASKS
+    and ".get('targets_info', [])" in TASKS,
     "Docker log verification must use Alloy's reader-level debug information.",
+)
+require(
+    ".get('json', {})" not in TASKS,
+    "Alloy's JSON response must be decoded explicitly because its UI handler omits a JSON content type.",
 )
 require(
     "selectattr('is_running', 'equalto', true)" in TASKS,
