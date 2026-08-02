@@ -108,29 +108,36 @@ class NotificationCanaryTests(unittest.TestCase):
             "https://kindcantaloupe2036.grafana.net/api/alertmanager/grafana/api/v2/alerts",
         )
 
-    def test_payload_routes_to_email_and_has_unique_searchable_name(self) -> None:
-        start = dt.datetime(2026, 7, 31, tzinfo=dt.timezone.utc)
-        alert = MODULE.build_alert("run-123", start, start + dt.timedelta(minutes=15))
-        self.assertEqual(alert["labels"]["alertname"], "NutsNewsNotificationCanary-run-123")
-        self.assertEqual(alert["labels"]["route"], "operations-email")
-        self.assertEqual(alert["labels"]["severity"], "critical")
-        self.assertEqual(set(alert["labels"]), MODULE.REQUIRED_LABELS)
-        self.assertIn("run-123", alert["annotations"]["summary"])
+    def test_managed_rule_routes_to_email_and_has_unique_searchable_name(self) -> None:
+        expiry = dt.datetime(2026, 7, 31, 0, 15, tzinfo=dt.timezone.utc)
+        rule = MODULE.build_rule("run-123", "grafanacloud-prom", expiry, True)
+        self.assertEqual(rule["labels"]["alertname"], "NutsNewsNotificationCanary-run-123")
+        self.assertEqual(rule["labels"]["route"], "operations-email")
+        self.assertEqual(rule["labels"]["severity"], "critical")
+        self.assertEqual(set(rule["labels"]), MODULE.REQUIRED_LABELS)
+        self.assertIn("run-123", rule["annotations"]["summary"])
         self.assertEqual(
-            alert["generatorURL"],
+            rule["annotations"]["dashboard_url"],
             "https://kindcantaloupe2036.grafana.net/d/nutsnews-vps-overview",
         )
-        self.assertEqual(
-            alert["annotations"]["dashboard_url"], alert["generatorURL"]
-        )
+        self.assertEqual(rule["folderUID"], "nutsnews-observability")
+        self.assertEqual(rule["condition"], "C")
+        self.assertEqual(rule["data"][0]["model"]["expr"], "vector(time() < bool 1785456900)")
 
-    def test_resolution_reuses_exact_labels_and_start_time(self) -> None:
-        start = dt.datetime(2026, 7, 31, tzinfo=dt.timezone.utc)
-        firing = MODULE.build_alert("run-123", start, start + dt.timedelta(minutes=15))
-        resolved = MODULE.build_alert("run-123", start, start + dt.timedelta(minutes=1))
+    def test_resolution_reuses_identity_and_forces_false_query(self) -> None:
+        expiry = dt.datetime(2026, 7, 31, 0, 15, tzinfo=dt.timezone.utc)
+        firing = MODULE.build_rule("run-123", "grafanacloud-prom", expiry, True)
+        resolved = MODULE.build_rule("run-123", "grafanacloud-prom", expiry, False)
         self.assertEqual(firing["labels"], resolved["labels"])
-        self.assertEqual(firing["startsAt"], resolved["startsAt"])
-        self.assertNotEqual(firing["endsAt"], resolved["endsAt"])
+        self.assertEqual(firing["uid"], resolved["uid"])
+        self.assertEqual(firing["ruleGroup"], resolved["ruleGroup"])
+        self.assertEqual(resolved["data"][0]["model"]["expr"], "vector(0)")
+
+    def test_rule_uid_is_bounded_and_datasource_uid_is_validated(self) -> None:
+        self.assertRegex(MODULE.canary_rule_uid("run-123"), r"^nn-notify-canary-[a-f0-9]{16}$")
+        for value in ("", "-100", "__expr__", "uid with spaces", "x" * 129):
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                MODULE.validate_datasource_uid(value)
 
     def test_active_matcher_ignores_other_alerts(self) -> None:
         response = [

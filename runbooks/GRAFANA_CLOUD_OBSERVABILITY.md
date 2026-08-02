@@ -369,8 +369,15 @@ minutes, updates every 15 minutes, and repeats every six hours.
 
 Run `Grafana Notification Canary` once during rollout and retain its unique
 firing and resolved messages in the operations mailbox. The workflow also runs
-quarterly. Its fire/resolve phase succeeds after both Alertmanager state
-transitions and records `pending_receipt`; it does not mark email delivery as
+quarterly. The workflow creates a uniquely named Grafana-managed alert rule,
+observes it in the built-in Alertmanager, changes its bounded PromQL condition
+to false, observes recovery, and deletes the temporary rule. This is required
+because Grafana's built-in Alertmanager accepts Grafana-managed alerts rather
+than direct external alert injection. The firing query automatically becomes
+false after 15 minutes if the runner is interrupted, and the workflow also
+attempts recovery and deletion in its final cleanup path. Its fire/resolve phase
+succeeds only after both Alertmanager state transitions and temporary-rule
+deletion, then records `pending_receipt`; it does not mark email delivery as
 verified. Search the mailbox for the unique
 `NutsNewsNotificationCanary-github-<run>` alert name recorded in the workflow
 summary. Retain the API-transition record and matching firing/resolved receipt

@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
+import hashlib
 import json
 import os
 import re
@@ -29,6 +30,9 @@ GRAFANA_UI_HOSTNAME = "kindcantaloupe2036.grafana.net"
 GRAFANA_CANARY_DASHBOARD_URL = (
     f"https://{GRAFANA_UI_HOSTNAME}/d/nutsnews-vps-overview"
 )
+GRAFANA_ALERT_RULE_FOLDER_UID = "nutsnews-observability"
+ALERT_RULES_PATH = "/api/v1/provisioning/alert-rules"
+ALERTMANAGER_ALERTS_PATH = "/api/alertmanager/grafana/api/v2/alerts"
 
 
 class NoRedirectHandler(urllib.request.HTTPRedirectHandler):
@@ -90,14 +94,33 @@ def safe_canary_id(value: str) -> str:
     return normalized
 
 
-def build_alert(
+def validate_datasource_uid(value: str) -> str:
+    """Return a bounded Grafana datasource UID suitable for a rule payload."""
+    value = value.strip()
+    if not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", value):
+        raise ValueError("GRAFANA_PROMETHEUS_DATASOURCE_UID is invalid")
+    if value in {"-100", "__expr__"}:
+        raise ValueError("GRAFANA_PROMETHEUS_DATASOURCE_UID must identify Prometheus")
+    return value
+
+
+def canary_rule_uid(canary_id: str) -> str:
+    """Return a stable bounded UID without exposing the caller-controlled ID."""
+    digest = hashlib.sha256(safe_canary_id(canary_id).encode("utf-8")).hexdigest()[:16]
+    return f"nn-notify-canary-{digest}"
+
+
+def build_rule(
     canary_id: str,
-    starts_at: dt.datetime,
-    ends_at: dt.datetime,
+    datasource_uid: str,
+    expires_at: dt.datetime,
+    active: bool,
 ) -> dict[str, Any]:
     canary_id = safe_canary_id(canary_id)
+    datasource_uid = validate_datasource_uid(datasource_uid)
+    alert_name = f"NutsNewsNotificationCanary-{canary_id}"
     labels = {
-        "alertname": f"NutsNewsNotificationCanary-{canary_id}",
+        "alertname": alert_name,
         "deployment_environment": "production",
         "owner": "nutsnews-observability",
         "route": "operations-email",
@@ -106,7 +129,18 @@ def build_alert(
     }
     if set(labels) != REQUIRED_LABELS:
         raise ValueError("notification canary labels drifted from the routing contract")
+    expiry_epoch = int(expires_at.astimezone(dt.timezone.utc).timestamp())
+    query = f"vector(time() < bool {expiry_epoch})" if active else "vector(0)"
     return {
+        "uid": canary_rule_uid(canary_id),
+        "title": alert_name,
+        "ruleGroup": f"NutsNews notification canary {canary_rule_uid(canary_id)}",
+        "folderUID": GRAFANA_ALERT_RULE_FOLDER_UID,
+        "condition": "C",
+        "noDataState": "OK",
+        "execErrState": "OK",
+        "for": "0s",
+        "isPaused": False,
         "labels": labels,
         "annotations": {
             "canary_id": canary_id,
@@ -121,9 +155,72 @@ def build_alert(
             ),
             "summary": f"Grafana notification canary {canary_id}",
         },
-        "startsAt": iso8601(starts_at),
-        "endsAt": iso8601(ends_at),
-        "generatorURL": GRAFANA_CANARY_DASHBOARD_URL,
+        "data": [
+            {
+                "refId": "A",
+                "queryType": "",
+                "relativeTimeRange": {"from": 600, "to": 0},
+                "datasourceUid": datasource_uid,
+                "model": {
+                    "datasource": {"type": "prometheus", "uid": datasource_uid},
+                    "editorMode": "code",
+                    "expr": query,
+                    "instant": True,
+                    "intervalMs": 1000,
+                    "legendFormat": alert_name,
+                    "maxDataPoints": 43200,
+                    "range": False,
+                    "refId": "A",
+                },
+            },
+            {
+                "refId": "B",
+                "queryType": "",
+                "relativeTimeRange": {"from": 0, "to": 0},
+                "datasourceUid": "-100",
+                "model": {
+                    "conditions": [
+                        {
+                            "evaluator": {"params": [], "type": "gt"},
+                            "operator": {"type": "and"},
+                            "query": {"params": ["B"]},
+                            "reducer": {"params": [], "type": "last"},
+                            "type": "query",
+                        }
+                    ],
+                    "datasource": {"type": "__expr__", "uid": "-100"},
+                    "expression": "A",
+                    "intervalMs": 1000,
+                    "maxDataPoints": 43200,
+                    "reducer": "last",
+                    "refId": "B",
+                    "type": "reduce",
+                },
+            },
+            {
+                "refId": "C",
+                "queryType": "",
+                "relativeTimeRange": {"from": 0, "to": 0},
+                "datasourceUid": "-100",
+                "model": {
+                    "conditions": [
+                        {
+                            "evaluator": {"params": [0], "type": "gt"},
+                            "operator": {"type": "and"},
+                            "query": {"params": ["C"]},
+                            "reducer": {"params": [], "type": "last"},
+                            "type": "query",
+                        }
+                    ],
+                    "datasource": {"type": "__expr__", "uid": "-100"},
+                    "expression": "B",
+                    "intervalMs": 1000,
+                    "maxDataPoints": 43200,
+                    "refId": "C",
+                    "type": "threshold",
+                },
+            },
+        ],
     }
 
 
@@ -153,11 +250,11 @@ class AlertmanagerClient:
             detail = exc.read().decode("utf-8", errors="replace")[:300]
             exc.close()
             raise RuntimeError(
-                f"Grafana Alertmanager {method} {path} failed with {exc.code}: {detail}"
+                f"Grafana alerting {method} {path} failed with {exc.code}: {detail}"
             ) from exc
         except urllib.error.URLError as exc:
             raise RuntimeError(
-                f"Grafana Alertmanager {method} {path} failed: {exc.reason}"
+                f"Grafana alerting {method} {path} failed: {exc.reason}"
             ) from exc
         return json.loads(raw) if raw else {}
 
@@ -183,9 +280,7 @@ def active_alerts(client: AlertmanagerClient, alert_name: str) -> list[dict[str,
             "filter": f'alertname="{alert_name}"',
         }
     )
-    response = client.request(
-        "GET", f"/api/alertmanager/grafana/api/v2/alerts?{query}"
-    )
+    response = client.request("GET", f"{ALERTMANAGER_ALERTS_PATH}?{query}")
     return matching_active_alerts(response, alert_name)
 
 
@@ -231,25 +326,42 @@ def main() -> int:
     if not token:
         print("GRAFANA_SERVICE_ACCOUNT_TOKEN is required", file=sys.stderr)
         return 1
+    try:
+        datasource_uid = validate_datasource_uid(
+            os.environ.get("GRAFANA_PROMETHEUS_DATASOURCE_UID", "")
+        )
+    except ValueError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
 
     canary_id = safe_canary_id(args.canary_id)
     client = AlertmanagerClient(url, token)
     starts_at = utc_now()
-    firing = build_alert(canary_id, starts_at, starts_at + dt.timedelta(minutes=15))
+    expires_at = starts_at + dt.timedelta(minutes=15)
+    firing = build_rule(canary_id, datasource_uid, expires_at, True)
+    resolved = build_rule(canary_id, datasource_uid, expires_at, False)
     alert_name = firing["labels"]["alertname"]
+    rule_uid = firing["uid"]
     report: dict[str, Any] = {
         "alertname": alert_name,
         "canary_id": canary_id,
+        "ephemeral_rule_created": False,
+        "ephemeral_rule_deleted": False,
+        "ephemeral_rule_uid": rule_uid,
+        "failsafe_expires_at": iso8601(expires_at),
         "fired_at": iso8601(starts_at),
         "firing_state_observed": False,
         "held_seconds": args.hold_seconds,
+        "resolution_requested": False,
         "resolved_at": None,
         "resolved_state_observed": False,
         "status": "fail",
     }
 
+    failure: str | None = None
     try:
-        client.request("POST", "/api/alertmanager/grafana/api/v2/alerts", [firing])
+        client.request("POST", ALERT_RULES_PATH, firing)
+        report["ephemeral_rule_created"] = True
         report["firing_state_observed"] = wait_for_state(
             client, alert_name, True, args.state_timeout_seconds
         )
@@ -258,18 +370,54 @@ def main() -> int:
         time.sleep(args.hold_seconds)
 
         resolved_at = utc_now()
-        resolved = build_alert(canary_id, starts_at, resolved_at)
-        client.request("POST", "/api/alertmanager/grafana/api/v2/alerts", [resolved])
+        client.request(
+            "PUT", f"{ALERT_RULES_PATH}/{urllib.parse.quote(rule_uid)}", resolved
+        )
+        report["resolution_requested"] = True
         report["resolved_at"] = iso8601(resolved_at)
         report["resolved_state_observed"] = wait_for_state(
             client, alert_name, False, args.state_timeout_seconds
         )
         if not report["resolved_state_observed"]:
             raise RuntimeError("canary did not resolve before timeout")
-        report["status"] = "pass"
     except (RuntimeError, ValueError) as exc:
-        report["error"] = str(exc)
+        failure = str(exc)
     finally:
+        if report["ephemeral_rule_created"]:
+            if not report["resolution_requested"]:
+                try:
+                    client.request(
+                        "PUT",
+                        f"{ALERT_RULES_PATH}/{urllib.parse.quote(rule_uid)}",
+                        resolved,
+                    )
+                    report["resolution_requested"] = True
+                    report["resolved_at"] = iso8601(utc_now())
+                    report["resolved_state_observed"] = wait_for_state(
+                        client,
+                        alert_name,
+                        False,
+                        args.state_timeout_seconds,
+                    )
+                except RuntimeError as exc:
+                    failure = failure or f"failsafe resolution failed: {exc}"
+            try:
+                client.request(
+                    "DELETE", f"{ALERT_RULES_PATH}/{urllib.parse.quote(rule_uid)}"
+                )
+                report["ephemeral_rule_deleted"] = True
+            except RuntimeError as exc:
+                failure = failure or f"ephemeral rule cleanup failed: {exc}"
+
+        if (
+            failure is None
+            and report["firing_state_observed"]
+            and report["resolved_state_observed"]
+            and report["ephemeral_rule_deleted"]
+        ):
+            report["status"] = "pass"
+        else:
+            report["error"] = failure or "notification canary transition incomplete"
         args.output.parent.mkdir(parents=True, exist_ok=True)
         args.output.write_text(
             json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8"

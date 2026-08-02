@@ -1211,9 +1211,13 @@ for token in (
     require(token in CANARY_WORKFLOW, f"quarterly notification canary workflow missing {token}")
 for token in (
     "/api/alertmanager/grafana/api/v2/alerts",
+    "/api/v1/provisioning/alert-rules",
     "NutsNewsNotificationCanary-",
     '"route": "operations-email"',
     '"severity": "critical"',
+    '"ephemeral_rule_created": False',
+    '"ephemeral_rule_deleted": False',
+    '"vector(0)"',
 ):
     require(token in CANARY, f"notification canary implementation missing {token}")
 
