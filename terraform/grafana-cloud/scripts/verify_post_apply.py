@@ -741,7 +741,7 @@ LOKI_QUERIES = {
     "backend_api_logs": '{deployment_environment="production",host="backend.nutsnews.com",source="journal",service="backend-api"}',
     "backend_caddy_logs": '{deployment_environment="production",host="backend.nutsnews.com",service="caddy"}',
     "backend_alloy_logs": '{deployment_environment="production",host="backend.nutsnews.com",source="journal",service="alloy"}',
-    "backend_postgresql_logs": '{deployment_environment="production",host="backend.nutsnews.com",source="journal",service="postgresql"}',
+    "backend_postgresql_logs": '{deployment_environment="production",host="backend.nutsnews.com",source=~"journal|postgresql",service="postgresql"}',
     "backend_sync_relay_logs": '{deployment_environment="production",host="backend.nutsnews.com",source="journal",service="sync-relay"}',
     "vps_caddy_logs": '{deployment_environment="production",host="vps.nutsnews.com",service="caddy"}',
     "vps_web_logs": '{deployment_environment="production",host="vps.nutsnews.com",service="web"}',
@@ -753,6 +753,15 @@ LOKI_QUERIES = {
         )
         for service in sorted(WORKER_SERVICES)
     },
+}
+
+# Access and application services normally emit within the six-hour default.
+# Quiet database and process-log sources may only emit at checkpoint/startup, so
+# retain a bounded one-day proof window rather than creating synthetic log noise.
+LOKI_QUERY_HOURS_OVERRIDES = {
+    "backend_postgresql_logs": 24,
+    "vps_caddy_logs": 24,
+    "vps_web_logs": 24,
 }
 
 LOKI_INDEXED_LABELS = {
@@ -4488,8 +4497,11 @@ def main() -> int:
     for name, query in LOKI_QUERIES.items():
         loki[name] = safe_check(
             f"Loki query {name}",
-            lambda query=query: loki_query_evidence(
-                client, loki_uid, query, args.loki_hours
+            lambda query=query, name=name: loki_query_evidence(
+                client,
+                loki_uid,
+                query,
+                LOKI_QUERY_HOURS_OVERRIDES.get(name, args.loki_hours),
             ),
             errors,
             {
