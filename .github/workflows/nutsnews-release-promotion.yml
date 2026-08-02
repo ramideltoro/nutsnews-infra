@@ -737,9 +737,9 @@ jobs:
           STAGING_DEPLOYMENT_ID: ${{ steps.qualified.outputs.staging_deployment_id }}
           QUALIFICATION_RUN_ID: ${{ steps.qualified.outputs.qualification_run_id }}
           VPS_APPLY_RUN_ID: ${{ steps.apply.outputs.run_id }}
-          DATABASE_PROVIDER_MODE: supabase_primary
+          DATABASE_PROVIDER_MODE: backend_postgres_primary
           BACKEND_API_URL: https://backend.nutsnews.com/api/app/db
-          PROVIDER_SWITCH_CONFIRMATION: deploy-supabase-primary
+          PROVIDER_SWITCH_CONFIRMATION: enable-backend-postgres-primary
         run: |
           set -euo pipefail
           if [[ -z "$NUTSNEWS_APP_RELEASE_TOKEN" ]]; then

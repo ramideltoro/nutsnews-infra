@@ -2,10 +2,11 @@
 
 Use this only for the NutsNews backend PostgreSQL primary cutover or rollback.
 
-Qualified automatic releases keep `supabase_primary` as the production provider.
-Do not change the release-promotion default to `backend_postgres_primary`; that
-provider requires a separate protected cutover after its database reports the
-exact app migration head and a matching schema fingerprint.
+Qualified automatic releases preserve `backend_postgres_primary`, the current
+production owner. The active backend must report the exact app migration head,
+legacy marker, and matching schema fingerprint before release mutation begins.
+`supabase_primary` is reserved for a separately approved protected standby
+failover; normal releases must never select it as a rollout shortcut.
 It updates non-secret Vercel Production switch variables and then dispatches the
 existing app Vercel production release so the new environment is deployed.
 
