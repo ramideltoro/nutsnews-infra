@@ -657,8 +657,11 @@ require(
     "synthetic audit overdue rule must add true/false and missing-data arms instead of set-union masking",
 )
 for token in (
-    "grafana-cloud-synthetic-audit.yml/runs?branch=main&event=schedule",
+    "grafana-cloud-synthetic-audit.yml/runs?branch=main&per_page=20",
     "def synthetic_inventory_audit_state()",
+    'eligible_events = {"schedule", "workflow_dispatch"}',
+    'latest_scheduled = scheduled[0] if scheduled else {}',
+    '"last_run_at": latest_scheduled.get("updated_at", "never")',
     '"last_success_at"',
 ):
     require(token in VPS_COLLECTOR, f"scheduled synthetic audit status collection is incomplete: {token}")

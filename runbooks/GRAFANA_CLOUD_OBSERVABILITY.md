@@ -210,7 +210,10 @@ policy permits the target to continue automatically.
 The unattended daily synthetic inventory audit uses the separate
 `grafana-observability-readonly` Environment described in
 `GRAFANA_OBSERVABILITY_READONLY_ENVIRONMENT.md`; it must not inherit deployment
-credentials or a manual reviewer gate.
+credentials or a manual reviewer gate. The collector anchors dead-man health to
+the latest scheduled run, but an exact-main manual dispatch may provide a
+current conclusion and last-success timestamp during incident recovery. Manual
+runs never advance the scheduled last-run timestamp.
 
 Add these to the protected `production-vps` GitHub Environment before enabling Alloy telemetry writes:
 
