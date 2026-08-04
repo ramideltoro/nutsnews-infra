@@ -131,7 +131,7 @@ DOCS_BASE_URL = os.environ.get("NUTSNEWS_DOCS_BASE_URL", "https://github.com/ram
 INFRA_REPO_URL = os.environ.get("NUTSNEWS_INFRA_REPO_URL", "https://github.com/ramideltoro/nutsnews-infra")
 SYNTHETIC_AUDIT_RUNS_URL = (
     "https://api.github.com/repos/ramideltoro/nutsnews-infra/actions/workflows/"
-    "grafana-cloud-synthetic-audit.yml/runs?branch=main&event=schedule&per_page=20"
+    "grafana-cloud-synthetic-audit.yml/runs?branch=main&per_page=20"
 )
 GITHUB_USAGE_API_TOKEN = os.environ.get("NUTSNEWS_GITHUB_USAGE_API_TOKEN", "").strip()
 ALLOY_ENABLED = os.environ.get("NUTSNEWS_ALLOY_ENABLED", "0").strip().lower() in {"1", "true", "yes", "on"}
@@ -1742,7 +1742,7 @@ def free_tier_usage_state() -> dict[str, Any]:
 
 
 def synthetic_inventory_audit_state() -> dict[str, Any]:
-    """Read bounded scheduled-workflow health from GitHub's public Actions API."""
+    """Read bounded audit health while preserving a scheduled-run dead-man."""
     headers = {
         "Accept": "application/vnd.github+json",
         "User-Agent": "nutsnews-ops-portal-collector",
@@ -1767,13 +1767,16 @@ def synthetic_inventory_audit_state() -> dict[str, Any]:
         run
         for run in runs
         if isinstance(run, dict)
-        and run.get("event") == "schedule"
         and run.get("status") == "completed"
         and isinstance(run.get("updated_at"), str)
     ] if isinstance(runs, list) else []
-    latest = completed[0] if completed else {}
+    eligible_events = {"schedule", "workflow_dispatch"}
+    eligible = [run for run in completed if run.get("event") in eligible_events]
+    scheduled = [run for run in completed if run.get("event") == "schedule"]
+    latest = eligible[0] if eligible else {}
+    latest_scheduled = scheduled[0] if scheduled else {}
     latest_success = next(
-        (run for run in completed if run.get("conclusion") == "success"), {}
+        (run for run in eligible if run.get("conclusion") == "success"), {}
     )
     allowed_conclusions = {
         "success",
@@ -1791,7 +1794,7 @@ def synthetic_inventory_audit_state() -> dict[str, Any]:
     return {
         "available": True,
         "latest_conclusion": conclusion,
-        "last_run_at": latest.get("updated_at", "never"),
+        "last_run_at": latest_scheduled.get("updated_at", "never"),
         "last_success_at": latest_success.get("updated_at", "never"),
         "expected_interval_seconds": 86400,
     }

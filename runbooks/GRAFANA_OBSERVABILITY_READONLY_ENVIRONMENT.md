@@ -68,3 +68,8 @@ The workflow grants only `contents: read`, checks out without persisted Git
 credentials, issues only bounded datasource-proxy `GET` requests, and uploads a
 sanitized audit artifact. Changes to checks remain confined to the manual,
 reviewer-gated production workflows.
+
+An exact-main manual dispatch is an approved incident-recovery check. The VPS
+collector may use its conclusion and success time, but keeps the dead-man clock
+anchored to the most recent scheduled run so manual execution cannot mask a
+stopped GitHub schedule.
