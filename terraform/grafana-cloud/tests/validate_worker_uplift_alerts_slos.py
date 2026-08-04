@@ -145,7 +145,7 @@ for title in (
     "Stage P95 Latency",
     "Retry And DLQ Budget Ratio",
     "Publication Success Ratio",
-    "Feed Freshness Age",
+    "Newest Published Content Age",
     "Worker-Uplift Alert State",
     "Canary Fixture Signal",
     "RabbitMQ Recovery Proof Age",
@@ -435,31 +435,45 @@ require(
     "scheduler freshness must use the exact worker scrape identity",
 )
 
-for uid in ("nn-wu-slo-feed-freshness", "nn-wu-feed-freshness-critical"):
-    freshness_alert = next(alert for alert in alerts if alert["uid"] == uid)
-    require(
-        "nutsnews_backend_public_feed_snapshot_newest_content_age_seconds" in freshness_alert["expr"],
-        f"{uid} must use the durable production feed snapshot age",
-    )
-    require(
-        "nutsnews_backend_content_coverage_available" in freshness_alert["expr"],
-        f"{uid} must gate evaluation on a readable durable content source",
-    )
-    require(
-        ">= 0" in freshness_alert["expr"],
-        f"{uid} must reject the explicit unavailable sentinel",
-    )
-    require(
-        "nutsnews_backend_worker_uplift_expected_active" not in freshness_alert["expr"],
-        f"{uid} must protect the live production feed independently of shadow-worker ownership",
-    )
-
+ingestion_freshness_alert = next(
+    alert for alert in alerts if alert["uid"] == "nn-wu-slo-feed-freshness"
+)
+for token in (
+    "nutsnews_backend_legacy_worker_last_scheduled_success_age_seconds",
+    "nutsnews_backend_worker_uplift_deployment_info",
+    'ingestion_owner="legacy_shards"',
+    "nutsnews_worker_scheduler_loop_fresh",
+    "nutsnews_backend_worker_uplift_expected_active",
+    "absent(",
+    "> bool 900",
+):
+    require(token in ingestion_freshness_alert["expr"], f"ingestion freshness alert missing {token}")
 require(
-    next(alert for alert in alerts if alert["uid"] == "nn-wu-slo-feed-freshness")["threshold"] == 900,
-    "feed freshness warning must match the 15-minute SLO threshold",
+    "nutsnews_backend_public_feed_snapshot_newest_content_age_seconds"
+    not in ingestion_freshness_alert["expr"],
+    "ingestion freshness warning must not page on quiet upstream publishers",
 )
 require(
-    next(alert for alert in alerts if alert["uid"] == "nn-wu-feed-freshness-critical")["threshold"] == 10800,
+    ingestion_freshness_alert["threshold"] == 0
+    and ingestion_freshness_alert["evaluator"] == "gt",
+    "ingestion freshness warning must evaluate an explicit owner-routed failure signal",
+)
+
+critical_freshness_alert = next(
+    alert for alert in alerts if alert["uid"] == "nn-wu-feed-freshness-critical"
+)
+for token in (
+    "nutsnews_backend_public_feed_snapshot_newest_content_age_seconds",
+    "nutsnews_backend_content_coverage_available",
+    ">= 0",
+):
+    require(token in critical_freshness_alert["expr"], f"critical content alert missing {token}")
+require(
+    "nutsnews_backend_worker_uplift_expected_active" not in critical_freshness_alert["expr"],
+    "critical content freshness must protect the live feed independently of worker ownership",
+)
+require(
+    critical_freshness_alert["threshold"] == 10800,
     "critical feed freshness must remain three hours",
 )
 
@@ -655,10 +669,22 @@ for token in (
     'service=~\\"fetcher|canonicalizer|enrichment|approval|translation|persistence|publication\\"',
 ):
     require(token in SLOS_TF, f"native worker SLO is missing its exact worker identity selector: {token}")
+for token in (
+    "production_legacy_ingestion_age_selector",
+    "nutsnews_backend_legacy_worker_last_scheduled_success_age_seconds",
+    "production_legacy_owner_selector",
+    'ingestion_owner=\\"legacy_shards\\"',
+    "production_uplift_scheduler_selector",
+    "nutsnews_worker_scheduler_loop_fresh",
+    "production_uplift_owner_selector",
+    "nutsnews_backend_worker_uplift_expected_active",
+    "production_ingestion_fresh_good",
+    "production_ingestion_fresh_valid",
+):
+    require(token in SLOS_TF, f"native ingestion freshness SLO missing {token}")
 require(
-    "nutsnews_backend_public_feed_snapshot_newest_content_age_seconds" in SLOS_TF
-    and "nutsnews_backend_content_coverage_available" in SLOS_TF,
-    "native feed SLO must use the durable production content source",
+    "nutsnews_backend_public_feed_snapshot_newest_content_age_seconds" not in SLOS_TF,
+    "native ingestion freshness SLO must not classify quiet publishers as failed ingestion",
 )
 
 

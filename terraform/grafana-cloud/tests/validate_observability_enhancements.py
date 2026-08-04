@@ -730,11 +730,11 @@ feed_freshness_block = SLOS.split("    feed_freshness = {", 1)[1].split(
 require(
     "count_over_time" in feed_freshness_block
     and "$__interval:" in feed_freshness_block
-    and "<= 900" in feed_freshness_block
-    and "nutsnews_backend_content_coverage_available" in feed_freshness_block
+    and "production_ingestion_fresh_good" in feed_freshness_block
+    and "production_ingestion_fresh_valid" in feed_freshness_block
     and ") / sum(count_over_time(" in feed_freshness_block
     and "<= bool 900" not in feed_freshness_block,
-    "feed freshness must be an alert-compatible event ratio of valid <=15m observations",
+    "ingestion freshness must be an alert-compatible event ratio of valid owner-routed observations",
 )
 worker_terminal_block = SLOS.split("    worker_terminal_success = {", 1)[1].split(
     "\n    }\n  }", 1
@@ -880,8 +880,8 @@ require(
     "Stage Success Ratio sentinel must be a global empty-result fallback, not an extra live series",
 )
 require(
-    no_value_by_title["Feed Freshness Age"] == "Unavailable — durable production content freshness telemetry is missing or stale",
-    "feed freshness no-value semantics must treat durable production telemetry as required",
+    no_value_by_title["Newest Published Content Age"] == "Unavailable — durable production content freshness telemetry is missing or stale",
+    "published-content age no-value semantics must treat durable production telemetry as required",
 )
 for text, name in ((LOCALS, "VPS dashboard generator"), (BACKEND, "backend dashboard generator")):
     require('"No data"' not in text, f"{name} must not emit the generic No data state")

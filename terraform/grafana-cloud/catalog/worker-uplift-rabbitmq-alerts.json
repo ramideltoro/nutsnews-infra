@@ -80,7 +80,7 @@
           "expr": "((sum(rate(nutsnews_worker_uplift_stage_events_total{environment=~\"$environment\",service=\"publication\",outcome=~\"success|duplicate\"}[$__rate_interval])) / sum(rate(nutsnews_worker_uplift_stage_events_total{environment=~\"$environment\",service=\"publication\",outcome=~\"success|duplicate|invalid|failure|dlq\"}[$__rate_interval]))) and on() (sum(rate(nutsnews_worker_uplift_stage_events_total{environment=~\"$environment\",service=\"publication\",outcome=~\"success|duplicate|invalid|failure|dlq\"}[$__rate_interval])) > 0)) or vector(-1)"
         },
         {
-          "title": "Feed Freshness Age",
+          "title": "Newest Published Content Age",
           "unit": "s",
           "description": "Age of the newest durable published content from the production backend database, independent of shadow worker ownership.",
           "noValue": "Unavailable — durable production content freshness telemetry is missing or stale",
@@ -127,10 +127,10 @@
     },
     {
       "id": "end_to_end_feed_freshness",
-      "target": "newest durable published content age under 15 minutes",
+      "target": "active production owner completes scheduled ingestion successfully within 15 minutes",
       "error_budget": "1%",
       "burn_rate_windows": ["15m"],
-      "query_metric": "nutsnews_backend_public_feed_snapshot_newest_content_age_seconds"
+      "query_metric": "nutsnews_backend_legacy_worker_last_scheduled_success_age_seconds or nutsnews_worker_scheduler_loop_fresh"
     },
     {
       "id": "retry_dlq_rate",
@@ -630,22 +630,22 @@
     },
     {
       "uid": "nn-wu-slo-feed-freshness",
-      "title": "NutsNews worker-uplift feed freshness SLO breach",
+      "title": "NutsNews production ingestion freshness SLO breach",
       "severity": "warning",
       "service": "publication",
       "queue": "publication",
       "slo_id": "end_to_end_feed_freshness",
       "alert_category": "slo-freshness",
-      "expr": "max(nutsnews_backend_public_feed_snapshot_newest_content_age_seconds{job=\"nutsnews-backend-host\",deployment_environment=\"production\",instance=\"backend.nutsnews.com\"}) and on() (max(nutsnews_backend_public_feed_snapshot_newest_content_age_seconds{job=\"nutsnews-backend-host\",deployment_environment=\"production\",instance=\"backend.nutsnews.com\"}) >= 0) and on() (max(nutsnews_backend_content_coverage_available{job=\"nutsnews-backend-host\",deployment_environment=\"production\",instance=\"backend.nutsnews.com\"}) == 1)",
-      "threshold": 900,
+      "expr": "(((max(nutsnews_backend_legacy_worker_last_scheduled_success_age_seconds{job=\"nutsnews-backend-host\",instance=\"backend.nutsnews.com\",service_namespace=\"nutsnews\",service=\"host\",environment=\"production\",deployment_environment=\"production\",host=\"backend.nutsnews.com\"}) > bool 900) or max(absent(nutsnews_backend_legacy_worker_last_scheduled_success_age_seconds{job=\"nutsnews-backend-host\",instance=\"backend.nutsnews.com\",service_namespace=\"nutsnews\",service=\"host\",environment=\"production\",deployment_environment=\"production\",host=\"backend.nutsnews.com\"}))) and on() (max(nutsnews_backend_worker_uplift_deployment_info{job=\"nutsnews-backend-host\",instance=\"backend.nutsnews.com\",service_namespace=\"nutsnews\",service=\"host\",environment=\"production\",deployment_environment=\"production\",host=\"backend.nutsnews.com\",ingestion_owner=\"legacy_shards\"}) == 1)) or (((1 - max(nutsnews_worker_scheduler_loop_fresh{job=\"nutsnews-worker-uplift\",instance=\"backend.nutsnews.com\",service_namespace=\"nutsnews\",host=\"backend.nutsnews.com\",environment=\"production\",deployment_environment=\"production\",service=\"scheduler\"})) or max(absent(nutsnews_worker_scheduler_loop_fresh{job=\"nutsnews-worker-uplift\",instance=\"backend.nutsnews.com\",service_namespace=\"nutsnews\",host=\"backend.nutsnews.com\",environment=\"production\",deployment_environment=\"production\",service=\"scheduler\"}))) and on() (max(nutsnews_backend_worker_uplift_expected_active{job=\"nutsnews-backend-host\",instance=\"backend.nutsnews.com\",service_namespace=\"nutsnews\",service=\"host\",environment=\"production\",deployment_environment=\"production\",host=\"backend.nutsnews.com\"}) == 1))",
+      "threshold": 0,
       "evaluator": "gt",
       "for": "15m",
       "range_seconds": 1800,
       "no_data_state": "OK",
       "keep_firing_for": "15m",
-      "threshold_description": "newest durable published content age above 900s for 15m",
-      "summary": "Worker-uplift end-to-end feed freshness exceeds the SLO threshold.",
-      "description": "The current production content source is stale, regardless of whether legacy or split workers own ingestion.",
+      "threshold_description": "active production ingestion owner has no successful scheduled cycle within 900s for 15m",
+      "summary": "The active production ingestion owner is stale.",
+      "description": "Legacy ownership uses the latest successful scheduled legacy run; worker-uplift ownership uses the successful scheduler-loop freshness signal. A quiet upstream publisher does not count as an ingestion failure.",
       "test_drill": "full-queue"
     },
     {

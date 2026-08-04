@@ -70,6 +70,43 @@ GRAFANA_SLO_RECORDED_METRICS = (
     "grafana_slo_sli_1d",
     "grafana_slo_objective",
 )
+EXPECTED_LEGACY_INGESTION_AGE_SELECTOR = (
+    'nutsnews_backend_legacy_worker_last_scheduled_success_age_seconds{'
+    'job="nutsnews-backend-host",instance="backend.nutsnews.com",'
+    'service_namespace="nutsnews",service="host",environment="production",'
+    'deployment_environment="production",host="backend.nutsnews.com"}'
+)
+EXPECTED_LEGACY_OWNER_SELECTOR = (
+    'nutsnews_backend_worker_uplift_deployment_info{job="nutsnews-backend-host",'
+    'instance="backend.nutsnews.com",service_namespace="nutsnews",service="host",'
+    'environment="production",deployment_environment="production",'
+    'host="backend.nutsnews.com",ingestion_owner="legacy_shards"}'
+)
+EXPECTED_UPLIFT_SCHEDULER_SELECTOR = (
+    'nutsnews_worker_scheduler_loop_fresh{job="nutsnews-worker-uplift",'
+    'instance="backend.nutsnews.com",service_namespace="nutsnews",'
+    'host="backend.nutsnews.com",environment="production",'
+    'deployment_environment="production",service="scheduler"}'
+)
+EXPECTED_UPLIFT_OWNER_SELECTOR = (
+    'nutsnews_backend_worker_uplift_expected_active{job="nutsnews-backend-host",'
+    'instance="backend.nutsnews.com",service_namespace="nutsnews",service="host",'
+    'environment="production",deployment_environment="production",'
+    'host="backend.nutsnews.com"}'
+)
+EXPECTED_PRODUCTION_INGESTION_GOOD = (
+    f"((max({EXPECTED_LEGACY_INGESTION_AGE_SELECTOR}) <= 900) and on() "
+    f"(max({EXPECTED_LEGACY_INGESTION_AGE_SELECTOR}) >= 0) and on() "
+    f"(max({EXPECTED_LEGACY_OWNER_SELECTOR}) == 1)) or "
+    f"((max({EXPECTED_UPLIFT_SCHEDULER_SELECTOR}) == 1) and on() "
+    f"(max({EXPECTED_UPLIFT_OWNER_SELECTOR}) == 1))"
+)
+EXPECTED_PRODUCTION_INGESTION_VALID = (
+    f"((max({EXPECTED_LEGACY_INGESTION_AGE_SELECTOR}) >= 0) and on() "
+    f"(max({EXPECTED_LEGACY_OWNER_SELECTOR}) == 1)) or "
+    f"((count({EXPECTED_UPLIFT_SCHEDULER_SELECTOR}) > 0) and on() "
+    f"(max({EXPECTED_UPLIFT_OWNER_SELECTOR}) == 1))"
+)
 
 EXPECTED_SLO_SPECS = {
     "public_availability": {
@@ -105,37 +142,21 @@ EXPECTED_SLO_SPECS = {
         ),
     },
     "feed_freshness": {
-        "name": "NutsNews feed freshness",
+        "name": "NutsNews ingestion freshness",
         "description": (
-            "At least 99% of valid durable feed-freshness observations report published "
-            "content no more than 15 minutes old, independent of the shadow worker path."
+            "At least 99% of valid observations report a successful scheduled ingestion "
+            "cycle within 15 minutes for the active production owner. Source publishers "
+            "are not required to create new content during every cycle."
         ),
         "objective": 0.99,
         "service": "publication",
         "dashboard_url": "/d/nutsnews-worker-uplift-slos",
         "alerting_enabled": True,
         "query": (
-            '(sum(count_over_time(((max(nutsnews_backend_public_feed_snapshot_newest_content_age_seconds'
-            '{job="nutsnews-backend-host",deployment_environment="production",'
-            'instance="backend.nutsnews.com"}) <= 900) and on() '
-            '(max(nutsnews_backend_public_feed_snapshot_newest_content_age_seconds'
-            '{job="nutsnews-backend-host",deployment_environment="production",'
-            'instance="backend.nutsnews.com"}) >= 0) and on() '
-            '(max(nutsnews_backend_content_coverage_available{job="nutsnews-backend-host",'
-            'deployment_environment="production",instance="backend.nutsnews.com"}) == 1))'
-            '[$__interval:])) or 0 * sum(count_over_time(((max('
-            'nutsnews_backend_public_feed_snapshot_newest_content_age_seconds'
-            '{job="nutsnews-backend-host",deployment_environment="production",'
-            'instance="backend.nutsnews.com"}) >= 0) and on() '
-            '(max(nutsnews_backend_content_coverage_available{job="nutsnews-backend-host",'
-            'deployment_environment="production",instance="backend.nutsnews.com"}) == 1))'
-            '[$__interval:]))) / sum(count_over_time(((max('
-            'nutsnews_backend_public_feed_snapshot_newest_content_age_seconds'
-            '{job="nutsnews-backend-host",deployment_environment="production",'
-            'instance="backend.nutsnews.com"}) >= 0) and on() '
-            '(max(nutsnews_backend_content_coverage_available{job="nutsnews-backend-host",'
-            'deployment_environment="production",instance="backend.nutsnews.com"}) == 1))'
-            '[$__interval:]))'
+            f"(sum(count_over_time(({EXPECTED_PRODUCTION_INGESTION_GOOD})[$__interval:])) "
+            f"or 0 * sum(count_over_time(({EXPECTED_PRODUCTION_INGESTION_VALID})"
+            f"[$__interval:]))) / sum(count_over_time("
+            f"({EXPECTED_PRODUCTION_INGESTION_VALID})[$__interval:]))"
         ),
     },
     "worker_terminal_success": {
