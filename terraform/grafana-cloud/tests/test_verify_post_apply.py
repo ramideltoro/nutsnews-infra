@@ -119,7 +119,7 @@ def remote_synthetic_check(job: str, check_id: int, probes: list[int] | None = N
         "job": job,
         "target": f"https://private-target.invalid{target_path}",
         "enabled": True,
-        "frequency": 300_000,
+        "frequency": MODULE.EXPECTED_SYNTHETIC_FREQUENCY_MS[job],
         "timeout": 5_000,
         "probes": probes or [11, 22],
         "basicMetricsOnly": True,
@@ -1623,9 +1623,45 @@ class VerifyPostApplyTests(unittest.TestCase):
         self.assertFalse(errors)
         self.assertEqual(inventory["enabled_api_check_count"], 5)
         self.assertEqual(inventory["enabled_browser_check_count"], 0)
-        self.assertEqual(inventory["monthly_api_execution_estimate"], 86_400)
+        self.assertEqual(inventory["monthly_api_execution_estimate"], 69_120)
         self.assertNotIn("private-target.invalid", json.dumps(inventory))
         self.assertNotIn("target", json.dumps(inventory))
+
+    def test_remote_synthetic_inventory_supports_metadata_only_audit(self) -> None:
+        checks = [
+            remote_synthetic_check(job, index + 100)
+            for index, job in enumerate(sorted(MODULE.EXPECTED_SYNTHETIC_CHECKS))
+        ]
+        errors: list[str] = []
+        inventory = MODULE.remote_synthetic_inventory(
+            FakeSyntheticInventoryClient(checks),
+            {check["job"]: check["id"] for check in checks},
+            {
+                "probe-a": {"id": 11, "public": True},
+                "probe-b": {"id": 22, "public": True},
+            },
+            None,
+            errors,
+        )
+        self.assertFalse(errors)
+        self.assertEqual(inventory["monthly_api_execution_estimate"], 69_120)
+
+    def test_synthetic_datasource_proxy_is_get_only_and_path_bounded(self) -> None:
+        client = MODULE.SyntheticMonitoringProxyClient(
+            "https://kindcantaloupe2036.grafana.net", "token", "datasource_uid-1"
+        )
+        for method, path in (
+            ("POST", "/api/v1/check"),
+            ("GET", "/api/v1/probe"),
+            ("GET", "/api/v1/check/0"),
+            ("GET", "/api/v1/check/1?target=secret"),
+        ):
+            with self.subTest(method=method, path=path), self.assertRaises(RuntimeError):
+                client.request(method, path)
+        with self.assertRaises(ValueError):
+            MODULE.SyntheticMonitoringProxyClient(
+                "https://kindcantaloupe2036.grafana.net", "token", "../invalid"
+            )
 
     def test_remote_synthetic_inventory_rejects_probe_and_browser_drift(self) -> None:
         checks = [

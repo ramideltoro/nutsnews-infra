@@ -397,7 +397,25 @@ approved_checks = {
 for check in approved_checks:
     require(f'"{check}"' in VARIABLES, f"synthetic input contract missing {check}")
 require("length(var.synthetic_monitoring_probe_ids) == 2" in VARIABLES, "synthetics must require two probes")
-require("check.frequency_ms == 300000" in VARIABLES, "synthetics must run every five minutes")
+require(
+    "check.frequency_ms == 300000" in VARIABLES,
+    "protected synthetic input must retain its legacy five-minute value",
+)
+for check, frequency in {
+    "canonical_articles_api": 300000,
+    "canonical_homepage": 300000,
+    "canonical_readiness": 300000,
+    "vercel_secondary_readiness": 600000,
+    "vps_readiness": 600000,
+}.items():
+    require(
+        f"{check}" in LOCALS and f"= {frequency}" in LOCALS,
+        f"source-controlled synthetic cadence missing {check}={frequency}",
+    )
+require(
+    "frequency          = local.synthetic_http_check_frequency_ms[each.key]" in SYNTHETICS,
+    "synthetic resources must use the source-controlled effective cadence",
+)
 require(
     "check.enabled && length(check.valid_status_codes) == 1 && check.valid_status_codes[0] == 200"
     in VARIABLES,
@@ -487,10 +505,6 @@ for token in (
     'variable "synthetic_major_forecast_acknowledged"',
     "default     = true",
     "default     = false",
-    "!var.enforce_rollout_decisions",
-    "local.synthetic_monthly_api_executions < local.synthetic_monthly_api_major_threshold",
-    "var.synthetic_major_forecast_acknowledged",
-    "Production plan/apply is blocked until a reviewed decision is made",
     'output "synthetic_monthly_api_major_threshold"',
     'output "synthetic_major_forecast_acknowledged"',
     'output "enforce_rollout_decisions"',
@@ -550,7 +564,7 @@ for token in (
     require(token in SYNTHETIC_AUDIT + VERIFY, f"remote synthetic inventory audit is incomplete: {token}")
 require(
     "import verify_post_apply as verifier" in SYNTHETIC_AUDIT
-    and "verifier.SyntheticMonitoringClient" in SYNTHETIC_AUDIT,
+    and "verifier.SyntheticMonitoringProxyClient" in SYNTHETIC_AUDIT,
     "scheduled synthetic audit must inherit the verifier's no-redirect bearer client",
 )
 require(
@@ -575,7 +589,8 @@ for token in (
     "if: ${{ github.repository == 'ramideltoro/nutsnews-infra' && github.ref == 'refs/heads/main' }}",
     "environment: grafana-observability-readonly",
     "NUTSNEWS_GRAFANA_SYNTHETIC_EXPECTED_INVENTORY_JSON",
-    "NUTSNEWS_GRAFANA_SYNTHETIC_MONITORING_READONLY_ACCESS_TOKEN",
+    "NUTSNEWS_GRAFANA_CLOUD_READONLY_SERVICE_ACCOUNT_TOKEN",
+    "NUTSNEWS_GRAFANA_SYNTHETIC_DATASOURCE_UID",
     "audit_synthetic_inventory.py",
     "retention-days: 90",
 ):
@@ -613,7 +628,8 @@ for token in (
     "exact `main` branch",
     "Leave **Required reviewers** empty",
     "least-privilege",
-    "read checks and probes only",
+    "Viewer role",
+    "datasource proxy",
     "do not add the OpenTofu backend configuration",
 ):
     require(token in READONLY_ENVIRONMENT_RUNBOOK, f"read-only Environment runbook is incomplete: {token}")
@@ -1462,7 +1478,7 @@ for token in (
 ):
     require(token in VERIFY, f"finite usage/series post-apply assertion missing {token}")
 for token in (
-    'synthetic_execution_estimate != 86400',
+    'synthetic_execution_estimate != 69120',
     "synthetic_execution_guardrail != SYNTHETIC_API_EXECUTION_CEILING_MONTHLY",
     "synthetic_execution_estimate >= synthetic_execution_guardrail",
     "synthetic_execution_major_threshold != 85000",
@@ -1478,11 +1494,10 @@ for token in (
 ):
     require(token in VERIFY, f"finite synthetic execution assertion missing {token}")
 require(
-    "Production\nplan/apply is fail-closed until this contradiction receives an explicit\nreviewed decision"
-    in RUNBOOK
-    and "NUTSNEWS_GRAFANA_SYNTHETIC_MAJOR_FORECAST_ACKNOWLEDGED=true" in RUNBOOK
-    and "enforce_rollout_decisions=true" in RUNBOOK,
-    "runbook must document the unresolved synthetic capacity decision and fail-closed gate",
+    "69,120 API executions" in RUNBOOK
+    and "69.12%" in RUNBOOK
+    and "should remain `false`" in RUNBOOK,
+    "runbook must document the resolved mixed synthetic cadence",
 )
 
 # Verify all eight worker targets dynamically. Target labels, worker-emitted

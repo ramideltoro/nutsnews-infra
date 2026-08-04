@@ -26,6 +26,13 @@ READINESS_CHECKS = frozenset(
     {"canonical_readiness", "vercel_secondary_readiness", "vps_readiness"}
 )
 EXPECTED_FREQUENCY_MS = 300_000
+EXPECTED_EFFECTIVE_FREQUENCY_MS = {
+    "canonical_articles_api": 300_000,
+    "canonical_homepage": 300_000,
+    "canonical_readiness": 300_000,
+    "vercel_secondary_readiness": 600_000,
+    "vps_readiness": 600_000,
+}
 MIN_TIMEOUT_MS = 1_000
 MAX_TIMEOUT_MS = 60_000
 DEFAULT_TIMEOUT_MS = 5_000
@@ -393,10 +400,15 @@ def validate_inputs(
         raise ValueError(
             "Synthetic targets must use one canonical host plus distinct direct-VPS and Vercel-secondary hosts."
         )
-    projected_executions = round(
-        len(checks)
-        * len(probes)
-        * (MILLISECONDS_PER_30_DAY_MONTH / EXPECTED_FREQUENCY_MS)
+    projected_executions = sum(
+        round(
+            len(probes)
+            * (
+                MILLISECONDS_PER_30_DAY_MONTH
+                / EXPECTED_EFFECTIVE_FREQUENCY_MS[check_name]
+            )
+        )
+        for check_name in checks
     )
     allowance_guardrail = round(
         free_api_executions_monthly * FREE_TIER_HARD_CEILING_RATIO
@@ -413,8 +425,10 @@ def validate_inputs(
         "probe_count": len(probes),
         "enabled_check_count": len(checks),
         "disabled_check_count": 0,
-        "minimum_frequency_seconds": EXPECTED_FREQUENCY_MS // 1000,
-        "maximum_frequency_seconds": EXPECTED_FREQUENCY_MS // 1000,
+        "minimum_frequency_seconds": min(EXPECTED_EFFECTIVE_FREQUENCY_MS.values())
+        // 1000,
+        "maximum_frequency_seconds": max(EXPECTED_EFFECTIVE_FREQUENCY_MS.values())
+        // 1000,
         "projected_monthly_api_executions": projected_executions,
         "monthly_api_execution_guardrail": effective_guardrail,
         "monthly_api_execution_major_threshold": major_threshold,
@@ -434,7 +448,7 @@ def validate_inputs(
         report["status"] = "fail"
         report["error_code"] = "synthetic_api_execution_major_acknowledgment_required"
         raise QuotaGuardrailError(
-            "The five-check, two-probe, five-minute Synthetic Monitoring topology enters the "
+            "The source-controlled Synthetic Monitoring topology enters the "
             ">=85% major forecast band and requires the protected reviewed acknowledgment.",
             report,
         )

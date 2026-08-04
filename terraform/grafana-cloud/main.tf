@@ -11,16 +11,6 @@ resource "grafana_folder" "observability" {
     }
 
     precondition {
-      condition = (
-        !var.enforce_rollout_decisions ||
-        length(local.enabled_synthetic_http_checks) == 0 ||
-        local.synthetic_monthly_api_executions < local.synthetic_monthly_api_major_threshold ||
-        var.synthetic_major_forecast_acknowledged
-      )
-      error_message = "Synthetic Monitoring projects into the >=85% major forecast band. Production plan/apply is blocked until a reviewed decision is made: set the protected synthetic_major_forecast_acknowledged=true only to retain five checks x two probes x five-minute cadence; a different cadence, topology, or threshold requires a source change."
-    }
-
-    precondition {
       condition     = length(local.enabled_synthetic_http_checks) == 5 && length(var.synthetic_monitoring_probe_ids) == 2
       error_message = "Production Synthetic Monitoring requires all five approved enabled checks across exactly two public probes."
     }

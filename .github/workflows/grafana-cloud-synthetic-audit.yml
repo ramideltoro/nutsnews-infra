@@ -56,9 +56,9 @@ jobs:
       - name: Audit live Synthetic Monitoring inventory
         shell: bash
         env:
-          GRAFANA_SM_ACCESS_TOKEN: ${{ secrets.NUTSNEWS_GRAFANA_SYNTHETIC_MONITORING_READONLY_ACCESS_TOKEN }}
-          GRAFANA_SM_URL: ${{ vars.NUTSNEWS_GRAFANA_SYNTHETIC_MONITORING_URL }}
-          NUTSNEWS_GRAFANA_SYNTHETIC_HTTP_CHECKS_JSON: ${{ secrets.NUTSNEWS_GRAFANA_SYNTHETIC_HTTP_CHECKS_JSON }}
+          GRAFANA_SM_DATASOURCE_UID: ${{ vars.NUTSNEWS_GRAFANA_SYNTHETIC_DATASOURCE_UID }}
+          GRAFANA_TOKEN: ${{ secrets.NUTSNEWS_GRAFANA_CLOUD_READONLY_SERVICE_ACCOUNT_TOKEN }}
+          GRAFANA_URL: ${{ vars.NUTSNEWS_GRAFANA_CLOUD_URL }}
         run: |
           set -euo pipefail
           python3 terraform/grafana-cloud/scripts/audit_synthetic_inventory.py \

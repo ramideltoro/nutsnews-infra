@@ -114,7 +114,7 @@ class SyntheticMonitoringInputsTest(unittest.TestCase):
             free_api_executions_monthly=free_api_executions_monthly,
         )
 
-    def test_accepts_explicit_production_shape_with_reviewed_acknowledgment(self) -> None:
+    def test_accepts_explicit_production_shape_with_mixed_effective_cadence(self) -> None:
         checks = valid_checks()
         expected_fields = {
             "target",
@@ -139,7 +139,7 @@ class SyntheticMonitoringInputsTest(unittest.TestCase):
         self.assertTrue(report["value_free"])
         self.assertEqual(report["probe_count"], 2)
         self.assertEqual(report["enabled_check_count"], 5)
-        self.assertEqual(report["projected_monthly_api_executions"], 86_400)
+        self.assertEqual(report["projected_monthly_api_executions"], 69_120)
         self.assertEqual(report["monthly_api_execution_major_threshold"], 85_000)
         self.assertEqual(report["monthly_api_execution_hard_ceiling"], 90_000)
         self.assertEqual(report["monthly_api_execution_guardrail"], 90_000)
@@ -158,8 +158,8 @@ class SyntheticMonitoringInputsTest(unittest.TestCase):
 
         self.assertEqual(report["enabled_check_count"], 5)
         self.assertEqual(report["minimum_frequency_seconds"], 300)
-        self.assertEqual(report["maximum_frequency_seconds"], 300)
-        self.assertEqual(report["projected_monthly_api_executions"], 86_400)
+        self.assertEqual(report["maximum_frequency_seconds"], 600)
+        self.assertEqual(report["projected_monthly_api_executions"], 69_120)
 
     def test_requires_exactly_two_unique_positive_probe_ids(self) -> None:
         for probes in ([101], [101, 101], [101, -2], [101, True], [101, 202, 303]):
@@ -330,18 +330,10 @@ class SyntheticMonitoringInputsTest(unittest.TestCase):
             self.validate(checks)
         self.assertNotIn(sentinel, str(target_error.exception))
 
-    def test_requires_acknowledgment_for_standing_major_forecast(self) -> None:
-        with self.assertRaisesRegex(
-            MODULE.QuotaGuardrailError, ">=85% major forecast"
-        ) as raised:
-            self.validate(major_forecast_acknowledged=False)
-        report = raised.exception.report
-        self.assertEqual(report["status"], "fail")
-        self.assertEqual(
-            report["error_code"],
-            "synthetic_api_execution_major_acknowledgment_required",
-        )
-        self.assertEqual(report["projected_monthly_api_executions"], 86_400)
+    def test_does_not_require_deprecated_acknowledgment_below_major_forecast(self) -> None:
+        report = self.validate(major_forecast_acknowledged=False)
+        self.assertEqual(report["status"], "pass")
+        self.assertEqual(report["projected_monthly_api_executions"], 69_120)
         self.assertEqual(report["monthly_api_execution_major_threshold"], 85_000)
         self.assertEqual(report["monthly_api_execution_hard_ceiling"], 90_000)
         self.assertFalse(report["major_forecast_acknowledged"])
@@ -353,15 +345,15 @@ class SyntheticMonitoringInputsTest(unittest.TestCase):
         with self.assertRaisesRegex(
             MODULE.QuotaGuardrailError, "reach or exceed the effective 90%"
         ) as raised:
-            self.validate(free_api_executions_monthly=95_000)
+            self.validate(free_api_executions_monthly=75_000)
         report = raised.exception.report
         self.assertEqual(report["status"], "fail")
         self.assertEqual(
             report["error_code"], "synthetic_api_execution_guardrail_exceeded"
         )
-        self.assertEqual(report["projected_monthly_api_executions"], 86_400)
+        self.assertEqual(report["projected_monthly_api_executions"], 69_120)
         self.assertEqual(report["monthly_api_execution_hard_ceiling"], 90_000)
-        self.assertEqual(report["monthly_api_execution_guardrail"], 85_500)
+        self.assertEqual(report["monthly_api_execution_guardrail"], 67_500)
 
     def test_absolute_hard_ceiling_never_rises_with_a_larger_allowance(self) -> None:
         report = self.validate(free_api_executions_monthly=200_000)
@@ -413,7 +405,7 @@ class SyntheticMonitoringInputsTest(unittest.TestCase):
                 os.environ,
                 {
                     **base_env,
-                    "NUTSNEWS_GRAFANA_SYNTHETIC_MAJOR_FORECAST_ACKNOWLEDGED": "true",
+                    "NUTSNEWS_GRAFANA_SYNTHETIC_MAJOR_FORECAST_ACKNOWLEDGED": "false",
                 },
                 clear=True,
             ), mock.patch.object(sys, "argv", [str(SCRIPT), "--output", str(output)]):
@@ -427,6 +419,7 @@ class SyntheticMonitoringInputsTest(unittest.TestCase):
                 os.environ,
                 {
                     **base_env,
+                    "NUTSNEWS_GRAFANA_SYNTHETIC_MONITORING_ACCESS_TOKEN": "",
                     "NUTSNEWS_GRAFANA_SYNTHETIC_MAJOR_FORECAST_ACKNOWLEDGED": "false",
                 },
                 clear=True,
@@ -434,13 +427,7 @@ class SyntheticMonitoringInputsTest(unittest.TestCase):
                 self.assertEqual(MODULE.main(), 1)
             failure = output.read_text(encoding="utf-8")
             self.assertIn('"status": "fail"', failure)
-            self.assertIn(
-                '"error_code": "synthetic_api_execution_major_acknowledgment_required"',
-                failure,
-            )
-            self.assertIn('"projected_monthly_api_executions": 86400', failure)
-            self.assertIn('"monthly_api_execution_major_threshold": 85000', failure)
-            self.assertIn('"monthly_api_execution_hard_ceiling": 90000', failure)
+            self.assertIn("ACCESS_TOKEN is required", failure)
             self.assertNotIn("protected-token", failure)
             self.assertNotIn("news.example.com", failure)
             self.assertNotIn("canonical_homepage", failure)

@@ -21,8 +21,9 @@ In **Settings -> Environments -> grafana-observability-readonly**:
 
 Create these Environment variables (they are configuration, not credentials):
 
-- `NUTSNEWS_GRAFANA_SYNTHETIC_MONITORING_URL`: the exact regional Synthetic
-  Monitoring API origin.
+- `NUTSNEWS_GRAFANA_CLOUD_URL`: the exact query-free Grafana stack URL.
+- `NUTSNEWS_GRAFANA_SYNTHETIC_DATASOURCE_UID`: the bounded UID of the stack's
+  Synthetic Monitoring datasource.
 - `NUTSNEWS_GRAFANA_SYNTHETIC_EXPECTED_INVENTORY_JSON`: the sanitized output
   identity containing exactly `synthetic_check_ids` and
   `synthetic_probe_selection`. Refresh it after an approved Grafana apply if a
@@ -47,15 +48,12 @@ Use this shape for the expected inventory variable:
 ```
 
 Replace the example IDs with the corresponding sanitized OpenTofu outputs from
-the last approved apply. Store these Environment secrets:
+the last approved apply. Store this Environment secret:
 
-- `NUTSNEWS_GRAFANA_SYNTHETIC_MONITORING_READONLY_ACCESS_TOKEN`: a dedicated,
-  least-privilege Synthetic Monitoring identity that can read checks and probes only.
-  Grant reader roles only; do not grant checks, probes, alerts,
-  thresholds, access-token, or secure-value writer roles.
-- `NUTSNEWS_GRAFANA_SYNTHETIC_HTTP_CHECKS_JSON`: the five approved targets and
-  assertions. It is protected because it contains target configuration, but it
-  contains no credential and grants no mutation capability.
+- `NUTSNEWS_GRAFANA_CLOUD_READONLY_SERVICE_ACCOUNT_TOKEN`: a dedicated,
+  least-privilege Grafana service-account token with the Viewer role. The audit
+  uses it only through the Synthetic Monitoring datasource proxy and issues
+  bounded `GET` requests for check inventory and details.
 
 Do not copy deployment or mutation secrets into this Environment. In
 particular, do not add the OpenTofu backend configuration, Grafana service
@@ -65,7 +63,8 @@ tokens, SSH keys, or backend drill tokens. If Grafana cannot issue an
 enforceably read-only identity for this API, leave the scheduled audit blocked
 instead of reusing a writer token.
 
+The Environment must not contain protected synthetic targets or assertions.
 The workflow grants only `contents: read`, checks out without persisted Git
-credentials, issues only Synthetic Monitoring `GET` requests, and uploads a
+credentials, issues only bounded datasource-proxy `GET` requests, and uploads a
 sanitized audit artifact. Changes to checks remain confined to the manual,
 reviewer-gated production workflows.

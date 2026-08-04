@@ -39,7 +39,7 @@ output "synthetic_monthly_api_major_threshold" {
 }
 
 output "synthetic_major_forecast_acknowledged" {
-  description = "Protected reviewed decision state for retaining the standing-major five-check/two-probe/five-minute topology."
+  description = "Deprecated compatibility state for the former standing-major five-minute topology."
   value       = var.synthetic_major_forecast_acknowledged
 }
 
