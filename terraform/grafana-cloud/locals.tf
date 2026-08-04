@@ -253,7 +253,7 @@ locals {
     synthetic_uptime_api_checks = {
       uid         = "nutsnews-synthetic-uptime-api-checks"
       title       = "NutsNews Synthetic Uptime API Checks"
-      description = "Five required public endpoint checks managed by the Grafana provider across two probes every five minutes."
+      description = "Five required public endpoint checks across two probes: canonical checks every five minutes and direct readiness checks every ten minutes."
       panels = [
         { title = "Synthetic success", type = "timeseries", datasource = "prometheus", unit = "percentunit", width = 12, height = 8, expr = "avg by (job, probe) (probe_success * on(job, instance, probe, config_version) group_left() sm_check_info{label_service_namespace=\"nutsnews\",label_deployment_environment=~\"$environment\"})" },
         { title = "Synthetic duration", type = "timeseries", datasource = "prometheus", unit = "s", width = 12, height = 8, expr = "avg by (job, probe) (probe_duration_seconds * on(job, instance, probe, config_version) group_left() sm_check_info{label_service_namespace=\"nutsnews\",label_deployment_environment=~\"$environment\"})" },
@@ -451,9 +451,17 @@ locals {
   synthetic_approved_job_regex  = "canonical_articles_api|canonical_homepage|canonical_readiness|vercel_secondary_readiness|vps_readiness"
   synthetic_joined_probe_series = "probe_success{job=~\"^(${local.synthetic_approved_job_regex})$\"} * on(job, instance, probe, config_version) group_left() sm_check_info{job=~\"^(${local.synthetic_approved_job_regex})$\",label_service_namespace=\"nutsnews\",label_deployment_environment=\"${var.deployment_environment}\"}"
 
+  synthetic_http_check_frequency_ms = {
+    canonical_articles_api     = 300000
+    canonical_homepage         = 300000
+    canonical_readiness        = 300000
+    vercel_secondary_readiness = 600000
+    vps_readiness              = 600000
+  }
+
   synthetic_monthly_api_executions = length(local.enabled_synthetic_http_checks) == 0 ? 0 : sum([
     for name in local.enabled_synthetic_http_checks :
-    length(var.synthetic_monitoring_probe_ids) * 1 * (43200 / (nonsensitive(var.synthetic_http_checks[name].frequency_ms) / 60000))
+    length(var.synthetic_monitoring_probe_ids) * 1 * (43200 / (local.synthetic_http_check_frequency_ms[name] / 60000))
   ])
 
   synthetic_monthly_api_hard_ceiling    = 90000

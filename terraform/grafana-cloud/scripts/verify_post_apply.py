@@ -43,6 +43,13 @@ EXPECTED_SYNTHETIC_CHECKS = {
     "vercel_secondary_readiness",
     "vps_readiness",
 }
+EXPECTED_SYNTHETIC_FREQUENCY_MS = {
+    "canonical_articles_api": 300_000,
+    "canonical_homepage": 300_000,
+    "canonical_readiness": 300_000,
+    "vercel_secondary_readiness": 600_000,
+    "vps_readiness": 600_000,
+}
 SYNTHETIC_API_EXECUTION_CEILING_MONTHLY = 90_000
 SYNTHETIC_MONTH_MILLISECONDS = 30 * 24 * 60 * 60 * 1000
 EXPECTED_SLOS = {
@@ -777,7 +784,10 @@ LOKI_ALLOWED_INDEXED_LABELS = LOKI_INDEXED_LABELS | LOKI_PLATFORM_INDEXED_LABELS
 SYNTHETIC_CONTRACT_ERROR_CATEGORIES: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("identity", ("approved checks", "bounded production identity labels")),
     ("enabled", ("must be enabled",)),
-    ("schedule", ("five minutes", "frequency differs", "timeout differs")),
+    (
+        "schedule",
+        ("source-controlled cadence", "frequency differs", "timeout differs"),
+    ),
     ("probes", ("probe ids", "public selection")),
     ("metrics_mode", ("basic metrics",)),
     ("target", ("approved read-only https route", "desired target")),
@@ -811,6 +821,7 @@ PUBLIC_TARGET_HOSTNAME = re.compile(
     r"[a-z](?:[a-z0-9-]{0,61}[a-z0-9])?",
     re.ASCII,
 )
+SYNTHETIC_DATASOURCE_UID = re.compile(r"[A-Za-z0-9_-]{1,64}", re.ASCII)
 APPROVED_SYNTHETIC_ASSERTIONS: dict[str, dict[str, list[Any]]] = {
     "canonical_homepage": {
         "fail_if_body_matches_regexp": ["maintenance"],
@@ -1776,6 +1787,31 @@ class SyntheticMonitoringClient(GrafanaClient):
         self.opener = urllib.request.build_opener(NoRedirectHandler())
 
 
+class SyntheticMonitoringProxyClient(GrafanaClient):
+    """GET-only Synthetic Monitoring client through the Grafana datasource proxy."""
+
+    def __init__(
+        self, url: str, token: str, datasource_uid: str, timeout: int = 20
+    ) -> None:
+        super().__init__(url, token, timeout)
+        if SYNTHETIC_DATASOURCE_UID.fullmatch(datasource_uid) is None:
+            raise ValueError(
+                "GRAFANA_SM_DATASOURCE_UID must contain only bounded Grafana UID characters"
+            )
+        self.datasource_uid = datasource_uid
+
+    def request(self, method: str, path: str) -> Any:
+        if method != "GET" or re.fullmatch(r"/api/v1/check(?:/[1-9][0-9]*)?", path) is None:
+            raise RuntimeError(
+                "Grafana Synthetic Monitoring datasource proxy permits only bounded GET check inventory requests"
+            )
+        suffix = path.removeprefix("/api/v1")
+        return super().request(
+            "GET",
+            f"/api/datasources/proxy/uid/{self.datasource_uid}/sm{suffix}",
+        )
+
+
 def _validate_role_origin(
     value: str,
     name: str,
@@ -2296,13 +2332,12 @@ def canonical_synthetic_assertion_family(field: str, value: Any) -> tuple[Any, .
     return tuple(sorted(normalized))
 
 
-def validate_remote_synthetic_contract(
+def validate_remote_synthetic_inventory_contract(
     check: dict[str, Any],
     expected_probe_ids: set[int],
-    desired: dict[str, Any],
     errors: list[str],
 ) -> bool:
-    """Validate one managed check without returning targets or assertion text."""
+    """Validate public-safe managed metadata without requiring protected targets."""
     starting_error_count = len(errors)
     job = str(check.get("job", ""))
     prefix = f"remote synthetic contract {job or '<missing-job>'}"
@@ -2311,12 +2346,8 @@ def validate_remote_synthetic_contract(
         return False
     if check.get("enabled") is not True:
         errors.append(f"{prefix} must be enabled")
-    if check.get("frequency") != 300_000:
-        errors.append(f"{prefix} must run every five minutes")
-    if check.get("frequency") != desired.get("frequency_ms", 300_000):
-        errors.append(f"{prefix} frequency differs from the protected desired contract")
-    if check.get("timeout") != desired.get("timeout_ms", 5_000):
-        errors.append(f"{prefix} timeout differs from the protected desired contract")
+    if check.get("frequency") != EXPECTED_SYNTHETIC_FREQUENCY_MS[job]:
+        errors.append(f"{prefix} frequency differs from the source-controlled cadence")
     probes = check.get("probes")
     if (
         not isinstance(probes, list)
@@ -2343,6 +2374,24 @@ def validate_remote_synthetic_contract(
     }
     if any(labels.get(name) != value for name, value in expected_labels.items()):
         errors.append(f"{prefix} is missing its bounded production identity labels")
+    return len(errors) == starting_error_count
+
+
+def validate_remote_synthetic_contract(
+    check: dict[str, Any],
+    expected_probe_ids: set[int],
+    desired: dict[str, Any],
+    errors: list[str],
+) -> bool:
+    """Validate one managed check without returning targets or assertion text."""
+    starting_error_count = len(errors)
+    validate_remote_synthetic_inventory_contract(check, expected_probe_ids, errors)
+    job = str(check.get("job", ""))
+    prefix = f"remote synthetic contract {job or '<missing-job>'}"
+    if job not in EXPECTED_SYNTHETIC_CHECKS:
+        return False
+    if check.get("timeout") != desired.get("timeout_ms", 5_000):
+        errors.append(f"{prefix} timeout differs from the protected desired contract")
 
     try:
         validate_synthetic_target(
@@ -2466,10 +2515,10 @@ def synthetic_contract_error_summary(contract_errors: Any) -> dict[str, Any]:
 
 
 def remote_synthetic_inventory(
-    client: SyntheticMonitoringClient,
+    client: Any,
     managed_ids: Any,
     selected_probes: Any,
-    desired_checks: dict[str, dict[str, Any]],
+    desired_checks: dict[str, dict[str, Any]] | None,
     errors: list[str],
 ) -> dict[str, Any]:
     """Inventory every remote check while retaining only non-target metadata."""
@@ -2604,12 +2653,19 @@ def remote_synthetic_inventory(
             if normalized_managed_ids.get(job) != check_id:
                 errors.append(f"Remote Synthetic Monitoring ID does not match Terraform for {job}")
             contract_errors: list[str] = []
-            validate_remote_synthetic_contract(
-                detail,
-                expected_probe_ids,
-                desired_checks.get(job, {}),
-                contract_errors,
-            )
+            if desired_checks is None:
+                validate_remote_synthetic_inventory_contract(
+                    detail,
+                    expected_probe_ids,
+                    contract_errors,
+                )
+            else:
+                validate_remote_synthetic_contract(
+                    detail,
+                    expected_probe_ids,
+                    desired_checks.get(job, {}),
+                    contract_errors,
+                )
             errors.extend(contract_errors)
             for item in safe_inventory:
                 if item.get("check_id") == check_id and item.get("job") == job:
@@ -4687,10 +4743,11 @@ def main() -> int:
             for probe in synthetic_probe_state.values()
         ):
             errors.append("Terraform state contains a non-public Synthetic Monitoring probe")
-        if synthetic_execution_estimate != 86400:
+        if synthetic_execution_estimate != 69120:
             errors.append(
-                "Terraform synthetic execution estimate must be 86,400 for five checks, "
-                f"two probes, and a five-minute interval; observed {synthetic_execution_estimate!r}"
+                "Terraform synthetic execution estimate must be 69,120 for three five-minute "
+                "checks and two ten-minute checks across two probes; "
+                f"observed {synthetic_execution_estimate!r}"
             )
         validate_synthetic_execution_guardrail(
             synthetic_execution_guardrail,

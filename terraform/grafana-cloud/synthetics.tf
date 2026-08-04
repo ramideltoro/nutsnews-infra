@@ -23,7 +23,7 @@ resource "grafana_synthetic_monitoring_check" "http" {
   target             = var.synthetic_http_checks[each.key].target
   enabled            = true
   probes             = var.synthetic_monitoring_probe_ids
-  frequency          = nonsensitive(var.synthetic_http_checks[each.key].frequency_ms)
+  frequency          = local.synthetic_http_check_frequency_ms[each.key]
   timeout            = nonsensitive(var.synthetic_http_checks[each.key].timeout_ms)
   basic_metrics_only = true
   alert_sensitivity  = "none"

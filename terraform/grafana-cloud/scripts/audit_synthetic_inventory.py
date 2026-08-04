@@ -35,10 +35,10 @@ def main() -> int:
         "checks": [],
     }
     required = {
-        "GRAFANA_SM_URL": os.environ.get("GRAFANA_SM_URL", ""),
-        "GRAFANA_SM_ACCESS_TOKEN": os.environ.get("GRAFANA_SM_ACCESS_TOKEN", "").strip(),
-        "NUTSNEWS_GRAFANA_SYNTHETIC_HTTP_CHECKS_JSON": os.environ.get(
-            "NUTSNEWS_GRAFANA_SYNTHETIC_HTTP_CHECKS_JSON", ""
+        "GRAFANA_URL": os.environ.get("GRAFANA_URL", ""),
+        "GRAFANA_TOKEN": os.environ.get("GRAFANA_TOKEN", "").strip(),
+        "GRAFANA_SM_DATASOURCE_UID": os.environ.get(
+            "GRAFANA_SM_DATASOURCE_UID", ""
         ).strip(),
     }
     if any(not value for value in required.values()):
@@ -48,18 +48,16 @@ def main() -> int:
     else:
         try:
             outputs = verifier.load_json(args.terraform_outputs)
-            desired = verifier.parse_desired_synthetic_checks(
-                required["NUTSNEWS_GRAFANA_SYNTHETIC_HTTP_CHECKS_JSON"]
-            )
-            client = verifier.SyntheticMonitoringClient(
-                verifier.validate_synthetic_monitoring_url(required["GRAFANA_SM_URL"]),
-                required["GRAFANA_SM_ACCESS_TOKEN"],
+            client = verifier.SyntheticMonitoringProxyClient(
+                required["GRAFANA_URL"],
+                required["GRAFANA_TOKEN"],
+                required["GRAFANA_SM_DATASOURCE_UID"],
             )
             inventory = verifier.remote_synthetic_inventory(
                 client,
                 output_value(outputs, "synthetic_check_ids"),
                 output_value(outputs, "synthetic_probe_selection"),
-                desired,
+                None,
                 errors,
             )
         except (OSError, ValueError, RuntimeError, TypeError, KeyError, json.JSONDecodeError):

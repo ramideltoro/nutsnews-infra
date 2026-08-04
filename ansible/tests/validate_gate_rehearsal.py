@@ -527,8 +527,10 @@ for token in (
     "github.repository == 'ramideltoro/nutsnews-infra'",
     "github.ref == 'refs/heads/main'",
     "persist-credentials: false",
+    "NUTSNEWS_GRAFANA_CLOUD_URL",
+    "NUTSNEWS_GRAFANA_SYNTHETIC_DATASOURCE_UID",
     "NUTSNEWS_GRAFANA_SYNTHETIC_EXPECTED_INVENTORY_JSON",
-    "NUTSNEWS_GRAFANA_SYNTHETIC_MONITORING_READONLY_ACCESS_TOKEN",
+    "NUTSNEWS_GRAFANA_CLOUD_READONLY_SERVICE_ACCOUNT_TOKEN",
     "audit_synthetic_inventory.py",
     "Upload sanitized audit evidence",
     "retention-days: 90",
@@ -541,6 +543,7 @@ for forbidden in (
     "NUTSNEWS_GRAFANA_CLOUD_SERVICE_ACCOUNT_TOKEN",
     "NUTSNEWS_GRAFANA_CLOUD_ACCESS_POLICY_TOKEN",
     "NUTSNEWS_GRAFANA_SYNTHETIC_MONITORING_ACCESS_TOKEN",
+    "NUTSNEWS_GRAFANA_SYNTHETIC_HTTP_CHECKS_JSON",
     "tofu apply",
     "terraform apply",
     "ssh ",
@@ -557,9 +560,10 @@ for token in (
     "exact `main` branch",
     "Leave **Required reviewers** empty",
     "least-privilege",
-    "read checks and probes only",
+    "Viewer role",
+    "datasource proxy",
     "do not add the OpenTofu backend configuration",
-    "do not grant checks, probes, alerts",
+    "must not contain protected synthetic targets or assertions",
 ):
     require(token in GRAFANA_READONLY_RUNBOOK, f"Read-only Grafana Environment runbook missing: {token}")
 allowed_production_env_workflows = {

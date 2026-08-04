@@ -112,7 +112,7 @@ variable "enforce_rollout_decisions" {
 }
 
 variable "synthetic_major_forecast_acknowledged" {
-  description = "Protected explicit acknowledgment that the reviewed rollout choice is to retain five checks, two probes, and five-minute cadence despite the standing >=85% major forecast. False blocks production plan/apply; other choices require source changes."
+  description = "Deprecated compatibility input for the former standing-major five-minute topology. The source-controlled mixed cadence remains below the major forecast threshold and does not require acknowledgment."
   type        = bool
   default     = false
 }
@@ -141,7 +141,7 @@ variable "worker_terminal_slo_alerting_enabled" {
 }
 
 variable "synthetic_http_checks" {
-  description = "The five approved read-only HTTP Synthetic Monitoring checks. Keep targets out of Git and supply through protected variables or tfvars outside version control."
+  description = "The five approved read-only HTTP Synthetic Monitoring checks. Keep targets out of Git and supply through protected variables or tfvars outside version control. The protected frequency field remains fixed at its legacy value while source-controlled policy defines the effective cadence."
   sensitive   = true
   type = map(object({
     target                          = string
@@ -191,7 +191,7 @@ variable "synthetic_http_checks" {
     condition = alltrue([
       for check in values(var.synthetic_http_checks) : check.frequency_ms == 300000
     ])
-    error_message = "Every approved Synthetic Monitoring check must run every five minutes (300000 ms)."
+    error_message = "Every protected Synthetic Monitoring input must retain the legacy five-minute frequency value (300000 ms); source-controlled policy defines the effective live cadence."
   }
 
   validation {

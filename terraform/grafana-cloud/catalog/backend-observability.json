@@ -172,7 +172,7 @@
         {"title": "Log Volume By Service", "datasource": "loki", "unit": "short", "expr": "sum by (service) (count_over_time({host=\"backend.nutsnews.com\"}[15m])) or vector(0)"},
         {"title": "Warnings And Errors", "datasource": "loki", "type": "logs", "expr": "{host=\"backend.nutsnews.com\",severity=~\"warn|warning|error|fatal|crit|alert|emerg\"}"},
         {"title": "Security Logs", "datasource": "loki", "type": "logs", "expr": "{host=\"backend.nutsnews.com\",service=\"security\"}"},
-        {"title": "SSH Auth Failure Volume", "datasource": "loki", "unit": "short", "expr": "sum(count_over_time({host=\"backend.nutsnews.com\",service=\"security\"} |~ \"(?i)(failed password|invalid user|authentication failure|maximum authentication attempts)\" [15m])) or vector(0)"},
+        {"title": "SSH Auth Failure Volume", "datasource": "loki", "unit": "short", "expr": "sum(count_over_time({host=\"backend.nutsnews.com\",service=\"security\",source=\"auth\"} |~ \"(?i)(failed password|invalid user|authentication failure|maximum authentication attempts)\" [15m])) or vector(0)"},
         {"title": "Fail2ban Ban Events", "datasource": "loki", "unit": "short", "expr": "sum(count_over_time({host=\"backend.nutsnews.com\",service=\"security\"} |~ \"(?i)(notice.*\\bban\\b|sshd.*\\bban\\b)\" [15m])) or vector(0)"},
         {"title": "Backup And Timer Logs", "datasource": "loki", "type": "logs", "expr": "{host=\"backend.nutsnews.com\",service=~\"backup|timer\"}"},
         {"title": "Log Volume By Source", "datasource": "loki", "unit": "short", "expr": "sum by (source) (count_over_time({host=\"backend.nutsnews.com\"}[15m])) or vector(0)"}
@@ -414,7 +414,7 @@
       "severity": "warning",
       "service": "security",
       "datasource": "loki",
-      "expr": "sum(count_over_time({host=\"backend.nutsnews.com\",service=\"security\"} |~ \"(?i)(failed password|invalid user|authentication failure|maximum authentication attempts)\" [15m]))",
+      "expr": "sum(count_over_time({host=\"backend.nutsnews.com\",service=\"security\",source=\"auth\"} |~ \"(?i)(failed password|invalid user|authentication failure|maximum authentication attempts)\" [15m]))",
       "threshold": 25,
       "evaluator": "gt",
       "for": "5m",

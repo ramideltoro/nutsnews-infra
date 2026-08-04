@@ -14,7 +14,7 @@ Use this runbook to enable Grafana Cloud observability for NutsNews hosts throug
 - Grafana Cloud folders, dashboards, operations-email routing, quota/pipeline guardrails, five synthetics, and four native SLOs managed by OpenTofu.
 - Imported backend Grafana dashboards and alert rules that keep the existing backend UIDs.
 - Source-controlled worker-uplift telemetry scope for required metrics/logs, Sentry-owned exceptions, deferred Tempo/exemplars/profiles/Faro, and bounded labels before production traffic.
-- Five read-only HTTP synthetics from exactly two public probes every five minutes when protected targets and probe IDs are supplied outside Git.
+- Five read-only HTTP synthetics from exactly two public probes: three canonical checks every five minutes and two direct readiness checks every ten minutes.
 
 The VPS side remains read-only and agent-based. This change does not add portal mutation buttons, arbitrary shell access, or broad workflow dispatch command execution.
 
@@ -250,11 +250,11 @@ Required production Synthetic Monitoring secrets:
 Keep real target URLs in the protected secret JSON or local untracked variables, not in Git.
 The input schema preserves Grafana's 10-second through 60-minute API-check
 bounds and one- through 60-second timeout bounds. Production policy is stricter:
-exactly five enabled checks across two public probes every five minutes, a
-hard failure at or above the lower of 90% of the configured allowance and the
-absolute 90,000-execution monthly ceiling, and a protected
-reviewed acknowledgment in the 85% `major` forecast band. The protected
-preflight artifact is value-free: it contains counts, interval bounds,
+exactly five enabled checks across two public probes, with three canonical checks
+every five minutes and two direct readiness checks every ten minutes. It hard
+fails at or above the lower of 90% of the configured allowance and the absolute
+90,000-execution monthly ceiling. The protected preflight artifact is value-free:
+it contains counts, effective interval bounds,
 projected executions, thresholds, and the decision state, never check names,
 targets, probe IDs, or credentials.
 
@@ -336,28 +336,23 @@ Synthetic Monitoring execution estimate:
 probes x tests x rounded-duration-minutes x (43200 / frequency-minutes)
 ```
 
-Five checks, two probes, and a five-minute interval project to 86,400 API
-executions in a 30-day month. OpenTofu blocks at the lower of the absolute
-90,000-execution ceiling and 90% of the configured free allowance, and
-provisions 70/85/95% forecast alerts. Because
+Three five-minute canonical checks and two ten-minute direct readiness checks,
+each using two probes, project to 69,120 API executions in a 30-day month.
+OpenTofu blocks at the lower of the absolute 90,000-execution ceiling and 90%
+of the configured free allowance, and provisions 70/85/95% forecast alerts. Because
 Grafana does not document a Prometheus billing-usage series for synthetic API
 executions, this is a configuration forecast; the post-apply verifier also
 requires exactly five managed checks and two live probe series per check.
 Browser checks and cloud k6 runs are not enabled.
 
-The exact 5×2×5-minute topology consumes 86.4% of the 100,000-execution free
-allowance and therefore enters the 85% `major` forecast band. Production
-plan/apply is fail-closed until this contradiction receives an explicit
-reviewed decision. To retain the requested topology, set the protected
-environment variable
-`NUTSNEWS_GRAFANA_SYNTHETIC_MAJOR_FORECAST_ACKNOWLEDGED=true`; that value means
-the operator deliberately chose the standing-major option and does not silence
-or downgrade the capacity signal. The other valid choices—changing cadence or
-topology, or changing the threshold/allowance with quota evidence—require a
-reviewed source change. Keep `enforce_rollout_decisions=true` for all production
-plans/applies; its false value is only for non-mutating static CI fixtures. The
-90,000 hard ceiling remains independent and prevents adding a check/probe or
-shortening the interval without a reviewed source change.
+The mixed cadence consumes 69.12% of the 100,000-execution free allowance, below
+the 70% warning and 85% major forecast bands. The protected input retains its
+legacy five-minute frequency field for compatibility, but the source-controlled
+frequency map is authoritative for Terraform resources, validation, and live
+inventory checks. `NUTSNEWS_GRAFANA_SYNTHETIC_MAJOR_FORECAST_ACKNOWLEDGED` is
+deprecated and should remain `false`. The 90,000 hard ceiling remains independent
+and prevents adding a check/probe or shortening the interval without a reviewed
+source change.
 
 The production Alloy configs enforce the active-series budget at the scrape
 boundary. VPS Caddy drops every per-client rate-limit family plus request and
@@ -625,11 +620,12 @@ privilege and cardinality review.
 The post-apply verifier is deliberately strict and will fail until the source
 telemetry exists. Roll out in this order:
 
-Current-state note (2026-08-01): Grafana Cloud Apply run `30708192621` on
+Historical baseline note (2026-08-01): Grafana Cloud Apply run `30708192621` on
 `main` revision `c23403e` successfully created check IDs `3997`–`4001`.
 Protected input-validation logs and the OpenTofu apply/output show five checks,
 two probes, a 300-second interval, and exactly 86,400 projected API executions
-per 30-day month. The verifier at that revision did not inspect the Synthetic
+per 30-day month. That superseded baseline explains the former quota alert; the
+current source-controlled mixed cadence projects 69,120 executions. The verifier at that revision did not inspect the Synthetic
 Monitoring API or assert the synthetic Terraform state, so its post-apply
 artifact is not evidence for that topology. The live baseline also does not
 prove unapplied verifier sanitization, notification-policy, native-SLO, or
