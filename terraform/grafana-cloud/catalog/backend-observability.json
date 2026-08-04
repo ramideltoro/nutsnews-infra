@@ -414,14 +414,14 @@
       "severity": "warning",
       "service": "security",
       "datasource": "loki",
-      "expr": "sum(count_over_time({host=\"backend.nutsnews.com\",service=\"security\",source=\"auth\"} |~ \"(?i)(failed password|invalid user|authentication failure|maximum authentication attempts)\" [15m]))",
-      "threshold": 25,
+      "expr": "max(sum by (remote_addr) (count_over_time({host=\"backend.nutsnews.com\",service=\"security\",source=\"auth\"} |~ \"(?i)(failed password|maximum authentication attempts)\" | regexp \"(?i)from (?P<remote_addr>[^ ]+) port\" [15m])))",
+      "threshold": 4,
       "evaluator": "gt",
       "for": "5m",
       "range_seconds": 1800,
       "no_data_state": "OK",
       "runbook_url": "https://github.com/ramideltoro/nutsnews-backend/blob/main/runbooks/ABUSE_PROTECTION.md",
-      "summary": "SSH authentication failures are above the detection threshold. This is report-only and does not add new blocking."
+      "summary": "One remote source produced at least five canonical SSH authentication failures in 15 minutes. This is report-only and does not add new blocking."
     },
     {
       "uid": "nn-backend-fail2ban-ban-events",

@@ -774,6 +774,14 @@ Use Loki Explore:
 {host="backend.nutsnews.com", source="container", service="rabbitmq"}
 ```
 
+The backend SSH alert reads only the canonical `source="auth"` stream. It
+counts `failed password` and `maximum authentication attempts` lines by the
+transiently parsed remote address, collapses the result to the largest count,
+and fires when one source reaches five failures in 15 minutes. The address is
+not retained as an alert label or notification field. This keeps distributed
+internet scan noise report-only while preserving detection of a repeated
+single-source attempt aligned with the Fail2ban threshold.
+
 VPS Loki streams index exactly `deployment_environment`, `service`,
 `service_version`, `host`, `source`, and `severity`. Request, message,
 correlation, trace, article, feed, and idempotency identifiers remain parsed

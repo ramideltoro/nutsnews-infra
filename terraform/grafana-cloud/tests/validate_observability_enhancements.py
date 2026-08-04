@@ -1606,6 +1606,14 @@ require(
 # filtering comparison intentionally yields 0 only when the fixture is active;
 # with the fixture inactive, absent real telemetry remains governed by NoData.
 backend_alerts = {alert["uid"]: alert for alert in BACKEND_CATALOG["alerts"]}
+ssh_auth_alert = backend_alerts["nn-backend-ssh-auth-spike"]
+require(
+    ssh_auth_alert["expr"]
+    == 'max(sum by (remote_addr) (count_over_time({host="backend.nutsnews.com",service="security",source="auth"} |~ "(?i)(failed password|maximum authentication attempts)" | regexp "(?i)from (?P<remote_addr>[^ ]+) port" [15m])))'
+    and ssh_auth_alert["threshold"] == 4
+    and ssh_auth_alert["no_data_state"] == "OK",
+    "SSH auth alert must detect five repeated canonical failures from one source without routing on the extracted address",
+)
 backend_host_alert = backend_alerts["nutsnews-backend-host-metrics-missing"]
 require(
     "1 - min(up{" in backend_host_alert["expr"]
