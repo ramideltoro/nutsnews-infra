@@ -1,4 +1,11 @@
 locals {
+  production_legacy_ingestion_age_selector = "nutsnews_backend_legacy_worker_last_scheduled_success_age_seconds{job=\"nutsnews-backend-host\",instance=\"backend.nutsnews.com\",service_namespace=\"nutsnews\",service=\"host\",environment=\"${var.deployment_environment}\",deployment_environment=\"${var.deployment_environment}\",host=\"backend.nutsnews.com\"}"
+  production_legacy_owner_selector         = "nutsnews_backend_worker_uplift_deployment_info{job=\"nutsnews-backend-host\",instance=\"backend.nutsnews.com\",service_namespace=\"nutsnews\",service=\"host\",environment=\"${var.deployment_environment}\",deployment_environment=\"${var.deployment_environment}\",host=\"backend.nutsnews.com\",ingestion_owner=\"legacy_shards\"}"
+  production_uplift_scheduler_selector     = "nutsnews_worker_scheduler_loop_fresh{job=\"nutsnews-worker-uplift\",instance=\"backend.nutsnews.com\",service_namespace=\"nutsnews\",host=\"backend.nutsnews.com\",environment=\"${var.deployment_environment}\",deployment_environment=\"${var.deployment_environment}\",service=\"scheduler\"}"
+  production_uplift_owner_selector         = "nutsnews_backend_worker_uplift_expected_active{job=\"nutsnews-backend-host\",instance=\"backend.nutsnews.com\",service_namespace=\"nutsnews\",service=\"host\",environment=\"${var.deployment_environment}\",deployment_environment=\"${var.deployment_environment}\",host=\"backend.nutsnews.com\"}"
+  production_ingestion_fresh_good          = "((max(${local.production_legacy_ingestion_age_selector}) <= 900) and on() (max(${local.production_legacy_ingestion_age_selector}) >= 0) and on() (max(${local.production_legacy_owner_selector}) == 1)) or ((max(${local.production_uplift_scheduler_selector}) == 1) and on() (max(${local.production_uplift_owner_selector}) == 1))"
+  production_ingestion_fresh_valid         = "((max(${local.production_legacy_ingestion_age_selector}) >= 0) and on() (max(${local.production_legacy_owner_selector}) == 1)) or ((count(${local.production_uplift_scheduler_selector}) > 0) and on() (max(${local.production_uplift_owner_selector}) == 1))"
+
   service_level_objectives = {
     public_availability = {
       name             = "NutsNews public availability"
@@ -19,12 +26,12 @@ locals {
       dashboard_url    = "/d/nutsnews-synthetic-uptime-api-checks"
     }
     feed_freshness = {
-      name             = "NutsNews feed freshness"
-      description      = "At least 99% of valid durable feed-freshness observations report published content no more than 15 minutes old, independent of the shadow worker path."
+      name             = "NutsNews ingestion freshness"
+      description      = "At least 99% of valid observations report a successful scheduled ingestion cycle within 15 minutes for the active production owner. Source publishers are not required to create new content during every cycle."
       objective        = 0.99
       service          = "publication"
       alerting_enabled = true
-      query            = "(sum(count_over_time(((max(nutsnews_backend_public_feed_snapshot_newest_content_age_seconds{job=\"nutsnews-backend-host\",deployment_environment=\"${var.deployment_environment}\",instance=\"backend.nutsnews.com\"}) <= 900) and on() (max(nutsnews_backend_public_feed_snapshot_newest_content_age_seconds{job=\"nutsnews-backend-host\",deployment_environment=\"${var.deployment_environment}\",instance=\"backend.nutsnews.com\"}) >= 0) and on() (max(nutsnews_backend_content_coverage_available{job=\"nutsnews-backend-host\",deployment_environment=\"${var.deployment_environment}\",instance=\"backend.nutsnews.com\"}) == 1))[$__interval:])) or 0 * sum(count_over_time(((max(nutsnews_backend_public_feed_snapshot_newest_content_age_seconds{job=\"nutsnews-backend-host\",deployment_environment=\"${var.deployment_environment}\",instance=\"backend.nutsnews.com\"}) >= 0) and on() (max(nutsnews_backend_content_coverage_available{job=\"nutsnews-backend-host\",deployment_environment=\"${var.deployment_environment}\",instance=\"backend.nutsnews.com\"}) == 1))[$__interval:]))) / sum(count_over_time(((max(nutsnews_backend_public_feed_snapshot_newest_content_age_seconds{job=\"nutsnews-backend-host\",deployment_environment=\"${var.deployment_environment}\",instance=\"backend.nutsnews.com\"}) >= 0) and on() (max(nutsnews_backend_content_coverage_available{job=\"nutsnews-backend-host\",deployment_environment=\"${var.deployment_environment}\",instance=\"backend.nutsnews.com\"}) == 1))[$__interval:]))"
+      query            = "(sum(count_over_time((${local.production_ingestion_fresh_good})[$__interval:])) or 0 * sum(count_over_time((${local.production_ingestion_fresh_valid})[$__interval:]))) / sum(count_over_time((${local.production_ingestion_fresh_valid})[$__interval:]))"
       dashboard_url    = "/d/nutsnews-worker-uplift-slos"
     }
     worker_terminal_success = {

@@ -97,7 +97,8 @@ Each notification includes:
 - recovery window through `keep_firing_for`
 
 The SLO dashboard exposes broker availability, stage success/latency,
-end-to-end feed freshness, retry/DLQ rate, and final publication success. The
+active-owner ingestion freshness, newest published-content age, retry/DLQ
+rate, and final publication success. The
 shared terminal ratio counts `success|duplicate` over
 `success|duplicate|invalid|failure|dlq`; intermediate `retry` events are
 excluded. Broker availability and
@@ -459,8 +460,8 @@ pending bootstrap report as fingerprint validation.
 ## Native SLOs
 
 OpenTofu creates four 30-day Grafana SLOs: public availability at 99.5%, 95%
-of successful articles API probes within 750 ms, feed freshness within 15
-minutes at 99%, and worker terminal success at 99%. Failed article-API probes
+of successful articles API probes within 750 ms, active-owner ingestion
+freshness within 15 minutes at 99%, and worker terminal success at 99%. Failed article-API probes
 trigger the all-check synthetic operational alert and are excluded from the
 latency denominator; the latency good events are the successful probes that
 also meet 750 ms.
@@ -470,8 +471,11 @@ disabled while worker uplift is shadow-only through the protected
 `worker_terminal_slo_alerting_enabled` input; the dashboard still evaluates its
 SLI. Enable that input only in the protected cutover that also makes the
 host-owned worker-uplift mode `production` and expected-active value `1`.
-Feed-freshness paging protects durable production content regardless of which
-ingestion implementation owns it, and the separate critical guardrail fires at
+Ingestion-freshness paging routes between the latest successful scheduled
+legacy run and the worker-uplift scheduler-loop freshness signal according to
+the protected production owner. It does not page merely because upstream
+publishers have no new article during a cycle. The dashboard retains newest
+durable-content age, and the separate content-age critical guardrail fires at
 three hours.
 
 The worker telemetry rollout is intentionally staged behind publication and
