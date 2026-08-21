@@ -1,17 +1,13 @@
 # Agent Instructions
 
-
 ## Before Editing
-
 
 - Read this file and the relevant README, docs, or runbook before making changes.
 - Inspect the current git status before editing.
 - Show me the plan before you begin edits.
 - Preserve user changes. Do not overwrite, delete, or revert work you did not make unless explicitly instructed.
 
-
 ## Repository Rules
-
 
 - Do not add secrets to this repository.
 - Do not commit Terraform state, `.tfvars`, private keys, tokens, credentials, or local environment files.
@@ -34,9 +30,7 @@
 - Keep only short operational pointers in this repository. Learning, explanation, diagrams, recovery context, and operating guides belong in `ramideltoro/nutsnews-docs`.
 - Documentation-only changes must never trigger app, Worker, VPS, or deployment workflows.
 
-
 ## Production VPS Verification and Troubleshooting
-
 
 - For changes affecting VPS services, networking, Docker, Caddy, systemd, UFW, health endpoints, monitoring, security, or availability, SSH verification is REQUIRED before reporting success.
 - SSH is authorized for read-only verification and troubleshooting: inspect sockets, routes, service/unit state, logs, Docker network/configuration, UFW, and health responses as needed.
@@ -44,9 +38,7 @@
 - MUST NOT make persistent direct host edits, weaken the firewall, expose secrets, or restart/change production services manually to bypass the GitOps path.
 - After an approved Protected Ansible Apply, SSH verification is REQUIRED again and must prove the intended runtime state.
 
-
 ## Validation
-
 
 - Infrastructure changes require validation before PR review.
 - Terraform changes must be formatted and validated.
@@ -54,9 +46,7 @@
 - Compose changes must be configuration checked.
 - Portal changes must pass the relevant build, lint, and test commands once they exist.
 
-
 ## Documentation
-
 
 - Add or update `ramideltoro/nutsnews-docs` for every change in this repository.
 - Add or update local docs and runbooks only as short operational pointers for operations, deployment, infrastructure, or security changes.
