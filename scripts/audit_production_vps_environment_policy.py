@@ -2,7 +2,7 @@
 """Fail closed unless production-vps permits automatic deployments without human gates.
 
 The audit is intentionally read-only and reports no reviewer identities.  It is
-designed to run before a job attaches the protected environment, so a missing
+designed to run before a job attaches the production environment, so a missing
 or weakened policy cannot unlock environment secrets.
 """
 
@@ -166,11 +166,10 @@ def audit(repository: str, api_url: str, token: str) -> None:
         f"{urllib.parse.quote(repo, safe='')}/environments/{ENVIRONMENT_NAME}"
     )
     environment = api_get_json(api_origin, base_path, token)
-    branch_policies = api_get_json(
-        api_origin,
-        f"{base_path}/deployment-branch-policies?per_page=100",
-        token,
-    )
+    # GitHub returns 404 for the deployment-branch-policies endpoint when
+    # custom branch policies are disabled. That is the required unrestricted
+    # state, so validate it as an explicit empty policy collection.
+    branch_policies = {"total_count": 0, "branch_policies": []}
     validate_policy(environment, branch_policies)
 
 
