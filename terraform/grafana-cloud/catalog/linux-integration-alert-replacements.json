@@ -291,7 +291,7 @@
       "execErrState": "OK",
       "queryFrom": 660,
       "queryTo": 60,
-      "expr": "node_systemd_unit_state{job=~\"integrations/(node_exporter|unix)\", state=\"failed\"} == 1\n",
+      "expr": "node_systemd_unit_state{job=~\"integrations/(node_exporter|unix)\", state=\"failed\", name!~\"nutsnews-(ops-health-report|restic-backup|restic-verify)\\.service\"} == 1\n",
       "summary": "Systemd service has entered failed state.",
       "description": "Systemd service {{ $labels.name }} has entered failed state at {{ $labels.instance }}.\nIf this service is not required anymore, remove it or run `systemctl reset-failed {{ $labels.name }}` in order to reset the failed counter.\n"
     },
