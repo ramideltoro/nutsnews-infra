@@ -655,30 +655,29 @@ state, not be masked with a synthetic healthy value.
 ## Apply Grafana Assets
 
 1. Let the PR-triggered `Grafana Cloud Plan` workflow run its unprivileged fmt,
-   static tests, and backendless validation job. The protected plan job never
-   receives Environment secrets from a PR branch.
-2. Merge the PR after required checks pass and after resolving the documented
-   production Environment, vendor-rule, and synthetic-forecast rollout
-   decisions.
-3. On exact `main`, dispatch `Dispatch Protected Observability Rollout` with
-   `operation=grafana-plan` and an empty confirmation. Approve the resulting `Grafana Cloud
-   Plan` run at the `production-vps` Environment gate.
-4. Confirm the live OpenTofu plan, refresh-only drift check, and value-free
-   `grafana-cloud-input-validation` artifact. This artifact proves the protected
-   topology and quota decision without disclosing targets; it is not post-apply
-   telemetry evidence and does not require the last-applied live stack to
-   already match an unapplied desired change. Exact live convergence and query
-   health verification is apply-only.
-5. Run `Dispatch Protected Observability Rollout` again on exact `main` with
-   `operation=grafana-apply` and `confirmation=grafana-cloud`.
-6. Approve the resulting `Grafana Cloud Apply` run at the `production-vps`
-   Environment gate.
-7. Review the final OpenTofu apply output, dashboard URLs, the value-free input
+   static tests, and backendless validation job. The plan job never receives
+   Environment secrets from a PR branch.
+2. Merge the PR only after the automated checks pass.
+3. A merge to exact `main` that changes `terraform/grafana-cloud/**` or
+   `.github/workflows/grafana-cloud-apply.yml` automatically starts
+   `Grafana Cloud Apply`. No manual dispatch confirmation or Environment
+   approval is required.
+4. The apply workflow repeats the source validations, creates a fresh OpenTofu
+   plan, applies that exact plan, and then runs the strict live-resource and
+   telemetry verifier.
+5. Review the final OpenTofu output, dashboard URLs, the value-free input
    artifact, and the `grafana-cloud-post-apply-verification` artifact. The
-   post-apply artifact is the authoritative dashboard, alert, Prometheus, Loki,
-   Synthetic Monitoring, SLO, and rule-health evidence.
+   post-apply artifact remains the authoritative dashboard, alert, Prometheus,
+   Loki, Synthetic Monitoring, SLO, and rule-health evidence.
 
-If the backend secret is missing, stop and configure remote state before applying. Do not use local state from a GitHub Actions runner for production Grafana assets.
+The `workflow_dispatch` trigger remains available for an exact-`main` retry
+when a transient provider or telemetry-verification failure occurs. It has no
+confirmation input and attaches the unprotected `production-vps` Environment
+only to read its deployment secrets.
+
+If the backend secret is missing, stop and configure remote state before
+applying. Do not use local state from a GitHub Actions runner for production
+Grafana assets.
 
 ### Backend Import Sequence
 
