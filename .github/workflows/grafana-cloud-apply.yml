@@ -1,14 +1,13 @@
 name: Grafana Cloud Apply
 
 on:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/grafana-cloud-apply.yml"
+      - "terraform/grafana-cloud/**"
   workflow_dispatch:
-    inputs:
-      confirm_apply:
-        description: Select grafana-cloud to apply Grafana Cloud IaC from main.
-        required: true
-        type: choice
-        options:
-          - grafana-cloud
 
 permissions:
   contents: read  # Required to check out the GitOps-managed Grafana Cloud IaC.
@@ -20,7 +19,7 @@ concurrency:
 
 jobs:
   audit-production-vps-policy:
-    name: Audit production-vps environment protection
+    name: Audit production-vps automatic deployment policy
     if: ${{ github.repository == 'ramideltoro/nutsnews-infra' && github.ref == 'refs/heads/main' }}
     permissions:
       actions: read
@@ -28,7 +27,7 @@ jobs:
     uses: ./.github/workflows/production-vps-environment-policy-audit.yml
 
   apply:
-    name: Protected OpenTofu apply
+    name: OpenTofu apply
     if: ${{ github.repository == 'ramideltoro/nutsnews-infra' && github.ref == 'refs/heads/main' }}
     needs: audit-production-vps-policy
     runs-on: ubuntu-latest
@@ -36,23 +35,6 @@ jobs:
     environment: production-vps
 
     steps:
-      - name: Validate dispatch guard
-        shell: bash
-        env:
-          CONFIRM_APPLY: ${{ inputs.confirm_apply }}
-        run: |
-          set -euo pipefail
-
-          if [[ "$GITHUB_REF" != "refs/heads/main" ]]; then
-            echo "Grafana Cloud apply must run from main." >&2
-            exit 1
-          fi
-
-          if [[ "$CONFIRM_APPLY" != "grafana-cloud" ]]; then
-            echo "Apply requires confirm_apply to be exactly grafana-cloud." >&2
-            exit 1
-          fi
-
       - name: Checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
         with:

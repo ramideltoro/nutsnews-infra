@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fail closed unless production-vps allows automatic exact-main deployments.
+"""Fail closed unless production-vps permits automatic deployments without human gates.
 
 The audit is intentionally read-only and reports no reviewer identities.  It is
 designed to run before a job attaches the protected environment, so a missing
@@ -84,12 +84,7 @@ def validate_api_origin(api_url: str) -> str:
 def validate_policy(
     environment: dict[str, Any], branch_policy_response: dict[str, Any]
 ) -> None:
-    """Validate exact-main automation without a manual reviewer gate."""
-
-    if environment.get("can_admins_bypass") is not False:
-        raise PolicyAuditError(
-            "production-vps must disable administrator bypass for environment protections"
-        )
+    """Validate automatic deployment without reviewers or branch restrictions."""
 
     deployment_policy = _require_mapping(
         environment.get("deployment_branch_policy"),
@@ -97,11 +92,11 @@ def validate_policy(
     )
     if deployment_policy.get("protected_branches") is not False:
         raise PolicyAuditError(
-            "production-vps must not use the broad protected-branches policy"
+            "production-vps must not use the protected-branches policy"
         )
-    if deployment_policy.get("custom_branch_policies") is not True:
+    if deployment_policy.get("custom_branch_policies") is not False:
         raise PolicyAuditError(
-            "production-vps must enable custom deployment branch policies"
+            "production-vps must not use custom deployment branch policies"
         )
 
     protection_rules = _require_list(
@@ -115,7 +110,7 @@ def validate_policy(
     if reviewer_rules:
         raise PolicyAuditError(
             "production-vps must not require manual reviewers; "
-            "exact-main releases deploy automatically"
+            "main releases deploy automatically"
         )
 
     policies = _require_list(
@@ -127,20 +122,10 @@ def validate_policy(
         raise PolicyAuditError(
             "custom deployment branch policy response is incomplete or malformed"
         )
-    if len(policies) != 1 or not isinstance(policies[0], dict):
+    if total_count != 0 or policies:
         raise PolicyAuditError(
-            "production-vps must have exactly one custom deployment branch policy"
+            "production-vps must not restrict deployments by branch or tag"
         )
-    policy = policies[0]
-    if policy.get("name") != "main":
-        raise PolicyAuditError(
-            "production-vps custom deployment branch policy must be exactly main"
-        )
-    if policy.get("type") != "branch":
-        raise PolicyAuditError(
-            "production-vps main deployment policy must target a branch"
-        )
-
 
 def api_get_json(api_origin: str, path: str, token: str) -> dict[str, Any]:
     url = f"{api_origin}{path}"
@@ -205,8 +190,7 @@ def main() -> int:
         return 1
     print(
         "production-vps environment policy audit passed: "
-        "exact-main custom branch policy, automatic deployment without reviewers, "
-        "and disabled administrator bypass are present"
+        "automatic deployment without reviewers or branch restrictions is present"
     )
     return 0
 

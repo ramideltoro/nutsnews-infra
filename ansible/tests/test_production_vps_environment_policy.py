@@ -26,42 +26,36 @@ VALIDATOR_SPEC.loader.exec_module(VALIDATOR)
 
 
 VALID_ENVIRONMENT = {
-    "can_admins_bypass": False,
-    "protection_rules": [
-        {"type": "branch_policy"},
-    ],
+    "can_admins_bypass": True,
+    "protection_rules": [],
     "deployment_branch_policy": {
         "protected_branches": False,
-        "custom_branch_policies": True,
+        "custom_branch_policies": False,
     },
 }
 VALID_BRANCH_POLICIES = {
-    "total_count": 1,
-    "branch_policies": [{"id": 999, "name": "main", "type": "branch"}],
+    "total_count": 0,
+    "branch_policies": [],
 }
 
 
 class PolicyAuditTests(unittest.TestCase):
-    def test_valid_exact_main_automatic_policy_and_admin_bypass_pass(self) -> None:
+    def test_unrestricted_automatic_policy_passes(self) -> None:
         MODULE.validate_policy(VALID_ENVIRONMENT, VALID_BRANCH_POLICIES)
 
-    def test_enabled_missing_or_malformed_admin_bypass_fails_closed(self) -> None:
-        for can_admins_bypass in (True, None, "false"):
+    def test_admin_bypass_setting_does_not_create_a_deployment_gate(self) -> None:
+        for can_admins_bypass in (True, False, None):
             with self.subTest(can_admins_bypass=can_admins_bypass):
                 environment = copy.deepcopy(VALID_ENVIRONMENT)
                 if can_admins_bypass is None:
                     environment.pop("can_admins_bypass")
                 else:
                     environment["can_admins_bypass"] = can_admins_bypass
-                with self.assertRaisesRegex(
-                    MODULE.PolicyAuditError, "disable administrator bypass"
-                ):
-                    MODULE.validate_policy(environment, VALID_BRANCH_POLICIES)
+                MODULE.validate_policy(environment, VALID_BRANCH_POLICIES)
 
     def test_required_reviewer_fails_automatic_deployment_contract(self) -> None:
         environment = copy.deepcopy(VALID_ENVIRONMENT)
-        environment["protection_rules"].insert(
-            0,
+        environment["protection_rules"].append(
             {
                 "type": "required_reviewers",
                 "prevent_self_review": True,
@@ -76,34 +70,22 @@ class PolicyAuditTests(unittest.TestCase):
     def test_protected_branches_mode_fails(self) -> None:
         environment = copy.deepcopy(VALID_ENVIRONMENT)
         environment["deployment_branch_policy"]["protected_branches"] = True
-        with self.assertRaisesRegex(MODULE.PolicyAuditError, "broad"):
+        with self.assertRaisesRegex(MODULE.PolicyAuditError, "protected-branches"):
             MODULE.validate_policy(environment, VALID_BRANCH_POLICIES)
 
-    def test_wildcard_or_extra_branch_policy_fails(self) -> None:
-        policies = {
-            "total_count": 2,
-            "branch_policies": [
-                {"name": "main", "type": "branch"},
-                {"name": "release/*", "type": "branch"},
-            ],
-        }
-        with self.assertRaisesRegex(MODULE.PolicyAuditError, "exactly one"):
-            MODULE.validate_policy(VALID_ENVIRONMENT, policies)
+    def test_custom_branch_policy_mode_fails(self) -> None:
+        environment = copy.deepcopy(VALID_ENVIRONMENT)
+        environment["deployment_branch_policy"]["custom_branch_policies"] = True
+        with self.assertRaisesRegex(MODULE.PolicyAuditError, "custom deployment"):
+            MODULE.validate_policy(environment, VALID_BRANCH_POLICIES)
 
-    def test_non_branch_or_missing_policy_type_fails(self) -> None:
-        for policy_type in ("tag", None, "Branch", ""):
-            with self.subTest(policy_type=policy_type):
-                policy = {"name": "main"}
-                if policy_type is not None:
-                    policy["type"] = policy_type
-                policies = {
-                    "total_count": 1,
-                    "branch_policies": [policy],
-                }
-                with self.assertRaisesRegex(
-                    MODULE.PolicyAuditError, "target a branch"
-                ):
-                    MODULE.validate_policy(VALID_ENVIRONMENT, policies)
+    def test_any_branch_or_tag_restriction_fails(self) -> None:
+        policies = {
+            "total_count": 1,
+            "branch_policies": [{"name": "main", "type": "branch"}],
+        }
+        with self.assertRaisesRegex(MODULE.PolicyAuditError, "restrict deployments"):
+            MODULE.validate_policy(VALID_ENVIRONMENT, policies)
 
     def test_api_origin_is_exact_and_query_free(self) -> None:
         self.assertEqual(

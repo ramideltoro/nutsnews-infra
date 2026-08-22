@@ -313,11 +313,11 @@ def validate_repository() -> tuple[int, int]:
         '"custom_branch_policies"',
         '"protected_branches"',
         '"required_reviewers"',
-        'get("can_admins_bypass") is not False',
-        'policy.get("name") != "main"',
-        'policy.get("type") != "branch"',
+        'deployment_policy.get("custom_branch_policies") is not False',
         "if reviewer_rules:",
         "must not require manual reviewers",
+        "if total_count != 0 or policies:",
+        "must not restrict deployments by branch or tag",
         'method="GET"',
     ):
         require(
