@@ -1249,9 +1249,9 @@ require(
     all(
         unit in systemd_failed_replacement["expr"]
         for unit in (
-            "nutsnews-ops-health-report",
-            "nutsnews-restic-backup",
-            "nutsnews-restic-verify",
+            "ops-health-report",
+            "restic-backup",
+            "restic-verify",
         )
     ),
     "generic systemd alert must exclude one-shots covered by semantic alerts",
