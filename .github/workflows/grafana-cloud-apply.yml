@@ -18,9 +18,18 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  audit-production-vps-policy:
+    name: Audit production-vps automatic deployment policy
+    if: ${{ github.repository == 'ramideltoro/nutsnews-infra' && github.ref == 'refs/heads/main' }}
+    permissions:
+      actions: read
+      contents: read
+    uses: ./.github/workflows/production-vps-environment-policy-audit.yml
+
   apply:
     name: OpenTofu apply
     if: ${{ github.repository == 'ramideltoro/nutsnews-infra' && github.ref == 'refs/heads/main' }}
+    needs: audit-production-vps-policy
     runs-on: ubuntu-latest
     timeout-minutes: 45
     environment: production-vps
