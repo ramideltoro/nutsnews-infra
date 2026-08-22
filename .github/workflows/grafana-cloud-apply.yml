@@ -6,6 +6,8 @@ on:
       - main
     paths:
       - ".github/workflows/grafana-cloud-apply.yml"
+      - ".github/workflows/production-vps-environment-policy-audit.yml"
+      - "scripts/audit_production_vps_environment_policy.py"
       - "terraform/grafana-cloud/**"
   workflow_dispatch:
 

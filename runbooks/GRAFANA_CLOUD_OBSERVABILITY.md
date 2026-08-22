@@ -658,10 +658,10 @@ state, not be masked with a synthetic healthy value.
    static tests, and backendless validation job. The plan job never receives
    Environment secrets from a PR branch.
 2. Merge the PR only after the automated checks pass.
-3. A merge to exact `main` that changes `terraform/grafana-cloud/**` or
-   `.github/workflows/grafana-cloud-apply.yml` automatically starts
-   `Grafana Cloud Apply`. No manual dispatch confirmation or Environment
-   approval is required.
+3. A merge to exact `main` that changes `terraform/grafana-cloud/**`,
+   `.github/workflows/grafana-cloud-apply.yml`, or the production environment
+   audit workflow/script automatically starts `Grafana Cloud Apply`. No manual
+   dispatch confirmation or Environment approval is required.
 4. The apply workflow repeats the source validations, creates a fresh OpenTofu
    plan, applies that exact plan, and then runs the strict live-resource and
    telemetry verifier.
