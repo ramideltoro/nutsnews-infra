@@ -1240,6 +1240,22 @@ require(
     ),
     "Linux integration replacement definitions or severity mapping drifted",
 )
+systemd_failed_replacement = next(
+    rule
+    for rule in LINUX_REPLACEMENTS["rules"]
+    if rule["title"] == "NodeSystemdServiceFailed"
+)
+require(
+    all(
+        unit in systemd_failed_replacement["expr"]
+        for unit in (
+            "nutsnews-ops-health-report",
+            "nutsnews-restic-backup",
+            "nutsnews-restic-verify",
+        )
+    ),
+    "generic systemd alert must exclude one-shots covered by semantic alerts",
+)
 for token in (
     'resource "grafana_rule_group" "linux_integration_alert_replacements"',
     "prevent_destroy = true",
