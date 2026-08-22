@@ -867,3 +867,16 @@ sudo find /var/lib/nutsnews/alloy/textfile -maxdepth 1 -type f -name '*.prom' -p
 ## Follow-Up App Hooks
 
 This repo can observe deployment-owned container state, health, logs, and Caddy routing. Deeper application metrics, tracing, or structured request telemetry belong in `ramideltoro/nutsnews` or `ramideltoro/nutsnews-worker`. Create a follow-up issue or prompt there before changing application code.
+
+## Semantic one-shot systemd exclusions
+
+`NodeSystemdServiceFailed` excludes these NutsNews one-shot units:
+
+- `nutsnews-ops-health-report.service`
+- `nutsnews-restic-backup.service`
+- `nutsnews-restic-verify.service`
+
+Each unit intentionally returns non-zero when its domain check fails and already
+has a dedicated health, backup freshness, or verification alert. Excluding it
+from the generic Linux rule removes duplicate notifications without hiding the
+semantic alert. Unexpected failed systemd units remain covered.
