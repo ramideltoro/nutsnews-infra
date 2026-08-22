@@ -86,18 +86,22 @@ def validate_policy(
 ) -> None:
     """Validate automatic deployment without reviewers or branch restrictions."""
 
-    deployment_policy = _require_mapping(
-        environment.get("deployment_branch_policy"),
-        "deployment branch policy",
-    )
-    if deployment_policy.get("protected_branches") is not False:
-        raise PolicyAuditError(
-            "production-vps must not use the protected-branches policy"
+    deployment_policy = environment.get("deployment_branch_policy")
+    # GitHub serializes the "No restriction" environment setting as null.
+    # A mapping is present only when protected-branch or custom rules are enabled.
+    if deployment_policy is not None:
+        deployment_policy = _require_mapping(
+            deployment_policy,
+            "deployment branch policy",
         )
-    if deployment_policy.get("custom_branch_policies") is not False:
-        raise PolicyAuditError(
-            "production-vps must not use custom deployment branch policies"
-        )
+        if deployment_policy.get("protected_branches") is not False:
+            raise PolicyAuditError(
+                "production-vps must not use the protected-branches policy"
+            )
+        if deployment_policy.get("custom_branch_policies") is not False:
+            raise PolicyAuditError(
+                "production-vps must not use custom deployment branch policies"
+            )
 
     protection_rules = _require_list(
         environment.get("protection_rules"), "environment protection rules"

@@ -43,6 +43,11 @@ class PolicyAuditTests(unittest.TestCase):
     def test_unrestricted_automatic_policy_passes(self) -> None:
         MODULE.validate_policy(VALID_ENVIRONMENT, VALID_BRANCH_POLICIES)
 
+    def test_null_deployment_branch_policy_is_unrestricted(self) -> None:
+        environment = copy.deepcopy(VALID_ENVIRONMENT)
+        environment["deployment_branch_policy"] = None
+        MODULE.validate_policy(environment, VALID_BRANCH_POLICIES)
+
     def test_admin_bypass_setting_does_not_create_a_deployment_gate(self) -> None:
         for can_admins_bypass in (True, False, None):
             with self.subTest(can_admins_bypass=can_admins_bypass):
