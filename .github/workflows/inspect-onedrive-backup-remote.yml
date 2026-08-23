@@ -1,0 +1,283 @@
+name: Inspect OneDrive Backup Remote
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: inspect-onedrive-backup-remote
+  cancel-in-progress: false
+
+jobs:
+  inspect:
+    name: Inspect sanitized remote identity and quota
+    if: ${{ github.repository == 'ramideltoro/nutsnews-infra' && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: production-vps
+
+    steps:
+      - name: Validate required environment secrets
+        shell: bash
+        env:
+          NUTSNEWS_VPS_SSH_PRIVATE_KEY: ${{ secrets.NUTSNEWS_VPS_SSH_PRIVATE_KEY }}
+          NUTSNEWS_VPS_KNOWN_HOSTS: ${{ secrets.NUTSNEWS_VPS_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+
+          missing=0
+          for secret_name in \
+            NUTSNEWS_VPS_SSH_PRIVATE_KEY \
+            NUTSNEWS_VPS_KNOWN_HOSTS
+          do
+            if [[ -z "${!secret_name}" ]]; then
+              echo "Missing required production-vps environment secret: $secret_name" >&2
+              missing=1
+            fi
+          done
+          exit "$missing"
+
+      - name: Prepare SSH material
+        shell: bash
+        env:
+          NUTSNEWS_VPS_SSH_PRIVATE_KEY: ${{ secrets.NUTSNEWS_VPS_SSH_PRIVATE_KEY }}
+          NUTSNEWS_VPS_KNOWN_HOSTS: ${{ secrets.NUTSNEWS_VPS_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          umask 077
+
+          install -m 0700 -d "$HOME/.ssh"
+          printf '%s\n' "$NUTSNEWS_VPS_SSH_PRIVATE_KEY" > "$HOME/.ssh/nutsnews_vps"
+          chmod 0600 "$HOME/.ssh/nutsnews_vps"
+
+          printf '%s\n' "$NUTSNEWS_VPS_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          chmod 0600 "$HOME/.ssh/known_hosts"
+
+          ssh-keygen -y -f "$HOME/.ssh/nutsnews_vps" > /dev/null
+          ssh-keygen -F 65.75.202.112 -f "$HOME/.ssh/known_hosts" > /dev/null
+
+      - name: Inspect exact production OneDrive remote
+        shell: bash
+        env:
+          VPS_HOST: 65.75.202.112
+          VPS_USER: nutsnews_ops
+        run: |
+          set -euo pipefail
+
+          ssh_args=(
+            -i "$HOME/.ssh/nutsnews_vps"
+            -o UserKnownHostsFile="$HOME/.ssh/known_hosts"
+            -o StrictHostKeyChecking=yes
+            -o IdentitiesOnly=yes
+            -o BatchMode=yes
+            -o LogLevel=ERROR
+            -o ConnectTimeout=10
+          )
+          target="${VPS_USER}@${VPS_HOST}"
+
+          ssh "${ssh_args[@]}" "$target" "sudo -n /usr/bin/python3 -s" <<'PY'
+          import base64
+          import configparser
+          import hashlib
+          import json
+          import subprocess
+          import urllib.error
+          import urllib.parse
+          import urllib.request
+          from pathlib import Path
+
+          CONFIG_PATH = Path("/etc/nutsnews/rclone-nutsnews-onedrive.conf")
+          REMOTE_NAME = "nutsnews-onedrive"
+          EXPECTED_ACCOUNT = "rami.deltoro@gmail.com"
+
+          def load_remote():
+              parser = configparser.RawConfigParser()
+              parser.read(CONFIG_PATH, encoding="utf-8")
+              if not parser.has_section(REMOTE_NAME):
+                  raise SystemExit(f"Missing rclone remote section: {REMOTE_NAME}")
+              return dict(parser.items(REMOTE_NAME))
+
+          def decode_access_token(token):
+              parts = str(token or "").split(".")
+              if len(parts) < 2:
+                  return {}
+              try:
+                  payload = parts[1] + "=" * (-len(parts[1]) % 4)
+                  decoded = base64.urlsafe_b64decode(payload.encode("ascii"))
+                  value = json.loads(decoded.decode("utf-8"))
+              except (ValueError, UnicodeDecodeError, json.JSONDecodeError):
+                  return {}
+              return value if isinstance(value, dict) else {}
+
+          def mask_email(value):
+              value = str(value or "").strip().lower()
+              if "@" not in value:
+                  return (value[:2] + "***") if value else "unavailable"
+              local, domain = value.split("@", 1)
+              if len(local) <= 3:
+                  masked_local = local[:1] + "***"
+              else:
+                  masked_local = local[:2] + "***" + local[-2:]
+              return f"{masked_local}@{domain}"
+
+          def fingerprint(value):
+              value = str(value or "").strip().lower()
+              return hashlib.sha256(value.encode("utf-8")).hexdigest()[:16] if value else "unavailable"
+
+          def graph_json(access_token, path):
+              if not access_token:
+                  return None, {"status": "missing_access_token"}
+              request = urllib.request.Request(
+                  "https://graph.microsoft.com/v1.0/" + path,
+                  headers={
+                      "Accept": "application/json",
+                      "Authorization": f"Bearer {access_token}",
+                  },
+                  method="GET",
+              )
+              try:
+                  with urllib.request.urlopen(request, timeout=20) as response:
+                      value = json.loads(response.read().decode("utf-8"))
+                  return value if isinstance(value, dict) else {}, {"status": "success"}
+              except urllib.error.HTTPError as exc:
+                  code = "http_error"
+                  try:
+                      body = json.loads(exc.read(8192).decode("utf-8", errors="replace"))
+                      code = str(body.get("error", {}).get("code") or code)
+                  except (ValueError, json.JSONDecodeError):
+                      pass
+                  return None, {"status": "http_error", "http_status": exc.code, "error_code": code}
+              except urllib.error.URLError:
+                  return None, {"status": "request_error"}
+
+          remote = load_remote()
+          about_command = [
+              "/usr/bin/rclone",
+              "about",
+              f"{REMOTE_NAME}:",
+              "--config",
+              str(CONFIG_PATH),
+              "--json",
+              "--contimeout",
+              "15s",
+              "--timeout",
+              "30s",
+              "--retries",
+              "1",
+              "--low-level-retries",
+              "1",
+          ]
+          try:
+              about_process = subprocess.run(
+                  about_command,
+                  check=False,
+                  text=True,
+                  capture_output=True,
+                  timeout=120,
+              )
+              about_returncode = about_process.returncode
+              try:
+                  about = json.loads(about_process.stdout) if about_process.stdout.strip() else {}
+              except json.JSONDecodeError:
+                  about = {}
+              about_error = (
+                  "quotaLimitReached"
+                  if "quotaLimitReached" in about_process.stderr
+                  else ("none" if about_returncode == 0 else "rclone_about_failed")
+              )
+          except subprocess.TimeoutExpired:
+              about_returncode = 124
+              about = {}
+              about_error = "timeout"
+
+          remote = load_remote()
+          token_blob = {}
+          try:
+              token_blob = json.loads(remote.get("token", "{}"))
+          except json.JSONDecodeError:
+              pass
+          access_token = str(token_blob.get("access_token") or "")
+          claims = decode_access_token(access_token)
+
+          me, me_status = graph_json(
+              access_token,
+              "me?$select=id,displayName,mail,userPrincipalName",
+          )
+          account = ""
+          account_source = "unavailable"
+          if isinstance(me, dict):
+              account = str(me.get("mail") or me.get("userPrincipalName") or "")
+              if account:
+                  account_source = "microsoft_graph_me"
+          if not account:
+              for claim_name in ("preferred_username", "unique_name", "upn", "email"):
+                  claim_value = str(claims.get(claim_name) or "")
+                  if claim_value:
+                      account = claim_value
+                      account_source = f"access_token_claim:{claim_name}"
+                      break
+
+          drive_id = str(remote.get("drive_id") or "")
+          drive = None
+          drive_status = {"status": "missing_drive_id"}
+          if drive_id:
+              drive_path = (
+                  "drives/"
+                  + urllib.parse.quote(drive_id, safe="")
+                  + "?$select=id,driveType,owner,quota"
+              )
+              drive, drive_status = graph_json(access_token, drive_path)
+
+          drive_quota = drive.get("quota", {}) if isinstance(drive, dict) else {}
+          owner_user = (
+              drive.get("owner", {}).get("user", {})
+              if isinstance(drive, dict)
+              else {}
+          )
+          payload = {
+              "remote": REMOTE_NAME,
+              "configured_drive_type": remote.get("drive_type", "unknown"),
+              "configured_drive_id_fingerprint": fingerprint(drive_id),
+              "configured_drive_id_suffix": drive_id[-6:] if drive_id else "unavailable",
+              "account": {
+                  "masked": mask_email(account),
+                  "fingerprint": fingerprint(account),
+                  "source": account_source,
+                  "matches_expected_rami_deltoro_gmail": (
+                      account.strip().lower() == EXPECTED_ACCOUNT
+                  ),
+                  "graph_status": me_status,
+              },
+              "drive": {
+                  "graph_status": drive_status,
+                  "drive_type": (
+                      drive.get("driveType", remote.get("drive_type", "unknown"))
+                      if isinstance(drive, dict)
+                      else remote.get("drive_type", "unknown")
+                  ),
+                  "owner_display_name": owner_user.get("displayName", "unavailable"),
+                  "owner_id_fingerprint": fingerprint(owner_user.get("id", "")),
+                  "quota": {
+                      key: drive_quota.get(key)
+                      for key in ("total", "used", "remaining", "deleted", "state")
+                  },
+              },
+              "rclone_about": {
+                  "returncode": about_returncode,
+                  "error": about_error,
+                  "quota": {
+                      key: about.get(key)
+                      for key in ("total", "used", "free", "trashed", "other", "objects")
+                  },
+              },
+              "token_tenant_fingerprint": fingerprint(claims.get("tid", "")),
+          }
+          print(json.dumps(payload, indent=2, sort_keys=True))
+          PY
+
+      - name: Remove temporary SSH material
+        if: always()
+        shell: bash
+        run: rm -f "$HOME/.ssh/nutsnews_vps"
