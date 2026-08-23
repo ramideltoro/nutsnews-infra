@@ -244,7 +244,7 @@ def load_status() -> dict[str, Any]:
     previous = read_json(STATUS_FILE, {})
     if not isinstance(previous, dict):
         previous = {}
-    return {**previous, **base_status()}
+    return refresh_cached_snapshot_age({**previous, **base_status()})
 
 
 def parse_timestamp(value: Any) -> datetime | None:
@@ -521,7 +521,7 @@ def repo_missing(result: dict[str, Any]) -> bool:
 
 
 def ensure_repository(env: dict[str, str], status: dict[str, Any]) -> tuple[bool, dict[str, Any]]:
-    snapshots = run(["restic", "snapshots", "--json"], env=env, timeout=120)
+    snapshots = run(["restic", "snapshots", "--json"], env=env, timeout=600)
     if snapshots["ok"]:
         status["repository_initialized"] = True
         return True, status
@@ -564,7 +564,7 @@ def parse_snapshots(output: str) -> list[dict[str, Any]]:
 
 
 def latest_snapshot(env: dict[str, str]) -> tuple[dict[str, Any] | None, dict[str, Any]]:
-    result = run(["restic", "snapshots", "--json"], env=env, timeout=180)
+    result = run(["restic", "snapshots", "--json"], env=env, timeout=600)
     if not result["ok"]:
         return None, result
 
@@ -591,6 +591,19 @@ def snapshot_age_seconds(snapshot: dict[str, Any] | None) -> int | None:
     except ValueError:
         return None
     return max(int((datetime.now(timezone.utc) - snapshot_time).total_seconds()), 0)
+
+
+def refresh_cached_snapshot_age(status: dict[str, Any]) -> dict[str, Any]:
+    snapshot = status.get("latest_snapshot")
+    if not isinstance(snapshot, dict):
+        return status
+    age = snapshot_age_seconds(snapshot)
+    status["latest_snapshot_age_seconds"] = age
+    stale_after = status.get("stale_after_seconds", 0)
+    status["latest_status"] = (
+        "fresh" if isinstance(age, int) and age <= stale_after else "stale"
+    )
+    return status
 
 
 def latest_snapshot_status(env: dict[str, str], status: dict[str, Any]) -> dict[str, Any]:
