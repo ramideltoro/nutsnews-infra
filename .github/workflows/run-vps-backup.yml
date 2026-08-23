@@ -1,15 +1,19 @@
 name: Run VPS Backup
 
+
 on:
   workflow_dispatch:
 
+
 permissions:
   contents: read
+
 
 concurrency:
   group: production-vps-backup
   queue: max
   cancel-in-progress: false
+
 
 jobs:
   audit-production-vps-policy:
@@ -20,6 +24,7 @@ jobs:
       contents: read
     uses: ./.github/workflows/production-vps-environment-policy-audit.yml
 
+
   run-backup:
     name: Trigger encrypted VPS backup
     if: ${{ github.repository == 'ramideltoro/nutsnews-infra' && github.ref == 'refs/heads/main' }}
@@ -27,6 +32,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     environment: production-vps
+
 
     steps:
       - name: Validate required environment secrets
@@ -85,15 +91,37 @@ jobs:
             -o IdentitiesOnly=yes
             -o BatchMode=yes
             -o LogLevel=ERROR
+            -o ConnectTimeout=10
+            -o ServerAliveInterval=15
+            -o ServerAliveCountMax=4
           )
           target="${VPS_USER}@${VPS_HOST}"
 
           echo "Triggering ${BACKUP_SERVICE} on ${VPS_HOST} as ${VPS_USER}."
-          set +e
+          # Start asynchronously so a long restic transfer cannot be mistaken for an SSH failure.
           # shellcheck disable=SC2029
-          ssh "${ssh_args[@]}" "$target" "sudo -n /bin/systemctl start ${BACKUP_SERVICE}"
-          trigger_status="$?"
-          set -e
+          ssh "${ssh_args[@]}" "$target" "sudo -n /bin/systemctl start --no-block ${BACKUP_SERVICE}"
+
+          echo "Waiting for ${BACKUP_SERVICE} to finish."
+          service_finished=0
+          for _attempt in $(seq 1 330); do
+            set +e
+            # shellcheck disable=SC2029
+            service_state="$(ssh "${ssh_args[@]}" "$target" "sudo -n /bin/systemctl show ${BACKUP_SERVICE} --property=ActiveState --value" 2>/dev/null)"
+            poll_status="$?"
+            set -e
+
+            if [[ "$poll_status" -eq 0 && "$service_state" != "activating" && "$service_state" != "active" ]]; then
+              service_finished=1
+              break
+            fi
+            sleep 10
+          done
+
+          if [[ "$service_finished" -ne 1 ]]; then
+            echo "Backup service did not finish within 55 minutes." >&2
+            exit 124
+          fi
 
           echo
           echo "Backup service result"
@@ -111,10 +139,6 @@ jobs:
           backup_status="$?"
           set -e
 
-          if [[ "$trigger_status" -ne 0 ]]; then
-            echo "Backup service failed to start or complete. Exit code: $trigger_status" >&2
-            exit "$trigger_status"
-          fi
 
           if [[ "$service_status" -ne 0 ]]; then
             echo "Could not read systemd status for ${BACKUP_SERVICE}. Exit code: $service_status" >&2

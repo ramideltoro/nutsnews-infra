@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """Validate manual VPS backup workflows stay narrow."""
 
+
 from __future__ import annotations
+
 
 import importlib.util
 import json
@@ -12,13 +14,15 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 
+
+
 WORKFLOWS = [
     {
         "path": Path(".github/workflows/run-vps-backup.yml"),
         "name": "Run VPS Backup",
         "service_env": "BACKUP_SERVICE",
         "service_name": "nutsnews-restic-backup.service",
-        "start_line": "sudo -n /bin/systemctl start ${BACKUP_SERVICE}",
+        "start_line": "sudo -n /bin/systemctl start --no-block ${BACKUP_SERVICE}",
         "status_file_env": "BACKUP_STATUS_FILE",
         "success_field": "last_backup.status",
     },
@@ -32,6 +36,7 @@ WORKFLOWS = [
         "success_field": "last_check.status",
     },
 ]
+
 
 DEFAULTS_PATH = Path("ansible/roles/vps_service_foundation/defaults/main.yml")
 VERIFY_TIMER_PATH = Path(
@@ -51,9 +56,13 @@ BACKUP_RUNBOOK_PATHS = (
 )
 
 
+
+
 def require(condition: bool, message: str) -> None:
     if not condition:
         raise SystemExit(message)
+
+
 
 
 def load_collector():
@@ -65,6 +74,8 @@ def load_collector():
     return module
 
 
+
+
 def load_backup_runner():
     path = Path("ansible/roles/vps_service_foundation/files/vps_restic_backup.py").resolve()
     spec = importlib.util.spec_from_file_location("vps_restic_backup_under_test", path)
@@ -72,6 +83,8 @@ def load_backup_runner():
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
 
 
 def fake_collector_run(argv: list[str], timeout: int = 8) -> dict[str, object]:
@@ -99,9 +112,13 @@ def fake_collector_run(argv: list[str], timeout: int = 8) -> dict[str, object]:
     return {"ok": False, "stdout": "", "stderr": f"Unexpected command: {argv}", "returncode": 1}
 
 
+
+
 def stale_restic_timestamp() -> str:
     value = datetime.now(timezone.utc) - timedelta(seconds=120)
     return value.strftime("%Y-%m-%dT%H:%M:%S") + ".162710227Z"
+
+
 
 
 def backup_status_fixture(snapshot_time: str) -> dict[str, object]:
@@ -144,6 +161,8 @@ def backup_status_fixture(snapshot_time: str) -> dict[str, object]:
     }
 
 
+
+
 def validate_collector_recomputes_backup_freshness() -> None:
     collector = load_collector()
     with tempfile.TemporaryDirectory() as tmp_dir:
@@ -151,12 +170,15 @@ def validate_collector_recomputes_backup_freshness() -> None:
         status_file = tmp_path / "backup-status.json"
         status_file.write_text(json.dumps(backup_status_fixture(stale_restic_timestamp())), encoding="utf-8")
 
+
         collector.BACKUP_STATUS_FILE = status_file
         collector.BACKUPS_DIR = tmp_path / "backups"
         collector.BACKUPS_DIR.mkdir()
         collector.run = fake_collector_run
 
+
         backups = collector.backup_state()
+
 
     require(backups.get("latest_status") == "stale", "Collector must recompute frozen backup age as stale.")
     require(backups.get("latest_snapshot_age_seconds") != 38, "Collector must not preserve runner-written snapshot age.")
@@ -165,16 +187,20 @@ def validate_collector_recomputes_backup_freshness() -> None:
         "Recomputed backup age must exceed stale_after_seconds.",
     )
 
+
     alerts = collector.alert_state({}, {}, [], backups, {})
     require(
         any(alert.get("level") == "critical" and "snapshot is stale" in alert.get("message", "") for alert in alerts),
         "Stale recomputed backup age must create a critical alert for email reporting.",
     )
 
+
     rendered = json.dumps(backups, sort_keys=True)
     require(backups.get("status") == "success", "Successful backup status must remain visible.")
     for forbidden in ("RESTIC_PASSWORD", "RCLONE_CONFIG", "password=", "token=", "authorization="):
         require(forbidden not in rendered, f"Backup status must not expose {forbidden}.")
+
+
 
 
 def validate_backup_cadence_contract() -> None:
@@ -183,6 +209,7 @@ def validate_backup_cadence_contract() -> None:
     runner = BACKUP_RUNNER_PATH.read_text(encoding="utf-8")
     collector = COLLECTOR_PATH.read_text(encoding="utf-8")
     protected_apply = PROTECTED_APPLY_PATH.read_text(encoding="utf-8")
+
 
     require(
         re.search(
@@ -258,6 +285,8 @@ def validate_backup_cadence_contract() -> None:
         )
 
 
+
+
 def validate_backup_alert_semantics() -> None:
     collector = load_collector()
     backup_runner = load_backup_runner()
@@ -272,6 +301,7 @@ def validate_backup_alert_semantics() -> None:
         "latest_snapshot_time": (now - timedelta(days=1, hours=1)).isoformat(),
         "error": "",
     }
+
 
     verification = collector.backup_verification_status(backups)
     require(
@@ -290,6 +320,7 @@ def validate_backup_alert_semantics() -> None:
     )
     backups["latest_snapshot_verification"] = verification
 
+
     alerts = collector.alert_state({}, {}, [], backups, {})
     alert_ids = {item.get("id") for item in alerts}
     require("backup.verification_overdue" not in alert_ids, "Expected daily verification wait must not alert.")
@@ -297,6 +328,7 @@ def validate_backup_alert_semantics() -> None:
         not any("has not been verified" in item.get("message", "") for item in alerts),
         "A newer daily snapshot must not immediately emit repetitive unverified email noise.",
     )
+
 
     gibibyte = 1024**3
     collector.directory_size_bytes = lambda _path: gibibyte
@@ -328,6 +360,7 @@ def validate_backup_alert_semantics() -> None:
         "A fresh snapshot at 79.7% of its freshness window must not create a storage-quota warning.",
     )
 
+
     stale_case = backup_status_fixture(latest_time)
     stale_case["last_check"] = {
         "status": "success",
@@ -349,6 +382,7 @@ def validate_backup_alert_semantics() -> None:
         "Overdue verification must keep its warning alert.",
     )
 
+
     never_checked_case = backup_status_fixture((now - timedelta(hours=31)).isoformat())
     never_checked_case["last_check"] = {"status": "never"}
     never_checked_verification = collector.backup_verification_status(never_checked_case)
@@ -365,6 +399,7 @@ def validate_backup_alert_semantics() -> None:
         "Never-checked overdue verification must alert.",
     )
 
+
     failed_case = backup_status_fixture(latest_time)
     failed_case["last_check"] = {"status": "failed", "finished_at": now.isoformat(), "error": "safe failure"}
     failed_case["latest_snapshot_verification"] = collector.backup_verification_status(failed_case)
@@ -374,6 +409,7 @@ def validate_backup_alert_semantics() -> None:
         "Failed verification must keep its warning alert.",
     )
 
+
     inactive_case = backup_status_fixture(latest_time)
     inactive_case["verify_timer_active"] = "inactive"
     inactive_case["latest_snapshot_verification"] = collector.backup_verification_status(inactive_case)
@@ -382,6 +418,8 @@ def validate_backup_alert_semantics() -> None:
         any(item.get("id") == "backup.verification_timer_inactive" for item in inactive_alerts),
         "Inactive verification timer must keep its warning alert.",
     )
+
+
 
 
 def validate_backup_runner_error_lifecycle() -> None:
@@ -397,6 +435,7 @@ def validate_backup_runner_error_lifecycle() -> None:
     ]
     previous_env = {key: os.environ.get(key) for key in env_keys}
 
+
     with tempfile.TemporaryDirectory() as tmp_dir:
         tmp_path = Path(tmp_dir)
         protected_path = tmp_path / "protected"
@@ -407,6 +446,7 @@ def validate_backup_runner_error_lifecycle() -> None:
         rclone_config.write_text("[safe-test-remote]\n", encoding="utf-8")
         paths_file = tmp_path / "paths.txt"
         paths_file.write_text(f"{protected_path}\n", encoding="utf-8")
+
 
         os.environ.update(
             {
@@ -420,12 +460,14 @@ def validate_backup_runner_error_lifecycle() -> None:
             }
         )
 
+
         backup_runner.STATUS_FILE = tmp_path / "backup-status.json"
         backup_runner.STATE_DIR = tmp_path / "state"
         backup_runner.STATE_DIR.mkdir()
         backup_runner.LOG_FILE = tmp_path / "restic-backup.log"
         backup_runner.PATHS_FILE = paths_file
         backup_runner.EXCLUDES_FILE = tmp_path / "excludes.txt"
+
 
         snapshot_time = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
         snapshots = [
@@ -438,6 +480,7 @@ def validate_backup_runner_error_lifecycle() -> None:
             }
         ]
         state = {"backup_failures": 1, "verify_failures": 1}
+
 
         def fake_restic_run(argv: list[str], *, env: dict[str, str], timeout: int | None = None) -> dict[str, object]:
             del env, timeout
@@ -495,7 +538,9 @@ def validate_backup_runner_error_lifecycle() -> None:
                 return {"ok": True, "stdout": "no errors were found", "stderr": "", "returncode": 0, "duration_seconds": 0.02}
             return {"ok": False, "stdout": "", "stderr": f"unexpected command {argv}", "returncode": 99, "duration_seconds": 0}
 
+
         backup_runner.run = fake_restic_run
+
 
         require(backup_runner.handle_backup() == 1, "Initial failed backup should fail.")
         failed_backup_status = json.loads(backup_runner.STATUS_FILE.read_text(encoding="utf-8"))
@@ -508,6 +553,7 @@ def validate_backup_runner_error_lifecycle() -> None:
         rendered_failure = json.dumps(failed_backup_status)
         require("sensitive-test-value" not in rendered_failure, "Backup status must redact sensitive failure text.")
         require(failed_backup_status.get("last_backup", {}).get("error"), "Per-run backup failure detail must remain.")
+
 
         require(backup_runner.handle_backup() == 0, "Successful backup after failure should pass.")
         successful_backup_status = json.loads(backup_runner.STATUS_FILE.read_text(encoding="utf-8"))
@@ -528,10 +574,12 @@ def validate_backup_runner_error_lifecycle() -> None:
             "Resolved backup history must remain redacted.",
         )
 
+
         require(backup_runner.handle_verify_latest() == 1, "Initial failed verification should fail.")
         failed_verify_status = json.loads(backup_runner.STATUS_FILE.read_text(encoding="utf-8"))
         require(failed_verify_status.get("last_error_source") == "restic check", "Verify failure source must be active.")
         require(failed_verify_status.get("last_check", {}).get("error"), "Per-run verify failure detail must remain.")
+
 
         require(backup_runner.handle_verify_latest() == 0, "Successful verification after failure should pass.")
         successful_verify_status = json.loads(backup_runner.STATUS_FILE.read_text(encoding="utf-8"))
@@ -551,11 +599,14 @@ def validate_backup_runner_error_lifecycle() -> None:
             "Resolved verify history must remain redacted.",
         )
 
+
     for key, value in previous_env.items():
         if value is None:
             os.environ.pop(key, None)
         else:
             os.environ[key] = value
+
+
 
 
 def validate_workflow(item: dict[str, object]) -> None:
@@ -566,6 +617,7 @@ def validate_workflow(item: dict[str, object]) -> None:
     service_env = str(item["service_env"])
     service_name = str(item["service_name"])
     start_line = str(item["start_line"])
+
 
     require(f"name: {name}" in text, f"{path}: unexpected workflow name.")
     require(re.search(r"(?m)^  workflow_dispatch:\s*$", text) is not None, f"{path}: must be manual-only.")
@@ -589,18 +641,23 @@ def validate_workflow(item: dict[str, object]) -> None:
     require("cat \"$HOME/.ssh/nutsnews_vps\"" not in text, f"{path}: must not print the private key.")
     require("cat \"$HOME/.ssh/known_hosts\"" not in text, f"{path}: must not print known_hosts.")
 
+
     remote_commands = re.findall(r'ssh "\$\{ssh_args\[@\]\}" "\$target" "([^"]+)', text)
     require(remote_commands, f"{path}: could not find fixed SSH commands.")
     for command in remote_commands:
         require("${{" not in command, f"{path}: remote command must not use GitHub expressions: {command}")
 
 
+
+
 for workflow in WORKFLOWS:
     validate_workflow(workflow)
+
 
 validate_collector_recomputes_backup_freshness()
 validate_backup_cadence_contract()
 validate_backup_alert_semantics()
 validate_backup_runner_error_lifecycle()
+
 
 print("Backup workflow guardrails passed.")
