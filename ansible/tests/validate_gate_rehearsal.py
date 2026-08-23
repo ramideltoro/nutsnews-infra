@@ -575,6 +575,7 @@ allowed_production_env_workflows = {
     "grafana-synthetic-recovery-watchdog.yml",
     "grafana-cloud-plan.yml",
     "grafana-state-bootstrap.yml",
+    "inspect-onedrive-backup-remote.yml",
     "protected-ansible-apply.yml",
     "protected-nutsnews-rollback.yml",
     "protected-vercel-provider-switch.yml",
