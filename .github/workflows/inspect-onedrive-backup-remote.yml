@@ -8,6 +8,7 @@ permissions:
 
 concurrency:
   group: inspect-onedrive-backup-remote
+  queue: max
   cancel-in-progress: false
 
 jobs:
