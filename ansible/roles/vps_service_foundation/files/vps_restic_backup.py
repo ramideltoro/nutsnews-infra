@@ -137,6 +137,10 @@ def restic_env() -> dict[str, str]:
     env.setdefault("GOMAXPROCS", "1")
     env.setdefault("RCLONE_TRANSFERS", "2")
     env.setdefault("RCLONE_CHECKERS", "4")
+    env.setdefault("RCLONE_CONTIMEOUT", "15s")
+    env.setdefault("RCLONE_TIMEOUT", "60s")
+    env.setdefault("RCLONE_RETRIES", "1")
+    env.setdefault("RCLONE_LOW_LEVEL_RETRIES", "1")
     return env
 
 
@@ -159,11 +163,19 @@ def run(argv: list[str], *, env: dict[str, str], timeout: int | None = None) -> 
             "returncode": 127,
             "duration_seconds": round(time.monotonic() - started, 3),
         }
-    except subprocess.TimeoutExpired:
+    except subprocess.TimeoutExpired as exc:
+        stdout = exc.stdout or ""
+        stderr = exc.stderr or ""
+        if isinstance(stdout, bytes):
+            stdout = stdout.decode("utf-8", errors="replace")
+        if isinstance(stderr, bytes):
+            stderr = stderr.decode("utf-8", errors="replace")
+        timeout_message = f"command timed out after {timeout} seconds"
+        stderr = f"{stderr.rstrip()}\n{timeout_message}".strip()
         return {
             "ok": False,
-            "stdout": "",
-            "stderr": "command timed out",
+            "stdout": stdout,
+            "stderr": stderr,
             "returncode": 124,
             "duration_seconds": round(time.monotonic() - started, 3),
         }
@@ -521,6 +533,39 @@ def repo_missing(result: dict[str, Any]) -> bool:
 
 
 def ensure_repository(env: dict[str, str], status: dict[str, Any]) -> tuple[bool, dict[str, Any]]:
+    remote = env_text("NUTSNEWS_BACKUP_RCLONE_REMOTE", "nutsnews-onedrive")
+    repository_path = str(status.get("repository_path") or "nutsnews-backups/vps").strip("/")
+    probe = run(
+        [
+            "rclone",
+            "lsf",
+            f"{remote}:{repository_path}",
+            "--max-depth",
+            "1",
+            "--dirs-only",
+            "--contimeout",
+            "15s",
+            "--timeout",
+            "30s",
+            "--retries",
+            "1",
+            "--low-level-retries",
+            "1",
+        ],
+        env=env,
+        timeout=90,
+    )
+    append_log("rclone repository preflight", probe)
+    status["last_rclone_preflight_at"] = utc_now()
+    status["rclone_preflight_status"] = "success" if probe["ok"] else "failed"
+    if not probe["ok"]:
+        status = set_active_error(
+            status,
+            error_text(probe, limit=12),
+            "rclone repository preflight",
+        )
+        return False, status
+
     snapshots = run(["restic", "snapshots", "--json"], env=env, timeout=600)
     if snapshots["ok"]:
         status["repository_initialized"] = True

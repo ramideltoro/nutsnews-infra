@@ -441,6 +441,8 @@ def validate_backup_runner_error_lifecycle() -> None:
 
         def fake_restic_run(argv: list[str], *, env: dict[str, str], timeout: int | None = None) -> dict[str, object]:
             del env, timeout
+            if argv[:2] == ["rclone", "lsf"]:
+                return {"ok": True, "stdout": "snapshots/\n", "stderr": "", "returncode": 0, "duration_seconds": 0.01}
             if argv[:2] == ["restic", "snapshots"]:
                 return {
                     "ok": True,
