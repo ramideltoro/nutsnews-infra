@@ -12,6 +12,8 @@ from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[2]
 REPORTER_PATH = ROOT / "ansible/roles/vps_service_foundation/files/ops_portal_reporter.py"
+PROTECTED_APPLY_PATH = ROOT / ".github/workflows/protected-ansible-apply.yml"
+ROLE_DEFAULTS_PATH = ROOT / "ansible/roles/vps_service_foundation/defaults/main.yml"
 SPEC = importlib.util.spec_from_file_location("ops_portal_reporter_under_test", REPORTER_PATH)
 if SPEC is None or SPEC.loader is None:
     raise RuntimeError("Could not load ops portal reporter module.")
@@ -36,6 +38,22 @@ def sent_state(alerts: list[dict[str, str]], now: int = 1_000) -> dict[str, obje
 
 
 class ReporterCooldownTests(unittest.TestCase):
+    def test_default_cooldown_is_24_hours_in_every_runtime_layer(self) -> None:
+        workflow = PROTECTED_APPLY_PATH.read_text(encoding="utf-8")
+        role_defaults = ROLE_DEFAULTS_PATH.read_text(encoding="utf-8")
+
+        with mock.patch.dict(REPORTER.os.environ, {}, clear=True):
+            self.assertEqual(REPORTER.email_config()["cooldown_seconds"], 86_400)
+
+        self.assertIn(
+            'env_int("NUTSNEWS_ALERT_COOLDOWN_SECONDS", 86400)',
+            workflow,
+        )
+        self.assertIn(
+            "vps_service_foundation_email_alert_cooldown_seconds: 86400",
+            role_defaults,
+        )
+
     def test_changing_message_uses_stable_identity_during_cooldown(self) -> None:
         state = sent_state([alert("free_tier.example.quota_risk", message="6.09 hours, 79.7% used")])
         sendable, suppressed, _ = REPORTER.alert_delivery_plan(
