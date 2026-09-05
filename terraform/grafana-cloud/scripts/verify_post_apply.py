@@ -1278,10 +1278,11 @@ def _contact_point_summary(value: Any) -> dict[str, Any]:
 
 def _notification_policy_summary(value: Any) -> dict[str, Any]:
     expected_group_by = ["alertname", "service", "deployment_environment"]
-    expected_root_timings = ["5m", "15m", "6h"]
+    expected_root_timings = ["5m", "15m", "24h"]
     expected_routes = {
-        "critical|major": ["30s", "5m", "1h"],
-        "warning|minor|low": ["5m", "15m", "6h"],
+        "critical": ["30s", "5m", "4h"],
+        "major": ["2m", "10m", "12h"],
+        "warning|minor|low": ["5m", "15m", "24h"],
     }
     if not isinstance(value, dict):
         return {
@@ -2869,7 +2870,7 @@ def verify_notification_policy(policy: Any, errors: list[str]) -> dict[str, Any]
         errors.append("notification policy response is not an object")
         return {}
     expected_group_by = ["alertname", "service", "deployment_environment"]
-    expected_root_timings = ("5m", "15m", "6h")
+    expected_root_timings = ("5m", "15m", "24h")
     receiver = policy.get("receiver") or policy.get("contact_point")
     if receiver != CONTACT_POINT_NAME:
         errors.append(f"notification policy root receiver is {receiver!r}, expected {CONTACT_POINT_NAME!r}")
@@ -2890,12 +2891,13 @@ def verify_notification_policy(policy: Any, errors: list[str]) -> dict[str, Any]
         )
     routes = policy_routes(policy)
     expected = {
-        "critical|major": ("30s", "5m", "1h"),
-        "warning|minor|low": ("5m", "15m", "6h"),
+        "critical": ("30s", "5m", "4h"),
+        "major": ("2m", "10m", "12h"),
+        "warning|minor|low": ("5m", "15m", "24h"),
     }
     if len(routes) != len(expected):
         errors.append(
-            "notification policy must contain exactly two managed severity routes: "
+            "notification policy must contain exactly three managed severity routes: "
             f"observed {len(routes)}"
         )
     route_summary = []

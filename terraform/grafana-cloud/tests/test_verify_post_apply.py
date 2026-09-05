@@ -1136,15 +1136,23 @@ class VerifyPostApplyTests(unittest.TestCase):
             "group_by": ["alertname", "service", "deployment_environment"],
             "group_wait": "5m",
             "group_interval": "15m",
-            "repeat_interval": "6h",
+            "repeat_interval": "24h",
             "routes": [
                 {
                     "receiver": MODULE.CONTACT_POINT_NAME,
-                    "object_matchers": [["severity", "=~", "critical|major"]],
+                    "object_matchers": [["severity", "=~", "critical"]],
                     "group_by": ["alertname", "service", "deployment_environment"],
                     "group_wait": "30s",
                     "group_interval": "5m",
-                    "repeat_interval": "1h",
+                    "repeat_interval": "4h",
+                },
+                {
+                    "receiver": MODULE.CONTACT_POINT_NAME,
+                    "object_matchers": [["severity", "=~", "major"]],
+                    "group_by": ["alertname", "service", "deployment_environment"],
+                    "group_wait": "2m",
+                    "group_interval": "10m",
+                    "repeat_interval": "12h",
                 },
                 {
                     "receiver": MODULE.CONTACT_POINT_NAME,
@@ -1152,14 +1160,14 @@ class VerifyPostApplyTests(unittest.TestCase):
                     "group_by": ["alertname", "service", "deployment_environment"],
                     "group_wait": "5m",
                     "group_interval": "15m",
-                    "repeat_interval": "6h",
+                    "repeat_interval": "24h",
                 },
             ],
         }
         errors: list[str] = []
         result = MODULE.verify_notification_policy(policy, errors)
         self.assertFalse(errors)
-        self.assertEqual(len(result["routes"]), 2)
+        self.assertEqual(len(result["routes"]), 3)
 
     def test_policy_structural_drift_is_rejected(self) -> None:
         base = {
@@ -1167,15 +1175,23 @@ class VerifyPostApplyTests(unittest.TestCase):
             "group_by": ["alertname", "service", "deployment_environment"],
             "group_wait": "5m",
             "group_interval": "15m",
-            "repeat_interval": "6h",
+            "repeat_interval": "24h",
             "routes": [
                 {
                     "receiver": MODULE.CONTACT_POINT_NAME,
-                    "object_matchers": [["severity", "=~", "critical|major"]],
+                    "object_matchers": [["severity", "=~", "critical"]],
                     "group_by": ["alertname", "service", "deployment_environment"],
                     "group_wait": "30s",
                     "group_interval": "5m",
-                    "repeat_interval": "1h",
+                    "repeat_interval": "4h",
+                },
+                {
+                    "receiver": MODULE.CONTACT_POINT_NAME,
+                    "object_matchers": [["severity", "=~", "major"]],
+                    "group_by": ["alertname", "service", "deployment_environment"],
+                    "group_wait": "2m",
+                    "group_interval": "10m",
+                    "repeat_interval": "12h",
                 },
                 {
                     "receiver": MODULE.CONTACT_POINT_NAME,
@@ -1183,7 +1199,7 @@ class VerifyPostApplyTests(unittest.TestCase):
                     "group_by": ["alertname", "service", "deployment_environment"],
                     "group_wait": "5m",
                     "group_interval": "15m",
-                    "repeat_interval": "6h",
+                    "repeat_interval": "24h",
                 },
             ],
         }

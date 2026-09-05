@@ -147,7 +147,7 @@ with tempfile.TemporaryDirectory() as tmpdir:
 
     non_trivial = COLLECTOR_MODULE.swap_state({"SwapTotal": total, "SwapFree": total - (128 * 1024 * 1024)})
     require(non_trivial["usage_state"] == "non_trivial", "128 MiB swap use should be non-trivial.")
-    require(non_trivial["warning"] is True, "non-trivial swap use should warn.")
+    require(non_trivial["warning"] is False, "low-percentage non-trivial swap use should remain informational.")
 
     alerts = COLLECTOR_MODULE.alert_state(
         {"disk": {}, "memory": {}, "swap": non_trivial, "oom_evidence": {"available": True, "count": 0}},
@@ -157,9 +157,41 @@ with tempfile.TemporaryDirectory() as tmpdir:
         {},
         {},
     )
+    require(not any(alert.get("id") == "resource.swap_usage" for alert in alerts), "informational swap use must not emit an alert.")
+
+    warning_swap = COLLECTOR_MODULE.swap_state({"SwapTotal": total, "SwapFree": total - (512 * 1024 * 1024)})
+    require(warning_swap["usage_state"] == "warning", "swap above 25 percent should warn immediately.")
+    require(warning_swap["warning"] is True, "threshold-crossing swap use must retain its alert signal.")
+    warning_alerts = COLLECTOR_MODULE.alert_state(
+        {"disk": {}, "memory": {}, "swap": warning_swap, "oom_evidence": {"available": True, "count": 0}},
+        {},
+        [],
+        {},
+        {},
+        {},
+    )
+    require(any(alert.get("id") == "resource.swap_usage" for alert in warning_alerts), "threshold-crossing swap use must emit an alert.")
+
+    old_bounded_cache_alerts = COLLECTOR_MODULE.alert_state(
+        {"disk": {}, "memory": {}, "swap": unused, "oom_evidence": {"available": True, "count": 0}},
+        {},
+        [],
+        {},
+        {},
+        {},
+        app={
+            "image_cache": {
+                "available": True,
+                "bytes": 2 * 1024 * 1024 * 1024,
+                "max_bytes": 10 * 1024 * 1024 * 1024,
+                "oldest_file_age_seconds": 31 * 86400,
+                "max_age_seconds": 30 * 86400,
+            }
+        },
+    )
     require(
-        any(alert.get("level") == "warning" and "Swap usage is sustained or non-trivial" in alert.get("message", "") for alert in alerts),
-        "non-trivial swap use must emit a warning alert.",
+        not any(alert.get("id") == "cache.image_storage_age" for alert in old_bounded_cache_alerts),
+        "cache age alone must remain informational while storage stays within its capacity bound.",
     )
 
     oom_alerts = COLLECTOR_MODULE.alert_state(

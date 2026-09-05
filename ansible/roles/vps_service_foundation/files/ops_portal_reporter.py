@@ -76,7 +76,7 @@ def email_config() -> dict[str, Any]:
         "starttls": env_bool("NUTSNEWS_SMTP_STARTTLS", True),
         "sender": os.environ.get("NUTSNEWS_EMAIL_FROM", "").strip(),
         "recipients": env_list("NUTSNEWS_EMAIL_TO"),
-        "cooldown_seconds": env_int("NUTSNEWS_ALERT_COOLDOWN_SECONDS", 21600),
+        "cooldown_seconds": env_int("NUTSNEWS_ALERT_COOLDOWN_SECONDS", 86400),
         "subject_prefix": os.environ.get("NUTSNEWS_REPORT_SUBJECT_PREFIX", "NutsNews VPS").strip()
         or "NutsNews VPS",
         "auth_complete": not username or bool(password),

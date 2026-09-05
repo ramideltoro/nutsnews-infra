@@ -1235,7 +1235,7 @@ vps_service_foundation_email_smtp_password: ""
 vps_service_foundation_email_smtp_starttls: true
 vps_service_foundation_email_from: ""
 vps_service_foundation_email_to: ""
-vps_service_foundation_email_alert_cooldown_seconds: 21600
+vps_service_foundation_email_alert_cooldown_seconds: 86400
 vps_service_foundation_email_report_subject_prefix: NutsNews VPS
 
 vps_service_foundation_public_ipv4: "{{ vps_baseline_ipv4 | default('65.75.202.112') }}"
