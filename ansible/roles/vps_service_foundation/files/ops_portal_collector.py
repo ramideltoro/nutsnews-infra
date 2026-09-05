@@ -851,7 +851,7 @@ def swap_state(mem: dict[str, int]) -> dict[str, Any]:
     else:
         usage_state = "minor"
 
-    warning = usage_state in {"non_trivial", "warning", "critical"}
+    warning = usage_state in {"warning", "critical"}
     return {
         "available": True,
         "status": "enabled",
@@ -864,7 +864,7 @@ def swap_state(mem: dict[str, int]) -> dict[str, Any]:
         "thresholds": thresholds,
         "history": history,
         "detail": (
-            "Swap usage is sustained or non-trivial; inspect top memory processes and recent deploy activity."
+            "Swap usage crossed a sustained or percentage threshold; inspect top memory processes and recent deploy activity."
             if warning
             else "Swap is available as a zram fallback and current usage is low."
         ),
@@ -2283,9 +2283,6 @@ def alert_state(
     if isinstance(image_cache, dict) and image_cache.get("available"):
         if safe_int(image_cache.get("bytes"), 0) > safe_int(image_cache.get("max_bytes"), 0):
             alerts.append(alert_item("cache.image_storage_bytes", "warning", "Next.js optimized-image storage exceeds its 10 GB bound."))
-        oldest_age = image_cache.get("oldest_file_age_seconds")
-        if isinstance(oldest_age, int) and oldest_age > safe_int(image_cache.get("max_age_seconds"), 0):
-            alerts.append(alert_item("cache.image_storage_age", "warning", "Next.js optimized-image storage contains files older than 30 days."))
     swap_usage_state = str(swap.get("usage_state") or "unknown")
     if swap_usage_state == "critical":
         alerts.append(alert_item("resource.swap_usage", "critical", "Swap usage is above the critical threshold."))

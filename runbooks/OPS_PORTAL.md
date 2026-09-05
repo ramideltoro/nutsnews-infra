@@ -119,7 +119,7 @@ Add these optional secrets to the existing `production-vps` GitHub Environment b
 - `NUTSNEWS_SMTP_STARTTLS`: `true` unless the provider explicitly says otherwise
 - `NUTSNEWS_EMAIL_FROM`: sender address
 - `NUTSNEWS_EMAIL_TO`: comma-separated recipient list
-- `NUTSNEWS_ALERT_COOLDOWN_SECONDS`: duplicate-alert cooldown, default `21600`
+- `NUTSNEWS_ALERT_COOLDOWN_SECONDS`: duplicate-alert cooldown, default `86400` (24 hours)
 - `NUTSNEWS_REPORT_SUBJECT_PREFIX`: optional subject prefix, default `NutsNews VPS`
 
 Do not commit SMTP values. Do not paste them into committed vars files. The protected apply workflow passes them as runtime Ansible extra vars, and the env file task is `no_log` so diffs do not leak them.

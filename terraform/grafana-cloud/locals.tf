@@ -719,15 +719,15 @@ locals {
     }
     health_audit_success_missed = {
       uid           = "nn-health-audit-success-missed"
-      title         = "NutsNews scheduled health audit success overdue"
+      title         = "NutsNews scheduled health audit run overdue"
       datasource    = "prometheus"
-      expr          = "((max(nutsnews_email_reporting_last_report_success_age_seconds{service_namespace=\"nutsnews\",deployment_environment=\"${var.deployment_environment}\"}) > bool 108000) or vector(0)) + ((max(nutsnews_email_reporting_last_report_success_age_seconds{service_namespace=\"nutsnews\",deployment_environment=\"${var.deployment_environment}\"}) < bool 0) or vector(0)) + ((1 - max(nutsnews_email_reporting_status_available{service_namespace=\"nutsnews\",deployment_environment=\"${var.deployment_environment}\"})) or max(absent(nutsnews_email_reporting_status_available{service_namespace=\"nutsnews\",deployment_environment=\"${var.deployment_environment}\"})) or vector(0))"
+      expr          = "((max(nutsnews_email_reporting_last_report_run_age_seconds{service_namespace=\"nutsnews\",deployment_environment=\"${var.deployment_environment}\"}) > bool 108000) or vector(0)) + ((max(nutsnews_email_reporting_last_report_run_age_seconds{service_namespace=\"nutsnews\",deployment_environment=\"${var.deployment_environment}\"}) < bool 0) or vector(0)) + ((1 - max(nutsnews_email_reporting_status_available{service_namespace=\"nutsnews\",deployment_environment=\"${var.deployment_environment}\"})) or max(absent(nutsnews_email_reporting_status_available{service_namespace=\"nutsnews\",deployment_environment=\"${var.deployment_environment}\"})) or vector(0))"
       threshold     = 0
       for_period    = "15m"
       severity      = "major"
       service       = "health-audit"
       no_data_state = "Alerting"
-      description   = "No critical-free scheduled health-audit success has been published within the standardized 30-hour cadence."
+      description   = "The scheduled health-audit has not run within the standardized 30-hour cadence, or its reporting telemetry is unavailable. Non-successful completed runs are reported by the separate health-audit outcome rule."
     }
     backup_verification_overdue = {
       uid           = "nn-backup-verification-overdue"

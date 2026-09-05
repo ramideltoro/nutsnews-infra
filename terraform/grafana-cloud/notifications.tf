@@ -24,19 +24,33 @@ resource "grafana_notification_policy" "operations_email" {
   group_by        = ["alertname", "service", "deployment_environment"]
   group_wait      = "5m"
   group_interval  = "15m"
-  repeat_interval = "6h"
+  repeat_interval = "24h"
 
   policy {
     contact_point   = grafana_contact_point.operations_email.name
     group_by        = ["alertname", "service", "deployment_environment"]
     group_wait      = "30s"
     group_interval  = "5m"
-    repeat_interval = "1h"
+    repeat_interval = "4h"
 
     matcher {
       label = "severity"
       match = "=~"
-      value = "critical|major"
+      value = "critical"
+    }
+  }
+
+  policy {
+    contact_point   = grafana_contact_point.operations_email.name
+    group_by        = ["alertname", "service", "deployment_environment"]
+    group_wait      = "2m"
+    group_interval  = "10m"
+    repeat_interval = "12h"
+
+    matcher {
+      label = "severity"
+      match = "=~"
+      value = "major"
     }
   }
 
@@ -45,7 +59,7 @@ resource "grafana_notification_policy" "operations_email" {
     group_by        = ["alertname", "service", "deployment_environment"]
     group_wait      = "5m"
     group_interval  = "15m"
-    repeat_interval = "6h"
+    repeat_interval = "24h"
 
     matcher {
       label = "severity"
