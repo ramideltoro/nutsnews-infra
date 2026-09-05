@@ -1083,7 +1083,7 @@ jobs:
               "vps_service_foundation_email_smtp_starttls": truthy("NUTSNEWS_SMTP_STARTTLS") if os.environ.get("NUTSNEWS_SMTP_STARTTLS", "").strip() else True,
               "vps_service_foundation_email_from": os.environ.get("NUTSNEWS_EMAIL_FROM", ""),
               "vps_service_foundation_email_to": os.environ.get("NUTSNEWS_EMAIL_TO", ""),
-              "vps_service_foundation_email_alert_cooldown_seconds": env_int("NUTSNEWS_ALERT_COOLDOWN_SECONDS", 21600),
+              "vps_service_foundation_email_alert_cooldown_seconds": env_int("NUTSNEWS_ALERT_COOLDOWN_SECONDS", 86400),
               "vps_service_foundation_email_report_subject_prefix": os.environ.get(
                   "NUTSNEWS_REPORT_SUBJECT_PREFIX",
                   "NutsNews VPS",
