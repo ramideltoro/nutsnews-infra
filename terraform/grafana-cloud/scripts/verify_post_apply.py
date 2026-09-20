@@ -50,6 +50,22 @@ EXPECTED_SYNTHETIC_FREQUENCY_MS = {
     "vercel_secondary_readiness": 600_000,
     "vps_readiness": 600_000,
 }
+# Independently owned Raspberry check, observed and approved in the shared account.
+# This grants no management authority and does not exempt it from quota accounting.
+SHARED_RASPBERRY_CHECK = {
+    "id": 5276,
+    "job": "raspberry-independent-https",
+    "target": "https://raspberry.ramideltoro.com/api/v1/health",
+    "frequency": 600_000,
+    "timeout": 5_000,
+    "probes": [12],
+    "labels": [{"name": "project", "value": "raspberry"}],
+    "settings": {"http": {
+        "ipVersion": "V4", "method": "GET", "noFollowRedirects": True,
+        "failIfSSL": False, "failIfNotSSL": True, "validStatusCodes": [200],
+        "failIfBodyNotMatchesRegexp": ['"status":"ok"'],
+    }},
+}
 SYNTHETIC_API_EXECUTION_CEILING_MONTHLY = 90_000
 SYNTHETIC_MONTH_MILLISECONDS = 30 * 24 * 60 * 60 * 1000
 EXPECTED_SLOS = {
@@ -2662,9 +2678,16 @@ def remote_synthetic_inventory(
             enabled_details.append(detail)
 
     enabled_jobs = [str(item.get("job", "")) for item in enabled_api_details]
-    if len(enabled_details) != 5 or len(enabled_api_details) != 5 or set(enabled_jobs) != EXPECTED_SYNTHETIC_CHECKS:
+    shared = [item for item in enabled_api_details
+              if item.get("id") == SHARED_RASPBERRY_CHECK["id"]
+              and item.get("job") == SHARED_RASPBERRY_CHECK["job"]]
+    for item in shared:
+        if any(item.get(key) != value for key, value in SHARED_RASPBERRY_CHECK.items()):
+            errors.append("Independently owned Raspberry synthetic check contract drifted")
+    owned_jobs = [str(item.get("job", "")) for item in enabled_api_details if item not in shared]
+    if len(enabled_details) != 5 + len(shared) or len(enabled_api_details) != 5 + len(shared) or set(owned_jobs) != EXPECTED_SYNTHETIC_CHECKS:
         errors.append(
-            "Enabled Synthetic Monitoring inventory must contain exactly the five approved HTTP API checks and no browser checks"
+            "Enabled Synthetic Monitoring inventory must contain exactly the five approved NutsNews HTTP API checks, only the registered independent Raspberry check if present, and no browser checks"
         )
     if len(enabled_jobs) != len(set(enabled_jobs)):
         errors.append("Enabled Synthetic Monitoring API inventory contains duplicate jobs")

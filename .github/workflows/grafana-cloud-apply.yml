@@ -9,6 +9,12 @@ on:
       - ".github/workflows/production-vps-environment-policy-audit.yml"
       - "scripts/audit_production_vps_environment_policy.py"
       - "terraform/grafana-cloud/**"
+      # Read-only audit repairs do not reconcile unrelated Cloud resources.
+      - "!terraform/grafana-cloud/scripts/verify_post_apply.py"
+      - "!terraform/grafana-cloud/tests/test_verify_post_apply.py"
+      # Read-only audit repairs do not reconcile unrelated Cloud resources.
+      - "!terraform/grafana-cloud/scripts/verify_post_apply.py"
+      - "!terraform/grafana-cloud/tests/test_verify_post_apply.py"
   workflow_dispatch:
 
 permissions:

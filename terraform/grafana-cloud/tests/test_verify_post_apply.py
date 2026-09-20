@@ -1662,6 +1662,38 @@ class VerifyPostApplyTests(unittest.TestCase):
         self.assertFalse(errors)
         self.assertEqual(inventory["monthly_api_execution_estimate"], 69_120)
 
+    def test_shared_raspberry_inventory_preserves_owned_checks_and_quota(self) -> None:
+        checks = [remote_synthetic_check(job, index + 100)
+                  for index, job in enumerate(sorted(MODULE.EXPECTED_SYNTHETIC_CHECKS))]
+        managed = {check["job"]: check["id"] for check in checks}
+        probes = {"a": {"id": 11, "public": True}, "b": {"id": 22, "public": True}}
+        raspberry = json.loads(json.dumps(MODULE.SHARED_RASPBERRY_CHECK))
+        raspberry["enabled"] = True
+        errors = []
+        inventory = MODULE.remote_synthetic_inventory(FakeSyntheticInventoryClient(checks + [raspberry]), managed, probes, None, errors)
+        self.assertFalse(errors)
+        self.assertEqual(inventory["enabled_api_check_count"], 6)
+        self.assertEqual(inventory["monthly_api_execution_estimate"], 73440)
+        self.assertEqual(inventory["monthly_api_execution_ceiling"], 90000)
+        self.assertNotIn("target", json.dumps(inventory))
+        mutations = {"id": 5277, "job": "other", "target": "https://other.invalid/", "frequency": 1000,
+                     "timeout": 9000, "probes": [12, 17], "labels": [], "settings": {"browser": {}}}
+        for key, value in mutations.items():
+            with self.subTest(key=key):
+                changed = json.loads(json.dumps(raspberry))
+                changed[key] = value
+                errors = []
+                MODULE.remote_synthetic_inventory(FakeSyntheticInventoryClient(checks + [changed]), managed, probes, None, errors)
+                self.assertTrue(errors)
+        changed = json.loads(json.dumps(raspberry))
+        changed["settings"]["http"]["failIfNotSSL"] = False
+        errors = []
+        MODULE.remote_synthetic_inventory(FakeSyntheticInventoryClient(checks + [changed]), managed, probes, None, errors)
+        self.assertTrue(errors)
+        errors = []
+        MODULE.remote_synthetic_inventory(FakeSyntheticInventoryClient(checks[:-1] + [raspberry]), managed, probes, None, errors)
+        self.assertTrue(errors)
+
     def test_synthetic_datasource_proxy_is_get_only_and_path_bounded(self) -> None:
         client = MODULE.SyntheticMonitoringProxyClient(
             "https://kindcantaloupe2036.grafana.net", "token", "datasource_uid-1"
