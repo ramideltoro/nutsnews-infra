@@ -8,7 +8,6 @@ on:
       - nutsnews-production-vps-release
 
 permissions:
-  actions: write
   contents: read
 
 concurrency:
@@ -21,6 +20,9 @@ jobs:
     name: Validate candidate and run protected VPS apply
     runs-on: ubuntu-latest
     timeout-minutes: 180
+    permissions:
+      actions: write
+      contents: read
 
     steps:
       - name: Checkout reviewed infrastructure automation

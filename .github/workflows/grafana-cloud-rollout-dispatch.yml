@@ -60,7 +60,6 @@ on:
           - vps_readiness
 
 permissions:
-  actions: write  # Dispatch the fixed reviewed target workflow as github-actions[bot].
   contents: read
 
 concurrency:
@@ -74,6 +73,9 @@ jobs:
     if: ${{ github.repository == 'ramideltoro/nutsnews-infra' && github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    permissions:
+      actions: write
+      contents: read
 
     steps:
       - name: Checkout reviewed dispatcher
